@@ -258,7 +258,7 @@ export function MagnetBuilder() {
         </div>
 
         {/* Right column: Live preview sidebar (desktop only) */}
-        <aside className="hidden lg:block" aria-label="Vista previa en vivo">
+        <aside className="hidden lg:block lg:self-stretch" aria-label="Vista previa en vivo">
           <LivePreviewSidebar
             currentStepId={flow.currentStepId}
             selectedGrid={flow.selectedGrid}
@@ -393,7 +393,7 @@ function LivePreviewSidebar({
   const t = useTranslations('builder');
 
   return (
-    <div className="sticky top-[calc(var(--header-height)+12rem)] rounded-2xl bg-white p-6 shadow-sm border border-light-gray">
+    <div className="sticky top-[calc(var(--header-height)+1.5rem)] rounded-2xl bg-white p-6 shadow-sm border border-light-gray">
       <h3 className="mb-4 text-center font-serif text-lg font-semibold text-charcoal">
         {t('stepPreview')}
       </h3>
