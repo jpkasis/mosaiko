@@ -59,6 +59,7 @@ export const CATEGORY_LAYOUT_OVERRIDES: Partial<Record<string, CategoryLayoutOve
   'arte:9': { rows: 3, cols: 4, aspect: 4 / 2 },
   'spotify:6': { rows: 3, cols: 2, aspect: 1 },   // photo area is 2×2 (top 4 tiles)
   'ghibli:6': { rows: 3, cols: 2, aspect: 2 / 3 },   // portrait crop — full 2×3 mosaic with photo strip in bottom tiles
+  'polaroid:4': { rows: 2, cols: 2, aspect: 180 / 160 }, // crop matches visible photo opening inside Polaroid frame
 };
 
 /**

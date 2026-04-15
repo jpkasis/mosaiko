@@ -113,6 +113,41 @@ export function MagnetPreview({
           return;
         }
 
+        // Polaroid: custom split proportional to transparent area heights (89.4% top vs 70.4% bottom)
+        if (categoryType === 'polaroid') {
+          const tileSize = 200;
+          const fullCanvas = getCroppedCanvas(image, cropArea, tileSize * 2, tileSize * 2, 0);
+          const fullCtx = fullCanvas.getContext('2d')!;
+          const vSplit = 0.5596; // 89.4 / (89.4 + 70.4) — top gets 55.96% of image height
+          const topH = Math.round(tileSize * 2 * vSplit);
+          const botH = tileSize * 2 - topH;
+          const halfW = tileSize;
+
+          const regions = [
+            { sx: 0, sy: 0, sw: halfW, sh: topH },          // tile 1: top-left
+            { sx: halfW, sy: 0, sw: halfW, sh: topH },      // tile 2: top-right
+            { sx: 0, sy: topH, sw: halfW, sh: botH },       // tile 3: bottom-left
+            { sx: halfW, sy: topH, sw: halfW, sh: botH },   // tile 4: bottom-right
+          ];
+
+          const urls: string[] = [];
+          for (const r of regions) {
+            const tc = document.createElement('canvas');
+            tc.width = r.sw;
+            tc.height = r.sh;
+            const ctx = tc.getContext('2d')!;
+            ctx.drawImage(fullCanvas, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+            urls.push(tc.toDataURL('image/jpeg', 0.9));
+            tc.width = 0;
+            tc.height = 0;
+          }
+          fullCanvas.width = 0;
+          fullCanvas.height = 0;
+          if (cancelled) return;
+          setTiles(urls);
+          return;
+        }
+
         // For categories with special tiles, we only split the photo portion
         // Ghibli: split full 3×2 grid (6 tiles) so photo extends into bottom tiles' strip
         const photoRows = categoryType === 'spotify' || categoryType === 'arte' ? 2
@@ -557,16 +592,29 @@ function PhotoTile({
     );
   }
 
-  // Polaroid: tile fills full area, frame PNG overlays on top
+  // Polaroid: photo inside transparent cutout + PNG frame on top (same pattern as Studio)
   if (categoryType === 'polaroid') {
     const tileNumber = index + 1;
+    const insets: Record<number, { left: string; top: string; width: string; height: string }> = {
+      1: { left: '9.9%', top: '10.4%', width: '89.9%', height: '89.4%' },
+      2: { left: '0%', top: '10.4%', width: '89.9%', height: '89.4%' },
+      3: { left: '9.9%', top: '0%', width: '89.9%', height: '70.4%' },
+      4: { left: '0%', top: '0%', width: '89.9%', height: '70.4%' },
+    };
+    const area = insets[tileNumber];
     return (
       <div className="relative overflow-hidden" style={{ aspectRatio: '1' }}>
-        {imgElement}
+        <img
+          src={tileSrc}
+          alt={`Pieza ${index + 1} de ${totalTiles}`}
+          className="absolute"
+          style={{ left: area.left, top: area.top, width: area.width, height: area.height }}
+          draggable={false}
+        />
         <img
           src={`/templates/polaroid/${tileNumber}.png`}
           alt=""
-          className="pointer-events-none absolute inset-0 h-full w-full"
+          className="pointer-events-none relative z-10 h-full w-full"
           draggable={false}
         />
         {tileNumber === 4 && (
