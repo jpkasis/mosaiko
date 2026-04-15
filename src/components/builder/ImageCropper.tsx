@@ -58,7 +58,12 @@ const FIT_MODE_OPTIONS: FitModeOption[] = [
 
 // ─── Grid gradient helper ───────────────────────────────────────────────────
 
-function buildGridGradientStyle(rows: number, cols: number, dimStartPct?: number): React.CSSProperties {
+function buildGridGradientStyle(
+  rows: number,
+  cols: number,
+  dimStartPct?: number,
+  borderInsets?: { top: number; bottom: number; left: number; right: number },
+): React.CSSProperties {
   const gradients: string[] = [];
 
   for (let i = 1; i < cols; i++) {
@@ -82,6 +87,17 @@ function buildGridGradientStyle(rows: number, cols: number, dimStartPct?: number
     );
   }
 
+  // Dim border areas on all 4 edges (e.g. Polaroid frame borders)
+  if (borderInsets) {
+    const dim = 'rgba(237,232,224,0.7)';
+    const bottomStart = 100 - borderInsets.bottom;
+    const rightStart = 100 - borderInsets.right;
+    gradients.push(
+      `linear-gradient(to bottom, ${dim} 0%, ${dim} ${borderInsets.top}%, transparent ${borderInsets.top}%, transparent ${bottomStart}%, ${dim} ${bottomStart}%, ${dim} 100%)`,
+      `linear-gradient(to right, ${dim} 0%, ${dim} ${borderInsets.left}%, transparent ${borderInsets.left}%, transparent ${rightStart}%, ${dim} ${rightStart}%, ${dim} 100%)`,
+    );
+  }
+
   if (gradients.length === 0) return {};
   return { backgroundImage: gradients.join(', ') };
 }
@@ -100,6 +116,8 @@ interface ImageCropperProps {
   overlayCols?: number;
   /** Dim crop area below this percentage (e.g. 70 = bottom 30% dimmed for text panels). */
   overlayDimStartPct?: number;
+  /** Dim all 4 edges to show frame borders (e.g. Polaroid). Values are % of crop area. */
+  overlayBorderInsets?: { top: number; bottom: number; left: number; right: number };
   /** Layout rotation controls */
   onLayoutRotate?: () => void;
   canRotateLayout?: boolean;
@@ -114,6 +132,7 @@ export function ImageCropper({
   overlayRows,
   overlayCols,
   overlayDimStartPct,
+  overlayBorderInsets,
   onLayoutRotate,
   canRotateLayout = false,
   layoutRotated = false,
@@ -134,8 +153,8 @@ export function ImageCropper({
 
   // Grid overlay as CSS gradients — renders ON the crop area, not the container
   const gridOverlayStyle = useMemo(
-    () => buildGridGradientStyle(overlayRows ?? gridConfig.rows, overlayCols ?? gridConfig.cols, overlayDimStartPct),
-    [gridConfig.rows, gridConfig.cols, overlayRows, overlayCols, overlayDimStartPct],
+    () => buildGridGradientStyle(overlayRows ?? gridConfig.rows, overlayCols ?? gridConfig.cols, overlayDimStartPct, overlayBorderInsets),
+    [gridConfig.rows, gridConfig.cols, overlayRows, overlayCols, overlayDimStartPct, overlayBorderInsets],
   );
 
   // Load image dimensions for stretch mode

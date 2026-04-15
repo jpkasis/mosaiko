@@ -224,6 +224,7 @@ export function MagnetBuilder() {
                     }
                     overlayCols={flow.selectedCategory === 'arte' ? 4 : undefined}
                     overlayDimStartPct={flow.selectedCategory === 'ghibli' ? 70 : undefined}
+                    overlayBorderInsets={flow.selectedCategory === 'polaroid' ? { top: 5.2, bottom: 14.8, left: 5, right: 5 } : undefined}
                     onLayoutRotate={flow.handleLayoutRotate}
                     canRotateLayout={flow.canRotateLayout}
                     layoutRotated={flow.layoutRotated}
