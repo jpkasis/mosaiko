@@ -346,7 +346,7 @@ export function MagnetPreview({
               style={{
                 gridTemplateColumns: `repeat(${gridConfig.cols}, 1fr)`,
                 gridTemplateRows: `repeat(${gridConfig.rows}, 1fr)`,
-                gap: categoryType === 'polaroid' ? '0px' : '4px',
+                gap: '4px',
                 maxWidth: `${gridConfig.cols * 120}px`,
               }}
             >
@@ -603,10 +603,10 @@ function PhotoTile({
   if (categoryType === 'polaroid') {
     const tileNumber = index + 1;
     const insets: Record<number, { left: string; top: string; width: string; height: string }> = {
-      1: { left: '9.9%', top: '10.4%', width: '89.9%', height: '89.4%' },
-      2: { left: '0%', top: '10.4%', width: '89.9%', height: '89.4%' },
-      3: { left: '9.9%', top: '0%', width: '89.9%', height: '70.4%' },
-      4: { left: '0%', top: '0%', width: '89.9%', height: '70.4%' },
+      1: { left: '9.92%', top: '10.41%', width: '90.08%', height: '89.59%' },
+      2: { left: '0%', top: '10.41%', width: '90.08%', height: '89.59%' },
+      3: { left: '9.92%', top: '0%', width: '90.08%', height: '70.52%' },
+      4: { left: '0%', top: '0%', width: '90.08%', height: '70.52%' },
     };
     const area = insets[tileNumber];
     return (
