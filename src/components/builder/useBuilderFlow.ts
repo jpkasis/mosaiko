@@ -3,7 +3,7 @@ import { GRID_CONFIGS, getEffectiveGridConfig, CATEGORY_LAYOUT_OVERRIDES, type G
 import {
   CATEGORY_REGISTRY,
   type CategoryType,
-  type FloresTheme,
+  type TonosIntensity,
 } from '@/lib/customization-types';
 import type { CropArea } from '@/lib/canvas-utils';
 
@@ -31,6 +31,18 @@ export const STEP_I18N_MAP: Record<StepId, string> = {
   preview: 'stepPreview',
 };
 
+// ─── Tonos state (3 images) ─────────────────────────────────────────────────
+
+export type TonosIndex = 0 | 1 | 2;
+
+export interface TonosState {
+  fileRefs: React.RefObject<[File | null, File | null, File | null]>;
+  imageSrcs: [string | null, string | null, string | null];
+  cropAreas: [CropArea | null, CropArea | null, CropArea | null];
+  liveCropAreas: [CropArea | null, CropArea | null, CropArea | null];
+  intensity: TonosIntensity;
+}
+
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
 export interface BuilderFlowState {
@@ -52,27 +64,34 @@ export interface BuilderFlowState {
   gridConfig: GridConfig | null;
   handleGridSelect: (grid: GridSize) => void;
 
-  // Image
+  // Image (single-image categories)
   imageSrc: string | null;
   imageFileRef: React.RefObject<File | null>;
   handleImageSelected: (file: File) => void;
 
-  // Crop
+  // Crop (single-image)
   cropAreaPixels: CropArea | null;
   liveCropArea: CropArea | null;
   handleCropComplete: (croppedArea: CropArea, croppedAreaPixels: CropArea) => void;
   handleCropChange: (croppedAreaPixels: CropArea) => void;
+
+  // Tonos (multi-image)
+  tonos: TonosState;
+  handleTonosImageSelected: (index: TonosIndex, file: File) => void;
+  handleTonosImagesSelected: (files: [File, File, File]) => void;
+  handleTonosCropChange: (index: TonosIndex, cropAreaPixels: CropArea) => void;
+  handleTonosCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
+  setTonosIntensity: (intensity: TonosIntensity) => void;
+  advanceFromTonosCrop: () => void;
 
   // Layout rotation
   layoutRotated: boolean;
   canRotateLayout: boolean;
   handleLayoutRotate: () => void;
 
-  // Customization
+  // Customization (text fields only — themes removed)
   customizationValues: Record<string, string>;
-  selectedTheme: FloresTheme | null;
   setCustomizationValue: (field: string, value: string) => void;
-  setSelectedTheme: (theme: FloresTheme) => void;
   handleCustomizeComplete: () => void;
 
   // Upload state
@@ -90,10 +109,13 @@ export interface BuilderFlowOptions {
   initialGrid?: GridSize | null;
 }
 
+function emptyTuple<T>(value: T): [T, T, T] {
+  return [value, value, value];
+}
+
 export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   const { initialCategory = null, initialGrid = null } = options ?? {};
 
-  // Compute initial state from URL params
   const initState = useMemo(() => {
     if (!initialCategory || !CATEGORY_REGISTRY[initialCategory]) {
       return { category: null, grid: null, steps: DEFAULT_STEPS, startStep: 'category' as StepId };
@@ -102,7 +124,6 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     const meta = CATEGORY_REGISTRY[initialCategory];
     const steps = getStepsForCategory(initialCategory);
 
-    // Determine grid: use provided if valid, else auto-set for single-grid categories
     let grid: GridSize | null = null;
     if (initialGrid && meta.allowedGridSizes.includes(initialGrid)) {
       grid = initialGrid;
@@ -110,19 +131,18 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
       grid = meta.allowedGridSizes[0];
     }
 
-    // Start at the first unfilled step
     let startStep: StepId = 'category';
     if (grid) {
-      startStep = 'upload'; // category + grid resolved → go to upload
+      startStep = 'upload';
     } else if (steps.includes('grid')) {
-      startStep = 'grid'; // category resolved, but grid needed
+      startStep = 'grid';
     } else {
       startStep = 'upload';
     }
 
     return { category: initialCategory, grid, steps, startStep };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only compute once on mount
+  }, []);
 
   // ─── Step state ───
   const [stepSequence, setStepSequence] = useState<StepId[]>(initState.steps);
@@ -135,24 +155,48 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   // ─── Grid ───
   const [selectedGrid, setSelectedGrid] = useState<GridSize | null>(initState.grid);
 
-  // ─── Image ───
+  // ─── Single image ───
   const [, setImageFile] = useState<File | null>(null);
   const imageFileRef = useRef<File | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
 
-  // ─── Crop ───
+  // ─── Single crop ───
   const [cropAreaPixels, setCropAreaPixels] = useState<CropArea | null>(null);
   const [liveCropArea, setLiveCropArea] = useState<CropArea | null>(null);
+
+  // ─── Tonos multi-image ───
+  const tonosFileRefs = useRef<[File | null, File | null, File | null]>([null, null, null]);
+  const [tonosImageSrcs, setTonosImageSrcs] = useState<[string | null, string | null, string | null]>(
+    emptyTuple<string | null>(null),
+  );
+  const [tonosCropAreas, setTonosCropAreas] = useState<[CropArea | null, CropArea | null, CropArea | null]>(
+    emptyTuple<CropArea | null>(null),
+  );
+  const [tonosLiveCropAreas, setTonosLiveCropAreas] = useState<[CropArea | null, CropArea | null, CropArea | null]>(
+    emptyTuple<CropArea | null>(null),
+  );
+  const [tonosIntensity, setTonosIntensityState] = useState<TonosIntensity>('medium');
 
   // ─── Layout rotation ───
   const [layoutRotated, setLayoutRotated] = useState(false);
 
   // ─── Customization ───
   const [customizationValues, setCustomizationValues] = useState<Record<string, string>>({});
-  const [selectedTheme, setSelectedTheme] = useState<FloresTheme | null>(null);
 
   // ─── Upload ───
   const [isUploading, setIsUploading] = useState(false);
+
+  // ─── Stable Tonos view ───
+  const tonos = useMemo<TonosState>(
+    () => ({
+      fileRefs: tonosFileRefs,
+      imageSrcs: tonosImageSrcs,
+      cropAreas: tonosCropAreas,
+      liveCropAreas: tonosLiveCropAreas,
+      intensity: tonosIntensity,
+    }),
+    [tonosImageSrcs, tonosCropAreas, tonosLiveCropAreas, tonosIntensity],
+  );
 
   // ─── Derived ───
   const baseGridConfig: GridConfig | null = useMemo(
@@ -160,7 +204,6 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     [selectedGrid, selectedCategory],
   );
 
-  // Apply layout rotation: swap rows/cols and invert aspect
   const gridConfig: GridConfig | null = useMemo(() => {
     if (!baseGridConfig || !layoutRotated) return baseGridConfig;
     return {
@@ -171,9 +214,9 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     };
   }, [baseGridConfig, layoutRotated]);
 
-  // Can rotate only when grid is non-square AND no category layout override
   const canRotateLayout = useMemo(() => {
     if (!baseGridConfig || !selectedCategory) return false;
+    if (selectedCategory === 'tonos') return false;
     const hasOverride = !!CATEGORY_LAYOUT_OVERRIDES[`${selectedCategory}:${selectedGrid}`];
     return baseGridConfig.rows !== baseGridConfig.cols && !hasOverride;
   }, [baseGridConfig, selectedCategory, selectedGrid]);
@@ -211,6 +254,25 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     }
   }, [stepSequence, currentStepId]);
 
+  // ─── Helpers to reset state ───
+  const clearSingleImage = useCallback(() => {
+    if (imageSrc) URL.revokeObjectURL(imageSrc);
+    setImageFile(null);
+    imageFileRef.current = null;
+    setImageSrc(null);
+    setCropAreaPixels(null);
+    setLiveCropArea(null);
+  }, [imageSrc]);
+
+  const clearTonos = useCallback(() => {
+    tonosImageSrcs.forEach((s) => { if (s) URL.revokeObjectURL(s); });
+    tonosFileRefs.current = [null, null, null];
+    setTonosImageSrcs(emptyTuple<string | null>(null));
+    setTonosCropAreas(emptyTuple<CropArea | null>(null));
+    setTonosLiveCropAreas(emptyTuple<CropArea | null>(null));
+    setTonosIntensityState('medium');
+  }, [tonosImageSrcs]);
+
   // ─── Category select ───
   const handleCategorySelect = useCallback((cat: CategoryType) => {
     setSelectedCategory(cat);
@@ -219,32 +281,23 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     const newSteps = getStepsForCategory(cat);
     setStepSequence(newSteps);
 
-    // Auto-set grid for fixed-grid categories
     if (meta.allowedGridSizes.length === 1) {
       setSelectedGrid(meta.allowedGridSizes[0]);
     } else {
       setSelectedGrid(null);
     }
 
-    // Reset downstream state — clear previous image/crop when switching categories
-    if (imageSrc) URL.revokeObjectURL(imageSrc);
-    setImageFile(null);
-    imageFileRef.current = null;
-    setImageSrc(null);
-    setCropAreaPixels(null);
-    setLiveCropArea(null);
+    clearSingleImage();
+    clearTonos();
     setCustomizationValues({});
-    // Default flores theme to 'calido' so filters are always applied
-    setSelectedTheme(cat === 'flores' ? ('calido' as FloresTheme) : null);
     setLayoutRotated(false);
 
-    // Auto-advance after selection animation
-    const nextStep = newSteps[1]; // grid or upload
+    const nextStep = newSteps[1];
     setTimeout(() => {
       setDirection(1);
       setCurrentStepId(nextStep);
     }, 250);
-  }, [imageSrc]);
+  }, [clearSingleImage, clearTonos]);
 
   // ─── Grid select ───
   const handleGridSelect = useCallback((grid: GridSize) => {
@@ -252,12 +305,11 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setLayoutRotated(false);
     setTimeout(() => {
       setDirection(1);
-      // Next step after grid is always 'upload'
       setCurrentStepId('upload');
     }, 250);
   }, []);
 
-  // ─── Image selected ───
+  // ─── Single image selected ───
   const handleImageSelected = useCallback((file: File) => {
     setImageFile(file);
     imageFileRef.current = file;
@@ -267,24 +319,64 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setCurrentStepId('crop');
   }, []);
 
-  // ─── Crop handlers ───
+  // ─── Single crop handlers ───
   const handleCropComplete = useCallback(
     (_croppedArea: CropArea, croppedAreaPixels: CropArea) => {
       setCropAreaPixels(croppedAreaPixels);
       setDirection(1);
-      // Next step: customize or preview
       const nextStep = stepSequence.includes('customize') ? 'customize' : 'preview';
       setCurrentStepId(nextStep);
     },
     [stepSequence],
   );
 
-  const handleCropChange = useCallback(
-    (croppedAreaPixels: CropArea) => {
-      setLiveCropArea(croppedAreaPixels);
-    },
-    [],
-  );
+  const handleCropChange = useCallback((croppedAreaPixels: CropArea) => {
+    setLiveCropArea(croppedAreaPixels);
+  }, []);
+
+  // ─── Tonos handlers ───
+  const handleTonosImageSelected = useCallback((index: TonosIndex, file: File) => {
+    const refs = tonosFileRefs.current;
+    refs[index] = file;
+    const url = URL.createObjectURL(file);
+    setTonosImageSrcs((prev) => {
+      const next: [string | null, string | null, string | null] = [...prev];
+      if (next[index]) URL.revokeObjectURL(next[index] as string);
+      next[index] = url;
+      return next;
+    });
+  }, []);
+
+  const handleTonosImagesSelected = useCallback((files: [File, File, File]) => {
+    files.forEach((file, i) => handleTonosImageSelected(i as TonosIndex, file));
+    setDirection(1);
+    setCurrentStepId('crop');
+  }, [handleTonosImageSelected]);
+
+  const handleTonosCropChange = useCallback((index: TonosIndex, cropAreaPixels: CropArea) => {
+    setTonosLiveCropAreas((prev) => {
+      const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+      next[index] = cropAreaPixels;
+      return next;
+    });
+  }, []);
+
+  const handleTonosCropComplete = useCallback((index: TonosIndex, cropAreaPixels: CropArea) => {
+    setTonosCropAreas((prev) => {
+      const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+      next[index] = cropAreaPixels;
+      return next;
+    });
+  }, []);
+
+  const setTonosIntensity = useCallback((intensity: TonosIntensity) => {
+    setTonosIntensityState(intensity);
+  }, []);
+
+  const advanceFromTonosCrop = useCallback(() => {
+    setDirection(1);
+    setCurrentStepId('preview');
+  }, []);
 
   // ─── Layout rotation ───
   const handleLayoutRotate = useCallback(() => {
@@ -303,21 +395,16 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
 
   // ─── Reset ───
   const handleReset = useCallback(() => {
-    if (imageSrc) URL.revokeObjectURL(imageSrc);
+    clearSingleImage();
+    clearTonos();
     setSelectedCategory(null);
     setSelectedGrid(null);
-    setImageFile(null);
-    imageFileRef.current = null;
-    setImageSrc(null);
-    setCropAreaPixels(null);
-    setLiveCropArea(null);
     setLayoutRotated(false);
     setCustomizationValues({});
-    setSelectedTheme(null);
     setStepSequence(DEFAULT_STEPS);
     setDirection(-1);
     setCurrentStepId('category');
-  }, [imageSrc]);
+  }, [clearSingleImage, clearTonos]);
 
   return {
     currentStepId,
@@ -344,14 +431,20 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     handleCropComplete,
     handleCropChange,
 
+    tonos,
+    handleTonosImageSelected,
+    handleTonosImagesSelected,
+    handleTonosCropChange,
+    handleTonosCropComplete,
+    setTonosIntensity,
+    advanceFromTonosCrop,
+
     layoutRotated,
     canRotateLayout,
     handleLayoutRotate,
 
     customizationValues,
-    selectedTheme,
     setCustomizationValue,
-    setSelectedTheme: setSelectedTheme as (theme: FloresTheme) => void,
     handleCustomizeComplete,
 
     isUploading,

@@ -3,4 +3,4 @@ export { ArteInfoPreview } from './ArteInfoPreview';
 export { GhibliPanelPreview } from './GhibliPanelPreview';
 export { SaveTheDateOverlay } from './SaveTheDateOverlay';
 export { PolaroidFrame } from './PolaroidFrame';
-export { FloresTilePreview } from './FloresTilePreview';
+export { TonosTilePreview } from './TonosTilePreview';

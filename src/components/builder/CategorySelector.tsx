@@ -17,7 +17,7 @@ const CATEGORY_ORDER: CategoryType[] = [
   'arte',
   'ghibli',
   'save-the-date',
-  'flores',
+  'tonos',
 ];
 
 const I18N_KEY_MAP: Record<CategoryType, { name: string; desc: string }> = {
@@ -27,7 +27,7 @@ const I18N_KEY_MAP: Record<CategoryType, { name: string; desc: string }> = {
   arte: { name: 'categoryArte', desc: 'categoryArteDesc' },
   ghibli: { name: 'categoryGhibli', desc: 'categoryGhibliDesc' },
   'save-the-date': { name: 'categorySaveTheDate', desc: 'categorySaveTheDateDesc' },
-  flores: { name: 'categoryFlores', desc: 'categoryFloresDesc' },
+  tonos: { name: 'categoryTonos', desc: 'categoryTonosDesc' },
 };
 
 /** SVG icons representing each category's visual style */
@@ -110,7 +110,7 @@ function CategoryIcon({ category, isSelected }: { category: CategoryType; isSele
           <text x="20" y="36" textAnchor="middle" fill="white" fontSize="5" fontFamily="sans-serif" opacity={0.7}>15.06.2026</text>
         </svg>
       );
-    case 'flores':
+    case 'tonos':
       return (
         <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
           <rect x="2" y="2" width="11" height="11" rx="2" fill={fill} opacity={0.5} />

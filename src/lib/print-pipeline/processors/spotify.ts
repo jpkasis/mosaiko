@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { SpotifyCustomization } from '../../customization-types';
-import type { PrintJob, TileOutput } from '../types';
+import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
 
 const TILE = TILE_PRINT_SIZE;
@@ -20,7 +20,7 @@ const MOSAIKO_LOGO_DIR = join(process.cwd(), 'MOSAIKO-logos');
  *   - Top 4 tiles (rows 0-1): 2x2 photo split + PNG frame overlay
  *   - Bottom 2 tiles (row 2): PNG background + text/logo composites
  */
-export async function processSpotify(job: PrintJob): Promise<TileOutput[]> {
+export async function processSpotify(job: SingleImagePrintJob): Promise<TileOutput[]> {
   const customization = job.customization as SpotifyCustomization;
   const { songName, artistName } = customization;
 

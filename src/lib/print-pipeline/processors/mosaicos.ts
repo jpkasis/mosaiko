@@ -1,6 +1,5 @@
 import { GRID_CONFIGS } from '../../grid-config';
-import type { MosaicosCustomization } from '../../customization-types';
-import type { PrintJob, TileOutput } from '../types';
+import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
 
 /**
@@ -8,9 +7,8 @@ import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
  * Crops the image to the user's selection, then splits into grid tiles.
  * No text overlays, no filters, no special tiles.
  */
-export async function processMosaicos(job: PrintJob): Promise<TileOutput[]> {
-  const customization = job.customization as MosaicosCustomization;
-  const grid = GRID_CONFIGS[customization.gridSize];
+export async function processMosaicos(job: SingleImagePrintJob): Promise<TileOutput[]> {
+  const grid = GRID_CONFIGS[job.customization.gridSize];
 
   // Step 1: Crop the image to the user's selected area
   const croppedBuffer = await cropAndResize(

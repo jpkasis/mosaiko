@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { uploadPrintTiles } from '@/lib/storage';
-import type { CategoryCustomization } from '@/lib/customization-types';
+import type {
+  CategoryCustomization,
+  TonosCustomization,
+} from '@/lib/customization-types';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
-import type { ProcessorResult } from '@/lib/print-pipeline/types';
+import type {
+  ProcessorResult,
+  PrintJob,
+  SingleImagePrintJob,
+  TonosPrintJob,
+} from '@/lib/print-pipeline/types';
 
 // ─── Server-side CropArea (mirrors client-side CropArea without DOM deps) ───
 
@@ -16,21 +24,26 @@ interface CropArea {
 
 // ─── Request body shape ─────────────────────────────────────────────────────
 
-interface GeneratePrintRequest {
-  /** URL of the original photo (can be R2 public URL or external) */
+interface SingleImageRequest {
   photoUrl: string;
-  /** Category-specific customization config */
-  customization: CategoryCustomization;
-  /** Crop area selected by the user */
+  customization: Exclude<CategoryCustomization, TonosCustomization>;
   cropArea: CropArea;
-  /** Optional order ID -- generated if not provided */
   orderId?: string;
 }
 
+interface TonosRequest {
+  photoUrls: [string, string, string];
+  customization: TonosCustomization;
+  cropAreas: [CropArea, CropArea, CropArea];
+  orderId?: string;
+}
+
+type GeneratePrintRequest = SingleImageRequest | TonosRequest;
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20 MB max for fetched images
-const FETCH_TIMEOUT_MS = 15_000; // 15 second timeout for photo fetch
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+const FETCH_TIMEOUT_MS = 15_000;
 
 // ─── URL validation (SSRF prevention) ───────────────────────────────────────
 
@@ -63,6 +76,18 @@ function validatePhotoUrl(url: string): void {
   }
 }
 
+function isValidCropArea(c: unknown): c is CropArea {
+  if (!c || typeof c !== 'object') return false;
+  const a = c as Record<string, unknown>;
+  return (
+    typeof a.x === 'number' &&
+    typeof a.y === 'number' &&
+    typeof a.width === 'number' &&
+    typeof a.height === 'number' &&
+    a.x >= 0 && a.y >= 0 && a.width > 0 && a.height > 0
+  );
+}
+
 // ─── OrderId validation ─────────────────────────────────────────────────────
 
 const ORDER_ID_PATTERN = /^[\w-]{1,128}$/;
@@ -75,20 +100,40 @@ function sanitizeOrderId(orderId?: string): string {
   return orderId;
 }
 
+// ─── Fetch helper ───────────────────────────────────────────────────────────
+
+async function fetchPhotoBuffer(url: string): Promise<Buffer> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch photo from URL: ${response.status}`);
+  }
+
+  const contentLength = response.headers.get('content-length');
+  if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_SIZE) {
+    throw new Error(`Photo too large (max ${MAX_IMAGE_SIZE / 1024 / 1024} MB)`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > MAX_IMAGE_SIZE) {
+    throw new Error(`Photo too large (max ${MAX_IMAGE_SIZE / 1024 / 1024} MB)`);
+  }
+  return buffer;
+}
+
 // ─── POST /api/generate-print ───────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as GeneratePrintRequest;
-
-    // ── Validate required fields ────────────────────────────────────────
-
-    if (!body.photoUrl) {
-      return NextResponse.json(
-        { error: 'Missing required field: photoUrl' },
-        { status: 400 },
-      );
-    }
 
     if (!body.customization || !body.customization.categoryType) {
       return NextResponse.json(
@@ -97,52 +142,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate categoryType is a known category
     if (!(body.customization.categoryType in CATEGORY_REGISTRY)) {
       return NextResponse.json(
         { error: `Unknown category type: ${body.customization.categoryType}` },
         { status: 400 },
       );
     }
-
-    if (
-      !body.cropArea ||
-      typeof body.cropArea.x !== 'number' ||
-      typeof body.cropArea.y !== 'number' ||
-      typeof body.cropArea.width !== 'number' ||
-      typeof body.cropArea.height !== 'number'
-    ) {
-      return NextResponse.json(
-        { error: 'Missing or invalid required field: cropArea (x, y, width, height)' },
-        { status: 400 },
-      );
-    }
-
-    // Validate crop area values are non-negative
-    if (
-      body.cropArea.x < 0 ||
-      body.cropArea.y < 0 ||
-      body.cropArea.width <= 0 ||
-      body.cropArea.height <= 0
-    ) {
-      return NextResponse.json(
-        { error: 'cropArea values must be non-negative (width/height must be positive)' },
-        { status: 400 },
-      );
-    }
-
-    // ── Validate photo URL (SSRF prevention) ────────────────────────────
-
-    try {
-      validatePhotoUrl(body.photoUrl);
-    } catch (error) {
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'Invalid photo URL' },
-        { status: 400 },
-      );
-    }
-
-    // ── Validate and sanitize orderId ────────────────────────────────────
 
     let orderId: string;
     try {
@@ -154,61 +159,106 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Fetch the source photo (with timeout + size cap) ────────────────
+    let job: PrintJob;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    if (body.customization.categoryType === 'tonos') {
+      const tonosBody = body as TonosRequest;
 
-    let photoResponse: Response;
-    try {
-      photoResponse = await fetch(body.photoUrl, { signal: controller.signal });
-    } catch (error) {
-      clearTimeout(timeout);
-      const message = error instanceof Error && error.name === 'AbortError'
-        ? 'Photo fetch timed out'
-        : 'Failed to fetch photo';
-      return NextResponse.json({ error: message }, { status: 422 });
-    } finally {
-      clearTimeout(timeout);
+      if (
+        !Array.isArray(tonosBody.photoUrls) ||
+        tonosBody.photoUrls.length !== 3 ||
+        !tonosBody.photoUrls.every((u) => typeof u === 'string' && u.length > 0)
+      ) {
+        return NextResponse.json(
+          { error: 'Tonos requires photoUrls to be an array of exactly 3 strings' },
+          { status: 400 },
+        );
+      }
+
+      if (
+        !Array.isArray(tonosBody.cropAreas) ||
+        tonosBody.cropAreas.length !== 3 ||
+        !tonosBody.cropAreas.every(isValidCropArea)
+      ) {
+        return NextResponse.json(
+          { error: 'Tonos requires cropAreas to be an array of exactly 3 valid crop areas' },
+          { status: 400 },
+        );
+      }
+
+      try {
+        tonosBody.photoUrls.forEach(validatePhotoUrl);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : 'Invalid photo URL' },
+          { status: 400 },
+        );
+      }
+
+      let buffers: Buffer[];
+      try {
+        buffers = await Promise.all(tonosBody.photoUrls.map(fetchPhotoBuffer));
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : 'Failed to fetch photo' },
+          { status: 422 },
+        );
+      }
+
+      const tonosJob: TonosPrintJob = {
+        imageBuffers: [buffers[0], buffers[1], buffers[2]],
+        customization: tonosBody.customization,
+        cropAreas: [tonosBody.cropAreas[0], tonosBody.cropAreas[1], tonosBody.cropAreas[2]],
+        jobId: orderId,
+      };
+      job = tonosJob;
+    } else {
+      const singleBody = body as SingleImageRequest;
+
+      if (!singleBody.photoUrl) {
+        return NextResponse.json(
+          { error: 'Missing required field: photoUrl' },
+          { status: 400 },
+        );
+      }
+
+      if (!isValidCropArea(singleBody.cropArea)) {
+        return NextResponse.json(
+          { error: 'Missing or invalid required field: cropArea (x, y, width, height)' },
+          { status: 400 },
+        );
+      }
+
+      try {
+        validatePhotoUrl(singleBody.photoUrl);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : 'Invalid photo URL' },
+          { status: 400 },
+        );
+      }
+
+      let imageBuffer: Buffer;
+      try {
+        imageBuffer = await fetchPhotoBuffer(singleBody.photoUrl);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : 'Failed to fetch photo' },
+          { status: 422 },
+        );
+      }
+
+      const singleJob: SingleImagePrintJob = {
+        imageBuffer,
+        customization: singleBody.customization,
+        cropArea: singleBody.cropArea,
+        jobId: orderId,
+      };
+      job = singleJob;
     }
-
-    if (!photoResponse.ok) {
-      return NextResponse.json(
-        { error: `Failed to fetch photo from URL: ${photoResponse.status}` },
-        { status: 422 },
-      );
-    }
-
-    // Check Content-Length before buffering
-    const contentLength = photoResponse.headers.get('content-length');
-    if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_SIZE) {
-      return NextResponse.json(
-        { error: `Photo too large (max ${MAX_IMAGE_SIZE / 1024 / 1024} MB)` },
-        { status: 400 },
-      );
-    }
-
-    const imageBuffer = Buffer.from(await photoResponse.arrayBuffer());
-
-    if (imageBuffer.length > MAX_IMAGE_SIZE) {
-      return NextResponse.json(
-        { error: `Photo too large (max ${MAX_IMAGE_SIZE / 1024 / 1024} MB)` },
-        { status: 400 },
-      );
-    }
-
-    // ── Run the print pipeline ──────────────────────────────────────────
 
     const { processPrintJob } = await import('@/lib/print-pipeline');
-
-    const result: ProcessorResult = await processPrintJob({
-      imageBuffer,
-      customization: body.customization,
-      cropArea: body.cropArea,
-      jobId: orderId,
-    });
-
-    // ── Upload tiles to R2 ──────────────────────────────────────────────
+    const result: ProcessorResult = await processPrintJob(job);
 
     const storedTiles = await uploadPrintTiles(
       orderId,
@@ -217,8 +267,6 @@ export async function POST(request: NextRequest) {
         buffer: tile.buffer,
       })),
     );
-
-    // ── Return tile info ────────────────────────────────────────────────
 
     const tiles = storedTiles.map((stored, i) => ({
       index: result.tiles[i].index,
@@ -235,7 +283,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[api/generate-print] Print generation failed:', error);
 
-    // Distinguish known errors from unexpected ones
     if (error instanceof SyntaxError) {
       return NextResponse.json(
         { error: 'Invalid JSON in request body.' },

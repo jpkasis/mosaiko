@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { GRID_CONFIGS, TILE_PRINT_SIZE } from '../../grid-config';
 import type { SaveTheDateCustomization } from '../../customization-types';
-import type { PrintJob, TileOutput } from '../types';
+import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
 
 const TILE = TILE_PRINT_SIZE;
@@ -19,7 +19,7 @@ const TILE = TILE_PRINT_SIZE;
  *  - 3-piece (1x3): tile 2 = date only
  */
 export async function processSaveTheDate(
-  job: PrintJob,
+  job: SingleImagePrintJob,
 ): Promise<TileOutput[]> {
   const customization = job.customization as SaveTheDateCustomization;
   const grid = GRID_CONFIGS[customization.gridSize];

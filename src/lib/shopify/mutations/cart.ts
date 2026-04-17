@@ -109,7 +109,7 @@ export async function createCart(): Promise<Cart> {
  * attributes: [
  *   { key: "preview_image_url", value: "https://..." },
  *   { key: "grid_type", value: "3x3" },
- *   { key: "category", value: "flores" },
+ *   { key: "category", value: "tonos" },
  *   { key: "_crop_config", value: "{...}" },  // underscore = hidden from customer
  * ]
  * ```

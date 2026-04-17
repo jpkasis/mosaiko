@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { GridSize } from './grid-config';
-import type { CategoryType } from './customization-types';
+import type { CategoryType, TonosIntensity } from './customization-types';
 
 export interface CartItem {
   id: string;
@@ -20,9 +20,17 @@ export interface CartItem {
   customizations?: {
     categoryType: CategoryType;
     textFields?: Record<string, string>;
-    filterTheme?: string;
+    // Single-image categories
     photoStorageUrl?: string;
     cropArea?: { x: number; y: number; width: number; height: number };
+    // Tonos (multi-image)
+    photoStorageUrls?: [string, string, string];
+    cropAreas?: [
+      { x: number; y: number; width: number; height: number },
+      { x: number; y: number; width: number; height: number },
+      { x: number; y: number; width: number; height: number },
+    ];
+    tonosIntensity?: TonosIntensity;
     layoutRotated?: boolean;
   };
 }

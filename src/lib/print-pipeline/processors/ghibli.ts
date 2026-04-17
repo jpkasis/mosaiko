@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { GhibliCustomization } from '../../customization-types';
-import type { PrintJob, TileOutput } from '../types';
+import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
 
 const TILE = TILE_PRINT_SIZE;
@@ -25,7 +25,7 @@ const PHOTO_AREAS = [
  *   - Top 4 tiles: photo within PNG frame (cream + teal border)
  *   - Bottom 2 tiles: PNG panel bg + composited text
  */
-export async function processGhibli(job: PrintJob): Promise<TileOutput[]> {
+export async function processGhibli(job: SingleImagePrintJob): Promise<TileOutput[]> {
   const customization = job.customization as GhibliCustomization;
   const { year, japaneseText, customText, studioText } = customization;
 

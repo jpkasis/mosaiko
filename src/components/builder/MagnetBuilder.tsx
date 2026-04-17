@@ -1,20 +1,26 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { GRID_CONFIGS, formatPrice, type GridSize, type GridConfig } from '@/lib/grid-config';
-import { CATEGORY_REGISTRY, type CategoryType, type FloresTheme } from '@/lib/customization-types';
+import { formatPrice, type GridSize, type GridConfig } from '@/lib/grid-config';
+import {
+  CATEGORY_REGISTRY,
+  type CategoryType,
+  type TonosIntensity,
+} from '@/lib/customization-types';
 import type { CropArea } from '@/lib/canvas-utils';
 import { useCartStore } from '@/lib/cart-store';
 import { createPreviewCanvas, getCroppedCanvas, loadImage } from '@/lib/canvas-utils';
-import { useBuilderFlow, STEP_I18N_MAP, type StepId } from './useBuilderFlow';
+import { useBuilderFlow, STEP_I18N_MAP, type StepId, type TonosIndex } from './useBuilderFlow';
 import { CategorySelector } from './CategorySelector';
 import { GridSelector } from './GridSelector';
 import { PhotoUploader } from './PhotoUploader';
+import { PhotoUploaderMulti } from './PhotoUploaderMulti';
 import { ImageCropper } from './ImageCropper';
+import { ImageCropperMulti } from './ImageCropperMulti';
 import { MagnetPreview } from './MagnetPreview';
 
 const CustomizationEditor = dynamic(
@@ -37,6 +43,15 @@ const slideVariants = {
   }),
 };
 
+async function uploadPhoto(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/api/upload', { method: 'POST', body: formData });
+  if (!res.ok) throw new Error('upload failed');
+  const { publicUrl } = await res.json();
+  return publicUrl as string;
+}
+
 export function MagnetBuilder() {
   const t = useTranslations('builder');
   const tc = useTranslations('common');
@@ -48,38 +63,102 @@ export function MagnetBuilder() {
 
   const flow = useBuilderFlow({ initialCategory, initialGrid });
 
-  // ─── Add to Cart ───
   const handleAddToCart = useCallback(async () => {
-    if (!flow.imageSrc || !flow.cropAreaPixels || !flow.gridConfig || !flow.selectedCategory) return;
+    if (!flow.gridConfig || !flow.selectedCategory) return;
 
     flow.setIsUploading(true);
 
     try {
+      if (flow.selectedCategory === 'tonos') {
+        // Tonos: 3 images, 3 crops, intensity.
+        const srcs = flow.tonos.imageSrcs;
+        const cropAreas = flow.tonos.cropAreas;
+        const files = flow.tonos.fileRefs.current;
+
+        if (srcs.some((s) => !s) || cropAreas.some((c) => !c) || files.some((f) => !f)) {
+          return;
+        }
+
+        // Build a small composed preview by rendering each source at its crop.
+        const previewCanvas = document.createElement('canvas');
+        const previewSize = 360;
+        previewCanvas.width = previewSize;
+        previewCanvas.height = previewSize;
+        const ctx = previewCanvas.getContext('2d')!;
+
+        const cols = flow.gridConfig.cols;
+        const rows = flow.gridConfig.rows;
+        const cellW = previewSize / cols;
+        const cellH = previewSize / rows;
+
+        await Promise.all(
+          srcs.map(async (src, i) => {
+            const area = cropAreas[i]!;
+            const image = await loadImage(src!);
+            const tileCanvas = getCroppedCanvas(image, area, Math.ceil(cellW), Math.ceil(cellH), 0);
+            // Draw into all tiles where sourceImageIndex === i.
+            if (flow.gridConfig!.size === 9) {
+              for (let c = 0; c < 3; c++) {
+                ctx.drawImage(tileCanvas, c * cellW, i * cellH, cellW, cellH);
+              }
+            } else {
+              ctx.drawImage(tileCanvas, i * cellW, 0, cellW, cellH);
+            }
+            tileCanvas.width = 0;
+            tileCanvas.height = 0;
+          }),
+        );
+
+        const previewUrl = previewCanvas.toDataURL('image/jpeg', 0.85);
+        previewCanvas.width = 0;
+        previewCanvas.height = 0;
+
+        const urls = await Promise.all((files as File[]).map(uploadPhoto));
+
+        const meta = CATEGORY_REGISTRY[flow.selectedCategory];
+        addItem({
+          type: 'custom',
+          name: `Mosaico ${meta.label} ${flow.gridConfig.size} piezas`,
+          gridSize: flow.gridConfig.size,
+          gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
+          price: flow.gridConfig.price,
+          quantity: 1,
+          previewUrl,
+          tileUrls: [],
+          customizations: {
+            categoryType: 'tonos',
+            photoStorageUrls: [urls[0], urls[1], urls[2]],
+            cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
+            tonosIntensity: flow.tonos.intensity,
+            layoutRotated: flow.layoutRotated,
+          },
+        });
+        return;
+      }
+
+      // Single-image categories.
+      if (!flow.imageSrc || !flow.cropAreaPixels) return;
+
       const image = await loadImage(flow.imageSrc);
       const previewCanvas = createPreviewCanvas(
         image, flow.cropAreaPixels, flow.gridConfig, 120, 4, 0,
       );
       const previewUrl = previewCanvas.toDataURL('image/jpeg', 0.85);
 
-      // Upload original photo to R2
       let photoStorageUrl = '';
       const file = flow.imageFileRef.current;
       if (file) {
-        const formData = new FormData();
-        formData.append('file', file);
-        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
-        if (uploadRes.ok) {
-          const { publicUrl } = await uploadRes.json();
-          photoStorageUrl = publicUrl;
+        try {
+          photoStorageUrl = await uploadPhoto(file);
+        } catch {
+          // upload failed — proceed without a storage URL
         }
       }
 
       const meta = CATEGORY_REGISTRY[flow.selectedCategory];
-      const categoryLabel = meta.label;
-
       addItem({
         type: 'custom',
-        name: `Mosaico ${categoryLabel} ${flow.gridConfig.size} piezas`,
+        name: `Mosaico ${meta.label} ${flow.gridConfig.size} piezas`,
         gridSize: flow.gridConfig.size,
         gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
         price: flow.gridConfig.price,
@@ -91,7 +170,6 @@ export function MagnetBuilder() {
           textFields: Object.keys(flow.customizationValues).length > 0
             ? flow.customizationValues
             : undefined,
-          filterTheme: flow.selectedTheme ?? undefined,
           photoStorageUrl,
           cropArea: flow.cropAreaPixels,
           layoutRotated: flow.layoutRotated,
@@ -115,15 +193,36 @@ export function MagnetBuilder() {
     }
   }, [flow, addItem]);
 
-  // ─── Determine allowed grid sizes for current category ───
   const allowedGridSizes = useMemo(() => {
     if (!flow.selectedCategory) return undefined;
     return CATEGORY_REGISTRY[flow.selectedCategory].allowedGridSizes;
   }, [flow.selectedCategory]);
 
+  const isTonos = flow.selectedCategory === 'tonos';
+
+  // Stable props for child MagnetPreview / sidebar. Referential identity must
+  // be preserved across renders when the underlying arrays / intensity haven't
+  // actually changed, otherwise MagnetPreview's effect re-fires infinitely.
+  const tonosForPreview = useMemo(() => {
+    if (!isTonos) return undefined;
+    return {
+      imageSrcs: flow.tonos.imageSrcs,
+      cropAreas: flow.tonos.cropAreas,
+      intensity: flow.tonos.intensity,
+    };
+  }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.intensity]);
+
+  const tonosForSidebar = useMemo(() => {
+    if (!isTonos) return undefined;
+    const { imageSrcs, cropAreas, liveCropAreas, intensity } = flow.tonos;
+    const merged = [0, 1, 2].map((i) => liveCropAreas[i] ?? cropAreas[i]) as [
+      CropArea | null, CropArea | null, CropArea | null
+    ];
+    return { imageSrcs, cropAreas: merged, intensity };
+  }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.liveCropAreas, flow.tonos.intensity]);
+
   return (
     <div className="container-mosaiko py-6 md:py-10">
-      {/* ── Header ── */}
       <div className="mb-6 text-center md:mb-8">
         <h1 className="font-serif text-3xl font-bold text-charcoal md:text-4xl">
           {t('title')}
@@ -133,7 +232,6 @@ export function MagnetBuilder() {
         </p>
       </div>
 
-      {/* ── Step Indicator ── */}
       <StepIndicator
         stepSequence={flow.stepSequence}
         currentStepId={flow.currentStepId}
@@ -144,11 +242,8 @@ export function MagnetBuilder() {
         }}
       />
 
-      {/* ── Two-column layout on desktop ── */}
       <div className="mt-6 md:mt-8 lg:grid lg:grid-cols-[1fr_380px] lg:gap-10 lg:items-start">
-        {/* Left column: Active step content */}
         <div className="min-w-0">
-          {/* Back button */}
           <AnimatePresence>
             {flow.currentStepIndex > 0 && (
               <motion.button
@@ -158,17 +253,7 @@ export function MagnetBuilder() {
                 onClick={flow.goBack}
                 className="mb-4 flex min-h-[48px] items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-warm-gray transition-colors hover:text-charcoal cursor-pointer"
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="19" y1="12" x2="5" y2="12" />
                   <polyline points="12 19 5 12 12 5" />
                 </svg>
@@ -177,7 +262,6 @@ export function MagnetBuilder() {
             )}
           </AnimatePresence>
 
-          {/* Step content with slide animations */}
           <div className="relative overflow-hidden">
             <AnimatePresence custom={flow.direction} mode="wait">
               <motion.div
@@ -205,13 +289,31 @@ export function MagnetBuilder() {
                     allowedSizes={allowedGridSizes}
                   />
                 )}
-                {flow.currentStepId === 'upload' && flow.gridConfig && (
+
+                {/* Upload step */}
+                {flow.currentStepId === 'upload' && flow.gridConfig && !isTonos && (
                   <PhotoUploader
                     onImageSelected={flow.handleImageSelected}
                     gridConfig={flow.gridConfig}
                   />
                 )}
-                {flow.currentStepId === 'crop' && flow.imageSrc && flow.gridConfig && (
+                {flow.currentStepId === 'upload' && flow.gridConfig && isTonos && (
+                  <PhotoUploaderMulti
+                    imageSrcs={flow.tonos.imageSrcs}
+                    onImageSelected={flow.handleTonosImageSelected}
+                    onAllReady={() => {
+                      // Require all 3 uploaded
+                      if (flow.tonos.imageSrcs.every((s) => s)) {
+                        flow.handleTonosImagesSelected(
+                          flow.tonos.fileRefs.current as [File, File, File],
+                        );
+                      }
+                    }}
+                  />
+                )}
+
+                {/* Crop step */}
+                {flow.currentStepId === 'crop' && !isTonos && flow.imageSrc && flow.gridConfig && (
                   <ImageCropper
                     imageSrc={flow.imageSrc}
                     gridConfig={flow.gridConfig}
@@ -230,27 +332,38 @@ export function MagnetBuilder() {
                     layoutRotated={flow.layoutRotated}
                   />
                 )}
+                {flow.currentStepId === 'crop' && isTonos && flow.gridConfig && (
+                  <ImageCropperMulti
+                    imageSrcs={flow.tonos.imageSrcs}
+                    gridConfig={flow.gridConfig}
+                    cropAreas={flow.tonos.cropAreas}
+                    intensity={flow.tonos.intensity}
+                    onCropChange={flow.handleTonosCropChange}
+                    onCropComplete={flow.handleTonosCropComplete}
+                    onIntensityChange={flow.setTonosIntensity}
+                    onAllDone={flow.advanceFromTonosCrop}
+                  />
+                )}
+
                 {flow.currentStepId === 'customize' && flow.selectedCategory && (
                   <CustomizationEditor
                     category={flow.selectedCategory}
                     values={flow.customizationValues}
                     onValueChange={flow.setCustomizationValue}
-                    selectedTheme={flow.selectedTheme}
-                    onThemeChange={flow.setSelectedTheme}
                     onComplete={flow.handleCustomizeComplete}
                   />
                 )}
-                {flow.currentStepId === 'preview' && flow.imageSrc && flow.cropAreaPixels && flow.gridConfig && (
+                {flow.currentStepId === 'preview' && flow.gridConfig && (
                   <MagnetPreview
-                    imageSrc={flow.imageSrc}
-                    cropArea={flow.cropAreaPixels}
+                    imageSrc={isTonos ? null : flow.imageSrc}
+                    cropArea={isTonos ? null : flow.cropAreaPixels}
                     gridConfig={flow.gridConfig}
                     onAddToCart={handleAddToCart}
                     onReset={flow.handleReset}
                     isUploading={flow.isUploading}
                     categoryType={flow.selectedCategory ?? undefined}
                     textFields={flow.customizationValues}
-                    filterTheme={flow.selectedTheme ?? undefined}
+                    tonos={tonosForPreview}
                   />
                 )}
               </motion.div>
@@ -258,7 +371,6 @@ export function MagnetBuilder() {
           </div>
         </div>
 
-        {/* Right column: Live preview sidebar (desktop only) */}
         <aside className="hidden lg:block lg:self-stretch" aria-label="Vista previa en vivo">
           <LivePreviewSidebar
             currentStepId={flow.currentStepId}
@@ -269,7 +381,7 @@ export function MagnetBuilder() {
             cropAreaPixels={flow.cropAreaPixels}
             selectedCategory={flow.selectedCategory}
             textFields={flow.customizationValues}
-            filterTheme={flow.selectedTheme ?? undefined}
+            tonos={tonosForSidebar}
           />
         </aside>
       </div>
@@ -277,7 +389,7 @@ export function MagnetBuilder() {
   );
 }
 
-// ─── Step Indicator Component ───────────────────────────────────────────────
+// ─── Step Indicator ─────────────────────────────────────────────────────────
 
 function StepIndicator({
   stepSequence,
@@ -322,16 +434,7 @@ function StepIndicator({
                 ].join(' ')}
               >
                 {isCompleted ? (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 ) : (
@@ -352,7 +455,6 @@ function StepIndicator({
               </span>
             </button>
 
-            {/* Connector line */}
             {index < stepSequence.length - 1 && (
               <div
                 className={[
@@ -368,7 +470,7 @@ function StepIndicator({
   );
 }
 
-// ─── Live Preview Sidebar (Desktop) ─────────────────────────────────────────
+// ─── Live Preview Sidebar ───────────────────────────────────────────────────
 
 function LivePreviewSidebar({
   currentStepId,
@@ -379,7 +481,7 @@ function LivePreviewSidebar({
   cropAreaPixels,
   selectedCategory,
   textFields,
-  filterTheme,
+  tonos,
 }: {
   currentStepId: StepId;
   selectedGrid: GridSize | null;
@@ -389,9 +491,16 @@ function LivePreviewSidebar({
   cropAreaPixels?: CropArea | null;
   selectedCategory: CategoryType | null;
   textFields?: Record<string, string>;
-  filterTheme?: FloresTheme;
+  tonos?: {
+    imageSrcs: [string | null, string | null, string | null];
+    cropAreas: [CropArea | null, CropArea | null, CropArea | null];
+    intensity: TonosIntensity;
+  };
 }) {
   const t = useTranslations('builder');
+
+  const isTonos = selectedCategory === 'tonos';
+  const tonosReady = !!tonos && tonos.imageSrcs.every((s) => s) && tonos.cropAreas.every((c) => c);
 
   return (
     <div className="sticky top-[calc(var(--header-height)+1.5rem)] rounded-2xl bg-white p-6 shadow-sm border border-light-gray">
@@ -407,7 +516,6 @@ function LivePreviewSidebar({
           boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.3), inset 0 -1px 2px rgba(0,0,0,0.04)',
         }}
       >
-        {/* Fridge texture */}
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.03]"
           style={{
@@ -427,15 +535,7 @@ function LivePreviewSidebar({
               className="flex flex-col items-center gap-3 p-8 text-center"
             >
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/60">
-                <svg
-                  width="28"
-                  height="28"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  className="text-warm-gray"
-                >
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-warm-gray">
                   <rect x="3" y="3" width="7" height="7" />
                   <rect x="14" y="3" width="7" height="7" />
                   <rect x="3" y="14" width="7" height="7" />
@@ -446,7 +546,7 @@ function LivePreviewSidebar({
             </motion.div>
           )}
 
-          {selectedGrid && !imageSrc && gridConfig && (
+          {selectedGrid && !isTonos && !imageSrc && gridConfig && (
             <motion.div
               key="grid-selected"
               initial={{ opacity: 0, scale: 0.9 }}
@@ -458,7 +558,19 @@ function LivePreviewSidebar({
             </motion.div>
           )}
 
-          {selectedGrid && imageSrc && gridConfig && (liveCropArea || cropAreaPixels) && (
+          {selectedGrid && isTonos && gridConfig && !tonosReady && (
+            <motion.div
+              key="tonos-grid-wait"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="p-6"
+            >
+              <PlaceholderGrid rows={gridConfig.rows} cols={gridConfig.cols} />
+            </motion.div>
+          )}
+
+          {selectedGrid && !isTonos && imageSrc && gridConfig && (liveCropArea || cropAreaPixels) && (
             <motion.div
               key="has-image"
               initial={{ opacity: 0, scale: 0.9 }}
@@ -473,14 +585,31 @@ function LivePreviewSidebar({
                 gridConfig={gridConfig}
                 categoryType={selectedCategory ?? undefined}
                 textFields={textFields}
-                filterTheme={filterTheme}
+              />
+            </motion.div>
+          )}
+
+          {selectedGrid && isTonos && gridConfig && tonosReady && tonos && (
+            <motion.div
+              key="tonos-preview"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative w-full p-6"
+            >
+              <MagnetPreview
+                compact
+                imageSrc={null}
+                cropArea={null}
+                gridConfig={gridConfig}
+                categoryType="tonos"
+                tonos={tonos}
               />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Selected grid info */}
       {gridConfig && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -489,13 +618,7 @@ function LivePreviewSidebar({
         >
           <div className="flex flex-col">
             <span className="text-sm text-warm-gray">
-              {t(
-                `grid${gridConfig.size}` as
-                  | 'grid3'
-                  | 'grid4'
-                  | 'grid6'
-                  | 'grid9',
-              )}
+              {t(`grid${gridConfig.size}` as 'grid3' | 'grid4' | 'grid6' | 'grid9')}
             </span>
             {selectedCategory && selectedCategory !== 'mosaicos' && (
               <span className="text-xs text-warm-gray/70">
@@ -512,9 +635,6 @@ function LivePreviewSidebar({
   );
 }
 
-// ─── Helper Sub-components ──────────────────────────────────────────────────
-
-/** Placeholder grid shown before an image is uploaded. */
 function PlaceholderGrid({ rows, cols }: { rows: number; cols: number }) {
   return (
     <div
@@ -544,152 +664,6 @@ function PlaceholderGrid({ rows, cols }: { rows: number; cols: number }) {
           }}
         />
       ))}
-    </div>
-  );
-}
-
-/** Grid that shows the uploaded image split visually. Uses canvas-based
- *  rendering when a crop area is provided, otherwise falls back to CSS. */
-function ImagePreviewGrid({
-  rows,
-  cols,
-  imageSrc,
-  cropArea,
-}: {
-  rows: number;
-  cols: number;
-  imageSrc: string;
-  cropArea?: CropArea | null;
-}) {
-  const [tiles, setTiles] = useState<string[] | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  // Generate canvas-based tile previews when crop area is available
-  useEffect(() => {
-    if (!cropArea) {
-      setTiles(null);
-      return;
-    }
-
-    clearTimeout(timerRef.current);
-    let cancelled = false;
-
-    timerRef.current = setTimeout(async () => {
-      try {
-        const image = await loadImage(imageSrc);
-        if (cancelled) return;
-
-        const tileSize = 80;
-        const totalW = cols * tileSize;
-        const totalH = rows * tileSize;
-        const cropped = getCroppedCanvas(image, cropArea, totalW, totalH, 0);
-
-        const urls: string[] = [];
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
-            const tc = document.createElement('canvas');
-            tc.width = tileSize;
-            tc.height = tileSize;
-            const tctx = tc.getContext('2d')!;
-            tctx.drawImage(
-              cropped,
-              c * tileSize, r * tileSize, tileSize, tileSize,
-              0, 0, tileSize, tileSize,
-            );
-            urls.push(tc.toDataURL('image/jpeg', 0.7));
-            tc.width = 0;
-            tc.height = 0;
-          }
-        }
-        cropped.width = 0;
-        cropped.height = 0;
-
-        if (!cancelled) setTiles(urls);
-      } catch {
-        // Preview is non-critical; silently fall back to CSS
-      }
-    }, 150);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timerRef.current);
-    };
-  }, [imageSrc, cropArea, rows, cols]);
-
-  // Canvas-based tiles when available
-  if (tiles && tiles.length === rows * cols) {
-    return (
-      <div
-        className="grid gap-1"
-        style={{
-          gridTemplateColumns: `repeat(${cols}, 1fr)`,
-          gridTemplateRows: `repeat(${rows}, 1fr)`,
-          width: `${cols * 80}px`,
-          maxWidth: '100%',
-        }}
-      >
-        {tiles.map((src, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{
-              delay: i * 0.04,
-              type: 'spring',
-              stiffness: 300,
-              damping: 20,
-            }}
-            className="overflow-hidden rounded-md"
-            style={{
-              aspectRatio: '1',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
-            }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={src} alt="" className="h-full w-full object-cover" draggable={false} />
-          </motion.div>
-        ))}
-      </div>
-    );
-  }
-
-  // CSS fallback (no crop area yet)
-  return (
-    <div
-      className="grid gap-1"
-      style={{
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gridTemplateRows: `repeat(${rows}, 1fr)`,
-        width: `${cols * 80}px`,
-        maxWidth: '100%',
-      }}
-    >
-      {Array.from({ length: rows * cols }).map((_, i) => {
-        const row = Math.floor(i / cols);
-        const col = i % cols;
-
-        return (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{
-              delay: i * 0.04,
-              type: 'spring',
-              stiffness: 300,
-              damping: 20,
-            }}
-            className="overflow-hidden rounded-md"
-            style={{
-              aspectRatio: '1',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
-              backgroundImage: `url(${imageSrc})`,
-              backgroundSize: `${cols * 100}% ${rows * 100}%`,
-              backgroundPosition: `${cols > 1 ? (col / (cols - 1)) * 100 : 50}% ${rows > 1 ? (row / (rows - 1)) * 100 : 50}%`,
-            }}
-          />
-        );
-      })}
     </div>
   );
 }

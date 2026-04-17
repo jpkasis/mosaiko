@@ -5,15 +5,17 @@ import type { GridSize } from './grid-config';
 export type CategoryType =
   | 'mosaicos'
   | 'spotify'
-  | 'flores'
+  | 'tonos'
   | 'save-the-date'
   | 'arte'
   | 'ghibli'
   | 'polaroid';
 
-// ─── Flores filter themes ───────────────────────────────────────────────────
+// ─── Tonos intensity ────────────────────────────────────────────────────────
 
-export type FloresTheme = 'calido' | 'fresco' | 'vintage' | 'pastel';
+export type TonosIntensity = 'mild' | 'medium' | 'strong';
+
+export type TonosToneColumn = 'warm' | 'none' | 'cool';
 
 // ─── Per-category customization data (discriminated union) ──────────────────
 
@@ -29,10 +31,10 @@ export interface SpotifyCustomization {
   artistName: string;
 }
 
-export interface FloresCustomization {
-  categoryType: 'flores';
-  gridSize: 3 | 6 | 9;
-  theme: FloresTheme;
+export interface TonosCustomization {
+  categoryType: 'tonos';
+  gridSize: 3 | 9;
+  intensity: TonosIntensity;
 }
 
 export interface SaveTheDateCustomization {
@@ -67,7 +69,7 @@ export interface PolaroidCustomization {
 export type CategoryCustomization =
   | MosaicosCustomization
   | SpotifyCustomization
-  | FloresCustomization
+  | TonosCustomization
   | SaveTheDateCustomization
   | ArteCustomization
   | GhibliCustomization
@@ -101,13 +103,13 @@ export const CATEGORY_REGISTRY: Record<CategoryType, CategoryMeta> = {
     hasTheme: false,
     description: 'Spotify-style with song info bar',
   },
-  flores: {
-    type: 'flores',
+  tonos: {
+    type: 'tonos',
     label: 'Tonos',
-    allowedGridSizes: [9, 6, 3],
+    allowedGridSizes: [9, 3],
     textFields: [],
-    hasTheme: true,
-    description: 'Themed color filters per tile',
+    hasTheme: false,
+    description: 'Three photos with warm/cool tone columns',
   },
   'save-the-date': {
     type: 'save-the-date',
@@ -153,7 +155,12 @@ export interface TileDescriptor {
   label?: string;
   gridColumn?: number;  // grid-column-start (for non-standard placement)
   gridRow?: number;     // grid-row-start
+  // Tonos-only metadata: which uploaded image and which tone column this tile belongs to.
+  sourceImageIndex?: 0 | 1 | 2;
+  toneColumn?: TonosToneColumn;
 }
+
+const TONOS_COLUMNS: readonly TonosToneColumn[] = ['warm', 'none', 'cool'];
 
 /**
  * Returns the tile layout for a given category customization.
@@ -181,11 +188,23 @@ export function getTileLayout(config: CategoryCustomization): TileDescriptor[] {
         { index: 5, role: 'special', label: 'spotify-bar-right' },
       ];
 
-    case 'flores':
-      // All tiles are photo tiles (with filters applied)
-      return Array.from({ length: gridSize }, (_, i) => ({
+    case 'tonos':
+      // Rows = uploaded picture, columns = tone (warm/none/cool).
+      // 9-grid: 3 rows × 3 cols, sourceImageIndex = row.
+      // 3-grid: 1 row × 3 cols, sourceImageIndex = column (one picture per tile).
+      if (gridSize === 9) {
+        return Array.from({ length: 9 }, (_, i) => ({
+          index: i,
+          role: 'photo' as const,
+          sourceImageIndex: Math.floor(i / 3) as 0 | 1 | 2,
+          toneColumn: TONOS_COLUMNS[i % 3],
+        }));
+      }
+      return Array.from({ length: 3 }, (_, i) => ({
         index: i,
         role: 'photo' as const,
+        sourceImageIndex: i as 0 | 1 | 2,
+        toneColumn: TONOS_COLUMNS[i],
       }));
 
     case 'save-the-date':

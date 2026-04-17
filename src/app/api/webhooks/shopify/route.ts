@@ -151,6 +151,23 @@ function isAllowedPhotoUrl(url: string): boolean {
   }
 }
 
+async function fetchPhotoBuffer(url: string): Promise<Buffer | null> {
+  if (!isAllowedPhotoUrl(url)) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_IMAGE_SIZE) return null;
+    return buf;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function processLineItem(
   orderId: number,
   lineItem: {
@@ -160,75 +177,110 @@ async function processLineItem(
     attrs: Record<string, string>;
   },
 ): Promise<string[]> {
-  const photoUrl = lineItem.attrs['_photo_url'];
   const customizationRaw = lineItem.attrs['_customization'];
-  const cropAreaRaw = lineItem.attrs['_crop_area'];
 
-  if (!photoUrl || !customizationRaw || !cropAreaRaw) {
+  if (!customizationRaw) {
     console.warn(
-      `[webhook/shopify] Line item ${lineItem.lineItemId} missing required attributes, skipping`,
+      `[webhook/shopify] Line item ${lineItem.lineItemId} missing _customization, skipping`,
     );
     return [];
   }
 
-  // Validate photo URL against allowlist (SSRF prevention)
-  if (!isAllowedPhotoUrl(photoUrl)) {
-    console.error(
-      `[webhook/shopify] Line item ${lineItem.lineItemId}: photo URL not from allowed host, skipping`,
-    );
-    return [];
-  }
-
-  // Parse customization and crop area from JSON strings (with error handling)
   let customization: CategoryCustomization;
-  let cropArea: { x: number; y: number; width: number; height: number };
   try {
     customization = JSON.parse(customizationRaw);
-    cropArea = JSON.parse(cropAreaRaw);
   } catch (error) {
     console.error(
-      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse JSON attributes:`,
+      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse _customization:`,
       error,
     );
     return [];
   }
 
-  // Fetch the original photo (with timeout + size cap)
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  let photoResponse: Response;
-  try {
-    photoResponse = await fetch(photoUrl, { signal: controller.signal });
-  } catch (error) {
-    clearTimeout(timeout);
-    const reason = error instanceof Error && error.name === 'AbortError' ? 'timed out' : 'fetch failed';
-    console.error(`[webhook/shopify] Line item ${lineItem.lineItemId}: photo ${reason}`);
-    return [];
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!photoResponse.ok) {
-    console.error(
-      `[webhook/shopify] Failed to fetch photo for line item ${lineItem.lineItemId}: ${photoResponse.status}`,
-    );
-    return [];
-  }
-
-  const imageBuffer = Buffer.from(await photoResponse.arrayBuffer());
-
-  if (imageBuffer.length > MAX_IMAGE_SIZE) {
-    console.error(
-      `[webhook/shopify] Line item ${lineItem.lineItemId}: photo exceeds ${MAX_IMAGE_SIZE / 1024 / 1024} MB limit`,
-    );
-    return [];
-  }
-
-  // Run print pipeline
   const { processPrintJob } = await import('@/lib/print-pipeline');
-
   const jobId = `order-${orderId}-item-${lineItem.lineItemId}`;
+
+  if (customization.categoryType === 'tonos') {
+    const urlsRaw = lineItem.attrs['_photo_urls'];
+    const cropsRaw = lineItem.attrs['_crop_areas'];
+    if (!urlsRaw || !cropsRaw) {
+      console.warn(
+        `[webhook/shopify] Tonos line item ${lineItem.lineItemId} missing _photo_urls / _crop_areas`,
+      );
+      return [];
+    }
+
+    let urls: string[];
+    let crops: Array<{ x: number; y: number; width: number; height: number }>;
+    try {
+      urls = JSON.parse(urlsRaw);
+      crops = JSON.parse(cropsRaw);
+    } catch (error) {
+      console.error(
+        `[webhook/shopify] Tonos line item ${lineItem.lineItemId}: invalid JSON`,
+        error,
+      );
+      return [];
+    }
+
+    if (urls.length !== 3 || crops.length !== 3) {
+      console.error(
+        `[webhook/shopify] Tonos line item ${lineItem.lineItemId}: expected 3 urls and 3 crops`,
+      );
+      return [];
+    }
+
+    const buffers = await Promise.all(urls.map(fetchPhotoBuffer));
+    if (buffers.some((b) => !b)) {
+      console.error(
+        `[webhook/shopify] Tonos line item ${lineItem.lineItemId}: photo fetch failed`,
+      );
+      return [];
+    }
+
+    const result = await processPrintJob({
+      imageBuffers: [buffers[0]!, buffers[1]!, buffers[2]!],
+      customization,
+      cropAreas: [crops[0], crops[1], crops[2]],
+      jobId,
+    });
+
+    const storedTiles = await uploadPrintTiles(
+      jobId,
+      result.tiles.map((tile) => ({ index: tile.index, buffer: tile.buffer })),
+    );
+    return storedTiles.map((t) => t.publicUrl);
+  }
+
+  // Single-image categories
+  const photoUrl = lineItem.attrs['_photo_url'];
+  const cropAreaRaw = lineItem.attrs['_crop_area'];
+
+  if (!photoUrl || !cropAreaRaw) {
+    console.warn(
+      `[webhook/shopify] Line item ${lineItem.lineItemId} missing _photo_url / _crop_area, skipping`,
+    );
+    return [];
+  }
+
+  let cropArea: { x: number; y: number; width: number; height: number };
+  try {
+    cropArea = JSON.parse(cropAreaRaw);
+  } catch (error) {
+    console.error(
+      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse _crop_area:`,
+      error,
+    );
+    return [];
+  }
+
+  const imageBuffer = await fetchPhotoBuffer(photoUrl);
+  if (!imageBuffer) {
+    console.error(
+      `[webhook/shopify] Line item ${lineItem.lineItemId}: photo fetch failed`,
+    );
+    return [];
+  }
 
   const result = await processPrintJob({
     imageBuffer,

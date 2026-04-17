@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
-import type { PrintJob, TileOutput } from '../types';
+import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
 
 const TILE = TILE_PRINT_SIZE;
@@ -27,7 +27,7 @@ const SRC_SIZE = 615; // template PNG source size
  * Grid is always 4 (2x2). Each tile: photo sized to fit the transparent
  * area of the frame PNG, then frame composited on top.
  */
-export async function processPolaroid(job: PrintJob): Promise<TileOutput[]> {
+export async function processPolaroid(job: SingleImagePrintJob): Promise<TileOutput[]> {
   // Calculate the combined visible photo area across all 4 tiles
   // Top row visible height = SRC_SIZE - 64 (top frame) = 551px per tile
   // Bottom row visible height = 433px per tile (thick bottom frame)

@@ -57,9 +57,9 @@ const categories = [
     accent: 'rgba(44,44,44,0.85)',
   },
   {
-    slug: 'flores',
-    translationKey: 'flores' as const,
-    image: '/categories/flores.png',
+    slug: 'tonos',
+    translationKey: 'tonos' as const,
+    image: '/categories/tonos.png',
     accent: 'rgba(44,44,44,0.85)',
   },
 ];

@@ -55,9 +55,9 @@ export const PRODUCTS: CatalogProduct[] = [
   { id: 'std-1', category: 'save-the-date', name: 'Boda Elegante', price: 480, image: '/products/save-the-date/boda-9.png', pieces: 9, grid: '3x3', gridSize: 9, originalImage: '/products/_originals/save-the-date/boda-9.png', isPredesigned: true, seamData: { vertical: [0.338265, 0.661224], horizontal: [0.339295, 0.66326], widthPercent: 0.006509 } },
   { id: 'std-2', category: 'save-the-date', name: 'Compromiso', price: 360, image: '/products/save-the-date/compromiso-6.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/save-the-date/compromiso-6.png', isPredesigned: true, seamData: { vertical: [0.498871], horizontal: [0.333674, 0.656106], widthPercent: 0.007249 } },
   { id: 'std-3', category: 'save-the-date', name: 'Baby Shower', price: 200, image: '/products/save-the-date/baby-3.png', pieces: 3, grid: '1x3', gridSize: 3, originalImage: '/products/_originals/save-the-date/baby-3.png', isPredesigned: true, seamData: { vertical: [], horizontal: [0.337251, 0.659683], widthPercent: 0.002555 } },
-  // Tonos / Flores
-  { id: 'flo-1', category: 'flores', name: 'Ramo de Rosas', price: 480, image: '/products/flores/rosas-9.png', pieces: 9, grid: '3x3', gridSize: 9, originalImage: '/products/_originals/flores/rosas-9.png', isPredesigned: true, seamData: { vertical: [0.333503, 0.655788], horizontal: [0.345262, 0.667339], widthPercent: 0.011781 } },
-  { id: 'flo-2', category: 'flores', name: 'Girasoles', price: 200, image: '/products/flores/girasoles-3.png', pieces: 3, grid: '1x3', gridSize: 3, originalImage: '/products/_originals/flores/girasoles-3.png', isPredesigned: true, seamData: { vertical: [], horizontal: [0.345262, 0.667339], widthPercent: 0.012853 } },
+  // Tonos
+  { id: 'ton-1', category: 'tonos', name: 'Ramo de Rosas', price: 480, image: '/products/tonos/rosas-9.png', pieces: 9, grid: '3x3', gridSize: 9, originalImage: '/products/_originals/tonos/rosas-9.png', isPredesigned: true, seamData: { vertical: [0.333503, 0.655788], horizontal: [0.345262, 0.667339], widthPercent: 0.011781 } },
+  { id: 'ton-2', category: 'tonos', name: 'Girasoles', price: 200, image: '/products/tonos/girasoles-3.png', pieces: 3, grid: '1x3', gridSize: 3, originalImage: '/products/_originals/tonos/girasoles-3.png', isPredesigned: true, seamData: { vertical: [], horizontal: [0.345262, 0.667339], widthPercent: 0.012853 } },
   // Spotify
   { id: 'spo-1', category: 'spotify', name: 'Album Cover Custom', price: 480, image: '/products/spotify/album-1.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/spotify/album-1.png', isPredesigned: true, seamData: { vertical: [0.499624], horizontal: [0.334694, 0.664286], widthPercent: 0.007414 } },
   { id: 'spo-2', category: 'spotify', name: 'Personalizado', price: 480, image: '/products/spotify/personalizado.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/spotify/personalizado.png', isPredesigned: true, seamData: { vertical: [0.501881], horizontal: [0.335204, 0.663265], widthPercent: 0.004468 } },
@@ -82,7 +82,7 @@ const CATEGORY_I18N_MAP: Record<CategoryType, string> = {
   ghibli: 'ghibli',
   arte: 'arte',
   'save-the-date': 'saveTheDate',
-  flores: 'flores',
+  tonos: 'tonos',
   spotify: 'spotify',
   polaroid: 'polaroid',
 };
@@ -92,7 +92,7 @@ export const CATEGORY_ACCENT: Record<CategoryType, string> = {
   ghibli: 'bg-charcoal',
   arte: 'bg-gold',
   'save-the-date': 'bg-terracotta-light',
-  flores: 'bg-terracotta',
+  tonos: 'bg-terracotta',
   spotify: 'bg-gold-dark',
   polaroid: 'bg-warm-gray',
 };
@@ -102,7 +102,7 @@ export const CATALOG_CATEGORIES: CatalogCategory[] = [
   { type: 'ghibli', i18nKey: 'ghibli', accentColor: 'bg-charcoal', order: 2, showPersonalizeCard: true },
   { type: 'arte', i18nKey: 'arte', accentColor: 'bg-gold', order: 3, showPersonalizeCard: true },
   { type: 'save-the-date', i18nKey: 'saveTheDate', accentColor: 'bg-terracotta-light', order: 4, showPersonalizeCard: true },
-  { type: 'flores', i18nKey: 'flores', accentColor: 'bg-terracotta', order: 5, showPersonalizeCard: true },
+  { type: 'tonos', i18nKey: 'tonos', accentColor: 'bg-terracotta', order: 5, showPersonalizeCard: true },
   { type: 'spotify', i18nKey: 'spotify', accentColor: 'bg-gold-dark', order: 6, showPersonalizeCard: false },
   { type: 'polaroid', i18nKey: 'polaroid', accentColor: 'bg-warm-gray', order: 7, showPersonalizeCard: false },
 ];

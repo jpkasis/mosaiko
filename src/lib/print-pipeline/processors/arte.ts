@@ -1,6 +1,6 @@
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { ArteCustomization } from '../../customization-types';
-import type { PrintJob, TileOutput } from '../types';
+import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
 import { renderMultiTextToBuffer } from '../utils/text-renderer';
 
@@ -12,7 +12,7 @@ const TILE = TILE_PRINT_SIZE;
  *   - Tiles 0-7: photo split into 4 cols × 2 rows
  *   - Tile 8 (bottom-right): black info tile with title, artist, year
  */
-export async function processArte(job: PrintJob): Promise<TileOutput[]> {
+export async function processArte(job: SingleImagePrintJob): Promise<TileOutput[]> {
   const customization = job.customization as ArteCustomization;
   const { title, artist, year } = customization;
 

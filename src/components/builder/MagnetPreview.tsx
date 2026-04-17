@@ -10,29 +10,39 @@ import {
   getTileLayout,
   CATEGORY_REGISTRY,
   type CategoryType,
-  type FloresTheme,
+  type TonosIntensity,
   type CategoryCustomization,
 } from '@/lib/customization-types';
-import { getFloresCSSFilters } from '@/lib/print-pipeline/utils/filter-presets';
+import { getTonosColumnCSSFilter } from '@/lib/print-pipeline/utils/filter-presets';
 import { Button } from '@/components/ui/Button';
 import { MosaikoWatermark } from './MosaikoWatermark';
 import { SpotifyBarPreview } from './tile-previews/SpotifyBarPreview';
 import { ArteInfoPreview } from './tile-previews/ArteInfoPreview';
 import { GhibliPanelPreview } from './tile-previews/GhibliPanelPreview';
 import { SaveTheDateOverlay } from './tile-previews/SaveTheDateOverlay';
-import { PolaroidFrame } from './tile-previews/PolaroidFrame';
+
+interface TonosInputs {
+  imageSrcs: [string | null, string | null, string | null];
+  cropAreas: [CropArea | null, CropArea | null, CropArea | null];
+  intensity: TonosIntensity;
+}
+
+// Stable default to avoid recreating an empty object on every render
+// (which would defeat useMemo downstream and trigger effect re-runs).
+const EMPTY_TEXT_FIELDS: Record<string, string> = Object.freeze({});
 
 interface MagnetPreviewProps {
-  imageSrc: string;
-  cropArea: CropArea;
+  imageSrc: string | null;
+  cropArea: CropArea | null;
   gridConfig: GridConfig;
   onAddToCart?: () => void;
   onReset?: () => void;
   isUploading?: boolean;
   categoryType?: CategoryType;
   textFields?: Record<string, string>;
-  filterTheme?: FloresTheme;
-  /** Compact mode: render only the tile grid (no heading, fridge wrapper, buttons). Used in sidebar preview. */
+  /** Tonos-only: 3 image sources + 3 crop areas + intensity. */
+  tonos?: TonosInputs;
+  /** Compact mode: render only the tile grid. Used in sidebar preview. */
   compact?: boolean;
 }
 
@@ -44,8 +54,8 @@ export function MagnetPreview({
   onReset,
   isUploading = false,
   categoryType = 'mosaicos',
-  textFields = {},
-  filterTheme,
+  textFields = EMPTY_TEXT_FIELDS,
+  tonos,
   compact = false,
 }: MagnetPreviewProps) {
   const t = useTranslations('builder');
@@ -55,7 +65,6 @@ export function MagnetPreview({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Build the CategoryCustomization for getTileLayout
   const customizationConfig = useMemo((): CategoryCustomization => {
     switch (categoryType) {
       case 'spotify':
@@ -66,28 +75,25 @@ export function MagnetPreview({
         return { categoryType: 'ghibli', gridSize: 6, year: textFields.year || '', japaneseText: textFields.japaneseText || '', customText: textFields.customText || '', studioText: textFields.studioText || '' };
       case 'save-the-date':
         return { categoryType: 'save-the-date', gridSize: 9, eventText: textFields.eventText || '', date: textFields.date || '' };
-      case 'flores':
-        return { categoryType: 'flores', gridSize: gridConfig.size as 3 | 6 | 9, theme: filterTheme || 'calido' };
+      case 'tonos':
+        return { categoryType: 'tonos', gridSize: (gridConfig.size === 9 ? 9 : 3), intensity: tonos?.intensity ?? 'medium' };
       case 'polaroid':
         return { categoryType: 'polaroid', gridSize: 4 };
       default:
         return { categoryType: 'mosaicos', gridSize: gridConfig.size as 3 | 6 | 9 };
     }
-  }, [categoryType, textFields, gridConfig.size, filterTheme]);
+  }, [categoryType, textFields, gridConfig.size, tonos?.intensity]);
 
   const tileLayout = useMemo(() => getTileLayout(customizationConfig), [customizationConfig]);
 
-  // Get Flores CSS filters if applicable
-  const floresFilters = useMemo(() => {
-    if (categoryType !== 'flores' || !filterTheme) return null;
-    return getFloresCSSFilters(filterTheme, gridConfig.size);
-  }, [categoryType, filterTheme, gridConfig.size]);
-
-  // Count how many photo tiles we need (non-special tiles)
   const photoTileCount = useMemo(
     () => tileLayout.filter((td) => td.role === 'photo').length,
     [tileLayout],
   );
+
+  // ─── Tile generation ────────────────────────────────────────────────────
+  // Produces `tiles[i]` = the data URL for the photo to render at descriptor index i.
+  // Non-photo tiles are left empty (special/text-panel tiles render overlays).
 
   useEffect(() => {
     let cancelled = false;
@@ -97,37 +103,56 @@ export function MagnetPreview({
         setIsLoading(true);
         setError(null);
 
-        const image = await loadImage(imageSrc);
-        if (cancelled) return;
+        // Tonos: crop each of 3 source images once, then fan out to tiles by descriptor.
+        if (categoryType === 'tonos' && tonos) {
+          const tileSize = 200;
+          const perSource: (string | null)[] = [null, null, null];
 
-        // Flores/Tonos: same image duplicated on every tile (NOT split)
-        if (categoryType === 'flores') {
-          const tileSize = 200; // preview resolution per tile
-          const singleCanvas = getCroppedCanvas(image, cropArea, tileSize, tileSize, 0);
-          const singleUrl = singleCanvas.toDataURL('image/jpeg', 0.9);
-          singleCanvas.width = 0;
-          singleCanvas.height = 0;
+          await Promise.all(
+            (tonos.imageSrcs as (string | null)[]).map(async (src, i) => {
+              const area = tonos.cropAreas[i];
+              if (!src || !area) return;
+              const image = await loadImage(src);
+              if (cancelled) return;
+              const canvas = getCroppedCanvas(image, area, tileSize, tileSize, 0);
+              perSource[i] = canvas.toDataURL('image/jpeg', 0.9);
+              canvas.width = 0;
+              canvas.height = 0;
+            }),
+          );
+
           if (cancelled) return;
-          // Duplicate same image for all tiles
-          setTiles(Array.from({ length: photoTileCount }, () => singleUrl));
+
+          const next = tileLayout.map((td) => {
+            const idx = td.sourceImageIndex ?? 0;
+            return perSource[idx] ?? '';
+          });
+          setTiles(next);
           return;
         }
 
-        // Polaroid: custom split proportional to transparent area heights (89.4% top vs 70.4% bottom)
+        if (!imageSrc || !cropArea) {
+          setTiles([]);
+          return;
+        }
+
+        const image = await loadImage(imageSrc);
+        if (cancelled) return;
+
+        // Polaroid: weighted vertical split proportional to transparent areas.
         if (categoryType === 'polaroid') {
           const tileSize = 200;
           const fullCanvas = getCroppedCanvas(image, cropArea, tileSize * 2, tileSize * 2, 0);
-          const fullCtx = fullCanvas.getContext('2d')!;
-          const vSplit = 0.5596; // 89.4 / (89.4 + 70.4) — top gets 55.96% of image height
+          const vSplit = 0.5596;
           const topH = Math.round(tileSize * 2 * vSplit);
           const botH = tileSize * 2 - topH;
           const halfW = tileSize;
 
           const regions = [
-            { sx: 0, sy: 0, sw: halfW, sh: topH },          // tile 1: top-left
-            { sx: halfW, sy: 0, sw: halfW, sh: topH },      // tile 2: top-right
-            { sx: 0, sy: topH, sw: halfW, sh: botH },       // tile 3: bottom-left
-            { sx: halfW, sy: topH, sw: halfW, sh: botH },   // tile 4: bottom-right
+            { sx: 0, sy: 0, sw: halfW, sh: topH },
+            { sx: halfW, sy: 0, sw: halfW, sh: topH },
+            { sx: 0, sy: topH, sw: halfW, sh: botH },
+            { sx: halfW, sy: topH, sw: halfW, sh: botH },
           ];
 
           const urls: string[] = [];
@@ -148,14 +173,11 @@ export function MagnetPreview({
           return;
         }
 
-        // For categories with special tiles, we only split the photo portion
-        // Ghibli: split full 3×2 grid (6 tiles) so photo extends into bottom tiles' strip
         const photoRows = categoryType === 'spotify' || categoryType === 'arte' ? 2
           : categoryType === 'ghibli' ? 3
           : gridConfig.rows;
         const photoCols = gridConfig.cols;
 
-        // For ghibli, split the full grid (6 tiles); others split only photo tiles
         const splitTileCount = categoryType === 'ghibli' ? gridConfig.size : photoTileCount;
         const splitConfig = {
           ...gridConfig,
@@ -184,7 +206,15 @@ export function MagnetPreview({
     return () => {
       cancelled = true;
     };
-  }, [imageSrc, cropArea, gridConfig, categoryType, photoTileCount]);
+    // Flatten Tonos inputs so React sees stable primitive/state references
+    // instead of an object literal that changes identity each parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    imageSrc, cropArea, gridConfig, categoryType, photoTileCount, tileLayout,
+    tonos?.imageSrcs[0], tonos?.imageSrcs[1], tonos?.imageSrcs[2],
+    tonos?.cropAreas[0], tonos?.cropAreas[1], tonos?.cropAreas[2],
+    tonos?.intensity,
+  ]);
 
   const priceText = t('addToCart', { price: formatPrice(gridConfig.price) });
 
@@ -200,7 +230,14 @@ export function MagnetPreview({
     return map;
   }, [tileLayout]);
 
-  // Compact mode: render only the tile grid (sidebar preview)
+  // Helper: for Tonos, tiles are already indexed by descriptor index. For other
+  // categories, they are indexed by photo-order.
+  function tileSrcFor(descriptorIndex: number): string {
+    if (categoryType === 'tonos') return tiles[descriptorIndex] ?? '';
+    return tiles[photoTileIndexMap.get(descriptorIndex) ?? 0] ?? '';
+  }
+
+  // ─── Compact mode (sidebar preview) ─────────────────────────────────────
   if (compact) {
     if (isLoading) {
       return (
@@ -221,68 +258,17 @@ export function MagnetPreview({
           maxWidth: `${gridConfig.cols * 120}px`,
         }}
       >
-        {tileLayout.map((descriptor) => {
-          const { index, role, label, gridColumn, gridRow } = descriptor;
-          const placementStyle: React.CSSProperties | undefined =
-            gridColumn || gridRow
-              ? { gridColumn: gridColumn, gridRow: gridRow }
-              : undefined;
-
-          return (
-            <TileWrapper key={index} index={index} style={placementStyle}>
-              {role === 'special' && categoryType === 'spotify' && (
-                <SpotifyBarPreview
-                  label={label as 'spotify-bar-left' | 'spotify-bar-right'}
-                  songName={textFields.songName}
-                  artistName={textFields.artistName}
-                />
-              )}
-
-              {role === 'special' && categoryType === 'arte' && (
-                <ArteInfoPreview
-                  title={textFields.title}
-                  artist={textFields.artist}
-                  year={textFields.year}
-                />
-              )}
-
-              {role === 'text-panel' && categoryType === 'ghibli' && (() => {
-                const isLeft = label === 'ghibli-left';
-                const stripStyle = isLeft
-                  ? { left: '14.15%', top: '0%', width: '85.85%', height: '100%' }
-                  : { left: '0%', top: '0%', width: '85.69%', height: '100%' };
-                return (
-                  <div className="relative h-full w-full overflow-hidden" style={{ aspectRatio: '1' }}>
-                    {tiles[index] && (
-                      <img src={tiles[index]} alt="" className="absolute" style={stripStyle} draggable={false} />
-                    )}
-                    <div className="absolute inset-0 z-10">
-                      <GhibliPanelPreview
-                        label={label as 'ghibli-left' | 'ghibli-right'}
-                        year={textFields.year}
-                        japaneseText={textFields.japaneseText}
-                        customText={textFields.customText}
-                        studioText={textFields.studioText}
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {role === 'photo' && (
-                <PhotoTile
-                  tileSrc={tiles[photoTileIndexMap.get(index) ?? 0] || ''}
-                  index={index}
-                  totalTiles={gridConfig.size}
-                  categoryType={categoryType}
-                  floresFilter={floresFilters?.find((f) => f.tileIndex === index)?.filter}
-                  textFields={textFields}
-                  gridSize={gridConfig.size}
-                />
-              )}
-            </TileWrapper>
-          );
-        })}
+        {tileLayout.map((descriptor) => (
+          <TileContent
+            key={descriptor.index}
+            descriptor={descriptor}
+            tileSrc={tileSrcFor(descriptor.index)}
+            categoryType={categoryType}
+            textFields={textFields}
+            gridSize={gridConfig.size}
+            tonosIntensity={tonos?.intensity ?? 'medium'}
+          />
+        ))}
 
         {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'ghibli' && (
           <MosaikoWatermark />
@@ -312,7 +298,6 @@ export function MagnetPreview({
         </motion.p>
       </div>
 
-      {/* Fridge surface simulation */}
       <div className="mx-auto w-full max-w-[420px]">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -324,7 +309,6 @@ export function MagnetPreview({
             boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.4), inset 0 -1px 2px rgba(0,0,0,0.05), 0 8px 32px rgba(0,0,0,0.08)',
           }}
         >
-          {/* Subtle fridge texture dots */}
           <div
             className="pointer-events-none absolute inset-0 opacity-[0.03]"
             style={{
@@ -363,70 +347,18 @@ export function MagnetPreview({
                 maxWidth: `${gridConfig.cols * 120}px`,
               }}
             >
-              {tileLayout.map((descriptor) => {
-                const { index, role, label, gridColumn, gridRow } = descriptor;
-                const placementStyle: React.CSSProperties | undefined =
-                  gridColumn || gridRow
-                    ? { gridColumn: gridColumn, gridRow: gridRow }
-                    : undefined;
+              {tileLayout.map((descriptor) => (
+                <TileContent
+                  key={descriptor.index}
+                  descriptor={descriptor}
+                  tileSrc={tileSrcFor(descriptor.index)}
+                  categoryType={categoryType}
+                  textFields={textFields}
+                  gridSize={gridConfig.size}
+                  tonosIntensity={tonos?.intensity ?? 'medium'}
+                />
+              ))}
 
-                return (
-                  <TileWrapper key={index} index={index} style={placementStyle}>
-                    {role === 'special' && categoryType === 'spotify' && (
-                      <SpotifyBarPreview
-                        label={label as 'spotify-bar-left' | 'spotify-bar-right'}
-                        songName={textFields.songName}
-                        artistName={textFields.artistName}
-                      />
-                    )}
-
-                    {role === 'special' && categoryType === 'arte' && (
-                      <ArteInfoPreview
-                        title={textFields.title}
-                        artist={textFields.artist}
-                        year={textFields.year}
-                      />
-                    )}
-
-                    {role === 'text-panel' && categoryType === 'ghibli' && (() => {
-                      const isLeft = label === 'ghibli-left';
-                      const stripStyle = isLeft
-                        ? { left: '14.15%', top: '0%', width: '85.85%', height: '100%' }
-                        : { left: '0%', top: '0%', width: '85.69%', height: '100%' };
-                      return (
-                        <div className="relative h-full w-full overflow-hidden" style={{ aspectRatio: '1' }}>
-                          {tiles[index] && (
-                            <img src={tiles[index]} alt="" className="absolute" style={stripStyle} draggable={false} />
-                          )}
-                          <div className="absolute inset-0 z-10">
-                            <GhibliPanelPreview
-                              label={label as 'ghibli-left' | 'ghibli-right'}
-                              year={textFields.year}
-                              japaneseText={textFields.japaneseText}
-                              customText={textFields.customText}
-                              studioText={textFields.studioText}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {role === 'photo' && (
-                      <PhotoTile
-                        tileSrc={tiles[photoTileIndexMap.get(index) ?? 0] || ''}
-                        index={index}
-                        totalTiles={gridConfig.size}
-                        categoryType={categoryType}
-                        floresFilter={floresFilters?.find((f) => f.tileIndex === index)?.filter}
-                        textFields={textFields}
-                        gridSize={gridConfig.size}
-                      />
-                    )}
-                  </TileWrapper>
-                );
-              })}
-
-              {/* Mosaiko logo watermark — skip for categories that have their own logo in special tiles */}
               {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'ghibli' && (
                 <MosaikoWatermark />
               )}
@@ -435,7 +367,6 @@ export function MagnetPreview({
         </motion.div>
       </div>
 
-      {/* Info section */}
       {!isLoading && !error && (
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -443,7 +374,6 @@ export function MagnetPreview({
           transition={{ delay: tileLayout.length * 0.05 + 0.2, duration: 0.4 }}
           className="flex flex-col gap-4"
         >
-          {/* Product info card */}
           <div className="flex items-center justify-between rounded-xl bg-white px-4 py-3">
             <div className="flex flex-col">
               <span className="text-sm text-warm-gray">
@@ -463,7 +393,6 @@ export function MagnetPreview({
             </span>
           </div>
 
-          {/* Action buttons */}
           <Button
             variant="cta"
             size="lg"
@@ -484,6 +413,85 @@ export function MagnetPreview({
         </motion.div>
       )}
     </div>
+  );
+}
+
+// ─── Tile content wrapper ───────────────────────────────────────────────────
+
+function TileContent({
+  descriptor,
+  tileSrc,
+  categoryType,
+  textFields,
+  gridSize,
+  tonosIntensity,
+}: {
+  descriptor: ReturnType<typeof getTileLayout>[number];
+  tileSrc: string;
+  categoryType: CategoryType;
+  textFields: Record<string, string>;
+  gridSize: number;
+  tonosIntensity: TonosIntensity;
+}) {
+  const { index, role, label, gridColumn, gridRow } = descriptor;
+  const placementStyle: React.CSSProperties | undefined =
+    gridColumn || gridRow ? { gridColumn, gridRow } : undefined;
+
+  return (
+    <TileWrapper index={index} style={placementStyle}>
+      {role === 'special' && categoryType === 'spotify' && (
+        <SpotifyBarPreview
+          label={label as 'spotify-bar-left' | 'spotify-bar-right'}
+          songName={textFields.songName}
+          artistName={textFields.artistName}
+        />
+      )}
+
+      {role === 'special' && categoryType === 'arte' && (
+        <ArteInfoPreview
+          title={textFields.title}
+          artist={textFields.artist}
+          year={textFields.year}
+        />
+      )}
+
+      {role === 'text-panel' && categoryType === 'ghibli' && (() => {
+        const isLeft = label === 'ghibli-left';
+        const stripStyle = isLeft
+          ? { left: '14.15%', top: '0%', width: '85.85%', height: '100%' }
+          : { left: '0%', top: '0%', width: '85.69%', height: '100%' };
+        return (
+          <div className="relative h-full w-full overflow-hidden" style={{ aspectRatio: '1' }}>
+            {tileSrc && (
+              <img src={tileSrc} alt="" className="absolute" style={stripStyle} draggable={false} />
+            )}
+            <div className="absolute inset-0 z-10">
+              <GhibliPanelPreview
+                label={label as 'ghibli-left' | 'ghibli-right'}
+                year={textFields.year}
+                japaneseText={textFields.japaneseText}
+                customText={textFields.customText}
+                studioText={textFields.studioText}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
+      {role === 'photo' && (
+        <PhotoTile
+          tileSrc={tileSrc}
+          index={index}
+          totalTiles={gridSize}
+          categoryType={categoryType}
+          tonosFilter={descriptor.toneColumn
+            ? getTonosColumnCSSFilter(descriptor.toneColumn, tonosIntensity)
+            : undefined}
+          textFields={textFields}
+          gridSize={gridSize}
+        />
+      )}
+    </TileWrapper>
   );
 }
 
@@ -518,7 +526,6 @@ function TileWrapper({
       style={style}
     >
       {children}
-      {/* Magnetic shadow */}
       <div
         className="absolute -bottom-1 left-1/2 -z-10 h-2 w-4/5 -translate-x-1/2 rounded-full opacity-20"
         style={{
@@ -530,7 +537,6 @@ function TileWrapper({
   );
 }
 
-/** Determine which Save the Date overlay text to show per tile */
 function getSaveTheDateOverlay(
   index: number,
   gridSize: number,
@@ -553,7 +559,7 @@ function PhotoTile({
   index,
   totalTiles,
   categoryType,
-  floresFilter,
+  tonosFilter,
   textFields,
   gridSize,
 }: {
@@ -561,7 +567,7 @@ function PhotoTile({
   index: number;
   totalTiles: number;
   categoryType: CategoryType;
-  floresFilter?: string;
+  tonosFilter?: string;
   textFields?: Record<string, string>;
   gridSize?: number;
 }) {
@@ -576,7 +582,6 @@ function PhotoTile({
     />
   );
 
-  // Spotify: photo with PNG template overlay (black frame with rounded corners)
   if (categoryType === 'spotify') {
     const tileNumber = index + 1;
     return (
@@ -592,7 +597,6 @@ function PhotoTile({
     );
   }
 
-  // Polaroid: photo inside transparent cutout + PNG frame on top (same pattern as Studio)
   if (categoryType === 'polaroid') {
     const tileNumber = index + 1;
     const insets: Record<number, { left: string; top: string; width: string; height: string }> = {
@@ -630,7 +634,6 @@ function PhotoTile({
     );
   }
 
-  // Ghibli/Studio: photo inside transparent cutout + PNG frame on top (relative for flow height)
   if (categoryType === 'ghibli') {
     const tileNumber = index + 1;
     if (tileNumber > 4) return null;
@@ -660,15 +663,14 @@ function PhotoTile({
     );
   }
 
-  // Flores: apply CSS filter (same image on each tile, different filter)
-  if (categoryType === 'flores') {
+  if (categoryType === 'tonos') {
     return (
       <div
         className="overflow-hidden rounded-md"
         style={{
           aspectRatio: '1',
           boxShadow: '0 2px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.1)',
-          filter: floresFilter || 'none',
+          filter: tonosFilter || 'none',
         }}
       >
         {imgElement}
@@ -676,7 +678,6 @@ function PhotoTile({
     );
   }
 
-  // Save the Date: photo + text overlay on correct tiles
   if (categoryType === 'save-the-date' && textFields) {
     const overlay = getSaveTheDateOverlay(index, gridSize || totalTiles);
 
@@ -700,7 +701,6 @@ function PhotoTile({
     );
   }
 
-  // Default: plain photo tile
   return (
     <div
       className="overflow-hidden rounded-md"

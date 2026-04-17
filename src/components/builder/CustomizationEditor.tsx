@@ -2,14 +2,12 @@
 
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
-import { CATEGORY_REGISTRY, type CategoryType, type FloresTheme } from '@/lib/customization-types';
+import type { CategoryType } from '@/lib/customization-types';
 
 interface CustomizationEditorProps {
   category: CategoryType;
   values: Record<string, string>;
   onValueChange: (field: string, value: string) => void;
-  selectedTheme: FloresTheme | null;
-  onThemeChange: (theme: FloresTheme) => void;
   onComplete: () => void;
 }
 
@@ -27,15 +25,6 @@ const FIELD_I18N: Record<string, string> = {
   date: 'fieldDate',
 };
 
-const THEME_SWATCHES: Record<FloresTheme, string> = {
-  calido: '#E8A87C',
-  fresco: '#7FB5D5',
-  vintage: '#C9B99A',
-  pastel: '#D4C5E2',
-};
-
-const THEME_ORDER: FloresTheme[] = ['calido', 'fresco', 'vintage', 'pastel'];
-
 const containerVariants = {
   hidden: {},
   visible: { transition: { staggerChildren: 0.06 } },
@@ -50,12 +39,9 @@ export function CustomizationEditor({
   category,
   values,
   onValueChange,
-  selectedTheme,
-  onThemeChange,
   onComplete,
 }: CustomizationEditorProps) {
   const t = useTranslations('builder');
-  const meta = CATEGORY_REGISTRY[category];
 
   return (
     <div className="flex flex-col gap-6">
@@ -83,7 +69,6 @@ export function CustomizationEditor({
         animate="visible"
         className="flex flex-col gap-4"
       >
-        {/* ─── Per-category field rendering ─── */}
         {category === 'spotify' && (
           <SpotifyFields values={values} onChange={onValueChange} />
         )}
@@ -96,14 +81,7 @@ export function CustomizationEditor({
         {category === 'save-the-date' && (
           <SaveTheDateFields values={values} onChange={onValueChange} />
         )}
-        {category === 'flores' && (
-          <FloresThemeSelector
-            selectedTheme={selectedTheme}
-            onThemeChange={onThemeChange}
-          />
-        )}
 
-        {/* ─── Continue button ─── */}
         <motion.div variants={itemVariants}>
           <button
             onClick={onComplete}
@@ -227,74 +205,5 @@ function SaveTheDateFields({
       <FieldInput field="eventText" value={values.eventText || ''} onChange={onChange} />
       <FieldInput field="date" value={values.date || ''} onChange={onChange} type="date" />
     </>
-  );
-}
-
-function FloresThemeSelector({
-  selectedTheme,
-  onThemeChange,
-}: {
-  selectedTheme: FloresTheme | null;
-  onThemeChange: (theme: FloresTheme) => void;
-}) {
-  const t = useTranslations('builder');
-
-  return (
-    <motion.div variants={itemVariants} className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-charcoal">{t('themeLabel')}</span>
-      <div className="grid grid-cols-2 gap-3">
-        {THEME_ORDER.map((theme) => {
-          const isActive = selectedTheme === theme;
-          const themeKey = `theme${theme.charAt(0).toUpperCase()}${theme.slice(1)}` as
-            | 'themeCalido'
-            | 'themeFresco'
-            | 'themeVintage'
-            | 'themePastel';
-
-          return (
-            <button
-              key={theme}
-              onClick={() => onThemeChange(theme)}
-              className={[
-                'group relative flex items-center gap-3 rounded-lg border-2 p-3 transition-all cursor-pointer min-h-[48px]',
-                isActive
-                  ? 'border-terracotta bg-terracotta/5'
-                  : 'border-light-gray bg-white hover:border-terracotta-light',
-              ].join(' ')}
-            >
-              {/* Selection indicator */}
-              {isActive && (
-                <motion.div
-                  layoutId="theme-selection-indicator"
-                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-terracotta text-white"
-                  initial={false}
-                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                </motion.div>
-              )}
-
-              <div
-                className="h-8 w-8 shrink-0 rounded-full border-2 transition-colors"
-                style={{
-                  backgroundColor: THEME_SWATCHES[theme],
-                  borderColor: isActive ? '#7b3f1e' : '#E5E5E5',
-                }}
-              />
-              <span
-                className={[
-                  'text-sm font-medium',
-                  isActive ? 'text-terracotta' : 'text-charcoal',
-                ].join(' ')}
-              >
-                {t(themeKey)}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </motion.div>
   );
 }

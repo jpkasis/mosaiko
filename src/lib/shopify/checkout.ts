@@ -68,15 +68,31 @@ export async function createCheckout(
     if (item.customizations) {
       attributes.push(
         { key: 'category', value: item.customizations.categoryType },
-        { key: '_photo_url', value: item.customizations.photoStorageUrl || '' },
         { key: '_customization', value: JSON.stringify(item.customizations) },
       );
 
-      if (item.customizations.cropArea) {
+      if (item.customizations.categoryType === 'tonos') {
+        const urls = item.customizations.photoStorageUrls ?? ['', '', ''];
+        const crops = item.customizations.cropAreas;
+        attributes.push(
+          { key: '_photo_urls', value: JSON.stringify(urls) },
+          // First URL also exposed under the legacy single-URL key for compatibility.
+          { key: '_photo_url', value: urls[0] || '' },
+        );
+        if (crops) {
+          attributes.push({ key: '_crop_areas', value: JSON.stringify(crops) });
+        }
+      } else {
         attributes.push({
-          key: '_crop_area',
-          value: JSON.stringify(item.customizations.cropArea),
+          key: '_photo_url',
+          value: item.customizations.photoStorageUrl || '',
         });
+        if (item.customizations.cropArea) {
+          attributes.push({
+            key: '_crop_area',
+            value: JSON.stringify(item.customizations.cropArea),
+          });
+        }
       }
     }
 

@@ -1,18 +1,37 @@
-import type { CategoryCustomization } from '../customization-types';
+import type {
+  CategoryCustomization,
+  TonosCustomization,
+} from '../customization-types';
 import type { CropArea } from '../canvas-utils';
 
 // ─── Print job input ────────────────────────────────────────────────────────
 
-export interface PrintJob {
+/**
+ * Standard single-image print job. Used for every category except Tonos.
+ */
+export interface SingleImagePrintJob {
   /** Raw image buffer (PNG/JPEG) */
   imageBuffer: Buffer;
-  /** Customization config from the builder (discriminated union) */
-  customization: CategoryCustomization;
+  /** Customization config (excludes tonos) */
+  customization: Exclude<CategoryCustomization, TonosCustomization>;
   /** Crop area selected by the user */
   cropArea: CropArea;
   /** Unique order/job identifier for filename generation */
   jobId: string;
 }
+
+/**
+ * Multi-image print job for Tonos. Holds 3 image buffers + 3 crop areas,
+ * aligned positionally: buffer[i] goes with cropArea[i].
+ */
+export interface TonosPrintJob {
+  imageBuffers: [Buffer, Buffer, Buffer];
+  customization: TonosCustomization;
+  cropAreas: [CropArea, CropArea, CropArea];
+  jobId: string;
+}
+
+export type PrintJob = SingleImagePrintJob | TonosPrintJob;
 
 // ─── Single tile output ─────────────────────────────────────────────────────
 
@@ -53,7 +72,7 @@ export interface TextRenderOptions {
   padding?: number;
 }
 
-// ─── Sharp filter config (for Flores theme filters) ─────────────────────────
+// ─── Sharp filter config (for Tonos column filters) ─────────────────────────
 
 export interface SharpFilterConfig {
   tileIndex: number;

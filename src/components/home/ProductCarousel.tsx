@@ -48,9 +48,9 @@ const products: Product[] = [
     price: 480,
   },
   {
-    src: '/products/flores-9.png',
-    alt: 'Ramo de flores',
-    category: 'Flores',
+    src: '/products/tonos-9.png',
+    alt: 'Ramo de rosas',
+    category: 'Tonos',
     grid: '3×3',
     pieces: 9,
     price: 480,
