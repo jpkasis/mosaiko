@@ -199,6 +199,30 @@ body {
   scrollbar-width: none;
 }
 
+/* ── react-easy-crop sizing overrides ──
+   Tailwind preflight applies `img { max-width: 100%; height: auto }` to all
+   images, which clamps the cropper's media element to the container width.
+   That defeats cover mode (where the image MUST overflow the container so
+   the user can pan/choose the crop) and produces brown gaps when dragging
+   non-square photos. Reassert the library's intended sizing here. */
+.reactEasyCrop_Container .reactEasyCrop_Image,
+.reactEasyCrop_Container .reactEasyCrop_Video {
+  max-width: none;
+  max-height: none;
+}
+.reactEasyCrop_Cover_Vertical {
+  width: auto !important;
+  height: 100% !important;
+}
+.reactEasyCrop_Cover_Horizontal {
+  width: 100% !important;
+  height: auto !important;
+}
+.reactEasyCrop_Contain {
+  max-width: 100% !important;
+  max-height: 100% !important;
+}
+
 /* ── Grain Overlay ── */
 .grain-overlay::after {
   content: "";
