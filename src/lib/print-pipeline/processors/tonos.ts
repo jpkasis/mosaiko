@@ -1,9 +1,14 @@
 import sharp from 'sharp';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import { getTileLayout } from '../../customization-types';
 import type { TonosPrintJob, TileOutput, SharpFilterConfig } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
 import { getTonosColumnFilter } from '../utils/filter-presets';
+
+const MOSAIKO_LOGO_DIR = join(process.cwd(), 'MOSAIKO-logos');
+const LOGO_BLANCO_PATH = join(MOSAIKO_LOGO_DIR, 'LOGO BLANCO.png');
 
 /**
  * Tonos processor.
@@ -31,6 +36,8 @@ export async function processTonos(job: TonosPrintJob): Promise<TileOutput[]> {
     }),
   );
 
+  const lastIndex = tileDescriptors.length - 1;
+
   const tiles = await Promise.all(
     tileDescriptors.map(async (td): Promise<TileOutput> => {
       const sourceIdx = td.sourceImageIndex ?? 0;
@@ -38,9 +45,13 @@ export async function processTonos(job: TonosPrintJob): Promise<TileOutput[]> {
       const baseBuffer = croppedPerSource[sourceIdx];
 
       const filter = getTonosColumnFilter(column, customization.intensity, td.index);
-      const buffer = filter.isOriginal
+      const filtered = filter.isOriginal
         ? baseBuffer
         : await applySharpFilter(baseBuffer, filter);
+
+      const buffer = td.index === lastIndex
+        ? await stampMosaikoLogo(filtered)
+        : filtered;
 
       return {
         index: td.index,
@@ -51,6 +62,24 @@ export async function processTonos(job: TonosPrintJob): Promise<TileOutput[]> {
   );
 
   return tiles;
+}
+
+/**
+ * Stamps the white Mosaiko logo at the bottom-right of a tile, matching the
+ * placement seen on the client's stock Tonos product photos.
+ * Sizing/inset constants mirror the Polaroid processor for visual parity.
+ */
+async function stampMosaikoLogo(tileBuffer: Buffer): Promise<Buffer> {
+  const logoRaw = await readFile(LOGO_BLANCO_PATH);
+  const logoH = Math.round(TILE_PRINT_SIZE * 0.06);
+  const logoResized = await sharp(logoRaw).resize({ height: logoH }).png().toBuffer();
+  const meta = await sharp(logoResized).metadata();
+  const left = TILE_PRINT_SIZE - Math.round(TILE_PRINT_SIZE * 0.08) - (meta.width ?? 80);
+  const top = Math.round(TILE_PRINT_SIZE * 0.90);
+  return sharp(tileBuffer)
+    .composite([{ input: logoResized, left, top }])
+    .png()
+    .toBuffer();
 }
 
 async function applySharpFilter(

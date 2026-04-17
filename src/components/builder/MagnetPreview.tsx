@@ -274,7 +274,7 @@ export function MagnetPreview({
         ))}
 
         {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'ghibli' && (
-          <MosaikoWatermark />
+          <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
         )}
       </div>
     );
@@ -363,7 +363,7 @@ export function MagnetPreview({
               ))}
 
               {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'ghibli' && (
-                <MosaikoWatermark />
+                <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
               )}
             </div>
           )}
