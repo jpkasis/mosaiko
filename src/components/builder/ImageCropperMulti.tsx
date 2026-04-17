@@ -8,16 +8,24 @@ import type { GridConfig } from '@/lib/grid-config';
 import type { CropArea } from '@/lib/canvas-utils';
 import type { TonosIntensity } from '@/lib/customization-types';
 import { Button } from '@/components/ui/Button';
-import type { TonosIndex } from './useBuilderFlow';
+import type {
+  TonosIndex,
+  TonosFitMode,
+  TonosRotation,
+  TonosSlot,
+} from './useBuilderFlow';
 
 interface ImageCropperMultiProps {
   imageSrcs: [string | null, string | null, string | null];
   gridConfig: GridConfig;
   cropAreas: [CropArea | null, CropArea | null, CropArea | null];
   intensity: TonosIntensity;
+  slots: [TonosSlot, TonosSlot, TonosSlot];
   onCropChange: (index: TonosIndex, cropAreaPixels: CropArea) => void;
   onCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
   onIntensityChange: (intensity: TonosIntensity) => void;
+  onFitModeChange: (index: TonosIndex, mode: TonosFitMode) => void;
+  onToggleRotation: (index: TonosIndex) => void;
   onAllDone: () => void;
 }
 
@@ -34,9 +42,12 @@ export function ImageCropperMulti({
   gridConfig,
   cropAreas,
   intensity,
+  slots,
   onCropChange,
   onCropComplete,
   onIntensityChange,
+  onFitModeChange,
+  onToggleRotation,
   onAllDone,
 }: ImageCropperMultiProps) {
   const t = useTranslations('builder');
@@ -64,10 +75,11 @@ export function ImageCropperMulti({
             key={i}
             index={i as TonosIndex}
             imageSrc={src}
-            // Each Tonos tile is 1:1 regardless of grid (3-tile or 9-tile).
-            aspect={1}
+            slot={slots[i]}
             onCropChange={onCropChange}
             onCropComplete={onCropComplete}
+            onFitModeChange={onFitModeChange}
+            onToggleRotation={onToggleRotation}
           />
         ))}
       </div>
@@ -92,21 +104,58 @@ export function ImageCropperMulti({
 function TonosCropSlot({
   index,
   imageSrc,
-  aspect,
+  slot,
   onCropChange,
   onCropComplete,
+  onFitModeChange,
+  onToggleRotation,
 }: {
   index: TonosIndex;
   imageSrc: string | null;
-  aspect: number;
+  slot: TonosSlot;
   onCropChange: (index: TonosIndex, cropAreaPixels: CropArea) => void;
   onCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
+  onFitModeChange: (index: TonosIndex, mode: TonosFitMode) => void;
+  onToggleRotation: (index: TonosIndex) => void;
 }) {
+  const t = useTranslations('builder');
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const lastEmittedRef = useRef<string>('');
+
+  // Reset local crop/zoom when fit mode or rotation changes
+  useEffect(() => {
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    lastEmittedRef.current = '';
+  }, [slot.fitMode, slot.rotation]);
 
   useEffect(() => () => clearTimeout(debounceRef.current), []);
+
+  // Load source image dimensions for stretch mode
+  useEffect(() => {
+    if (!imageSrc) {
+      setImageSize(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => setImageSize({ width: img.naturalWidth, height: img.naturalHeight });
+    img.src = imageSrc;
+  }, [imageSrc]);
+
+  // Stretch mode: emit a synthetic full-image crop area once dimensions are known
+  useEffect(() => {
+    if (slot.fitMode !== 'stretch' || !imageSize) return;
+    const fullArea: CropArea = { x: 0, y: 0, width: imageSize.width, height: imageSize.height };
+    const key = `${slot.fitMode}|${slot.rotation}|${imageSize.width}x${imageSize.height}`;
+    if (lastEmittedRef.current === key) return;
+    lastEmittedRef.current = key;
+    onCropComplete(index, fullArea);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onCropChange(index, fullArea), 50);
+  }, [slot.fitMode, slot.rotation, imageSize, index, onCropChange, onCropComplete]);
 
   const handleCropComplete = useCallback(
     (_area: CropArea, pixels: CropArea) => {
@@ -118,6 +167,7 @@ function TonosCropSlot({
   );
 
   const meta = COLUMN_LABELS[index];
+  const objectFit = slot.fitMode === 'fill' ? 'cover' : 'contain';
 
   return (
     <div className="flex flex-col gap-2">
@@ -133,24 +183,34 @@ function TonosCropSlot({
         </div>
       </div>
 
+      <FitModeSelector
+        selected={slot.fitMode}
+        onChange={(m) => onFitModeChange(index, m)}
+      />
+
       <div
         className="relative w-full overflow-hidden rounded-xl bg-charcoal"
         style={{ aspectRatio: '1' }}
       >
         {imageSrc ? (
-          <Cropper
-            image={imageSrc}
-            crop={crop}
-            zoom={zoom}
-            rotation={0}
-            aspect={aspect}
-            objectFit="cover"
-            onCropChange={setCrop}
-            onZoomChange={setZoom}
-            onCropComplete={handleCropComplete}
-            showGrid={false}
-            style={{ containerStyle: { borderRadius: '0.75rem' } }}
-          />
+          slot.fitMode === 'stretch' ? (
+            <StretchPreview imageSrc={imageSrc} rotation={slot.rotation} />
+          ) : (
+            <Cropper
+              key={`${slot.fitMode}-${slot.rotation}`}
+              image={imageSrc}
+              crop={crop}
+              zoom={zoom}
+              rotation={slot.rotation}
+              aspect={1}
+              objectFit={objectFit}
+              onCropChange={setCrop}
+              onZoomChange={setZoom}
+              onCropComplete={handleCropComplete}
+              showGrid={false}
+              style={{ containerStyle: { borderRadius: '0.75rem' } }}
+            />
+          )
         ) : (
           <div className="flex h-full w-full items-center justify-center text-sm text-white/60">
             Sin imagen
@@ -159,33 +219,53 @@ function TonosCropSlot({
       </div>
 
       <div className="flex items-center gap-2 px-1">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-warm-gray">
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          <line x1="8" y1="11" x2="14" y2="11" />
-        </svg>
-        <input
-          type="range"
-          min={1}
-          max={3}
-          step={0.01}
-          value={zoom}
-          onChange={(e) => setZoom(Number(e.target.value))}
-          className="tonos-zoom h-1.5 w-full cursor-pointer appearance-none rounded-full bg-light-gray outline-none"
-          aria-label={`Zoom ${meta.label}`}
-          style={
-            {
-              '--tz-progress': `${((zoom - 1) / 2) * 100}%`,
-            } as React.CSSProperties
-          }
+        <button
+          type="button"
+          onClick={() => onToggleRotation(index)}
           disabled={!imageSrc}
-        />
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-warm-gray">
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          <line x1="8" y1="11" x2="14" y2="11" />
-          <line x1="11" y1="8" x2="11" y2="14" />
-        </svg>
+          aria-label={t('rotate')}
+          title={`${t('rotate')} (${slot.rotation}°)`}
+          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-light-gray bg-white text-warm-gray transition-colors hover:border-terracotta hover:text-terracotta disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7.5 3.5L4 7l3.5 3.5" />
+            <path d="M4 7h11a4 4 0 0 1 4 4v1" />
+            <path d="M16.5 20.5L20 17l-3.5-3.5" />
+            <path d="M20 17H9a4 4 0 0 1-4-4v-1" />
+          </svg>
+        </button>
+
+        {slot.fitMode !== 'stretch' && (
+          <>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-warm-gray">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <line x1="8" y1="11" x2="14" y2="11" />
+            </svg>
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={0.01}
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              className="tonos-zoom h-1.5 w-full cursor-pointer appearance-none rounded-full bg-light-gray outline-none"
+              aria-label={`Zoom ${meta.label}`}
+              style={
+                {
+                  '--tz-progress': `${((zoom - 1) / 2) * 100}%`,
+                } as React.CSSProperties
+              }
+              disabled={!imageSrc}
+            />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-warm-gray">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <line x1="8" y1="11" x2="14" y2="11" />
+              <line x1="11" y1="8" x2="11" y2="14" />
+            </svg>
+          </>
+        )}
       </div>
 
       <style>{`
@@ -222,6 +302,75 @@ function TonosCropSlot({
           height: 6px;
         }
       `}</style>
+    </div>
+  );
+}
+
+// ─── Compact Fit Mode Selector (per slot) ───────────────────────────────────
+
+const FIT_MODES: { mode: TonosFitMode; labelKey: 'fitModeFill' | 'fitModeFit' | 'fitModeStretch' }[] = [
+  { mode: 'fill', labelKey: 'fitModeFill' },
+  { mode: 'fit', labelKey: 'fitModeFit' },
+  { mode: 'stretch', labelKey: 'fitModeStretch' },
+];
+
+function FitModeSelector({
+  selected,
+  onChange,
+}: {
+  selected: TonosFitMode;
+  onChange: (mode: TonosFitMode) => void;
+}) {
+  const t = useTranslations('builder');
+
+  return (
+    <div className="flex gap-1.5 rounded-lg bg-cream p-1 ring-1 ring-light-gray">
+      {FIT_MODES.map(({ mode, labelKey }) => {
+        const isActive = selected === mode;
+        return (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => onChange(mode)}
+            className={[
+              'flex-1 cursor-pointer rounded-md px-2 py-1.5 text-xs font-semibold transition-colors duration-150',
+              isActive
+                ? 'bg-white text-terracotta shadow-sm'
+                : 'text-warm-gray hover:text-charcoal',
+            ].join(' ')}
+            aria-pressed={isActive}
+          >
+            {t(labelKey)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Stretch Preview (per slot, 1:1) ────────────────────────────────────────
+
+function StretchPreview({
+  imageSrc,
+  rotation,
+}: {
+  imageSrc: string;
+  rotation: TonosRotation;
+}) {
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={imageSrc}
+        alt=""
+        draggable={false}
+        className="h-full w-full select-none"
+        style={{
+          objectFit: 'fill',
+          transform: `rotate(${rotation}deg)`,
+          transformOrigin: 'center',
+        }}
+      />
     </div>
   );
 }
@@ -277,3 +426,6 @@ function IntensitySelector({
     </div>
   );
 }
+
+// gridConfig param retained for future per-grid behaviour even though aspect is fixed at 1.
+export type { ImageCropperMultiProps };

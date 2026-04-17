@@ -25,6 +25,7 @@ interface TonosInputs {
   imageSrcs: [string | null, string | null, string | null];
   cropAreas: [CropArea | null, CropArea | null, CropArea | null];
   intensity: TonosIntensity;
+  rotations?: [number, number, number];
 }
 
 // Stable default to avoid recreating an empty object on every render
@@ -114,7 +115,8 @@ export function MagnetPreview({
               if (!src || !area) return;
               const image = await loadImage(src);
               if (cancelled) return;
-              const canvas = getCroppedCanvas(image, area, tileSize, tileSize, 0);
+              const rotation = tonos.rotations?.[i] ?? 0;
+              const canvas = getCroppedCanvas(image, area, tileSize, tileSize, rotation);
               perSource[i] = canvas.toDataURL('image/jpeg', 0.9);
               canvas.width = 0;
               canvas.height = 0;
@@ -213,6 +215,7 @@ export function MagnetPreview({
     imageSrc, cropArea, gridConfig, categoryType, photoTileCount, tileLayout,
     tonos?.imageSrcs[0], tonos?.imageSrcs[1], tonos?.imageSrcs[2],
     tonos?.cropAreas[0], tonos?.cropAreas[1], tonos?.cropAreas[2],
+    tonos?.rotations?.[0], tonos?.rotations?.[1], tonos?.rotations?.[2],
     tonos?.intensity,
   ]);
 

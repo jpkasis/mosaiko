@@ -238,10 +238,24 @@ async function processLineItem(
       return [];
     }
 
+    // Pull per-slot rotations out of the customization JSON if present.
+    const slotsRaw = (customization as unknown as {
+      tonosSlots?: Array<{ rotation?: number }>;
+    }).tonosSlots;
+    let rotations: [number, number, number] | undefined;
+    if (Array.isArray(slotsRaw) && slotsRaw.length === 3) {
+      const rs = slotsRaw.map((s) => {
+        const r = typeof s?.rotation === 'number' ? s.rotation : 0;
+        return [0, 90, 180, 270].includes(r) ? r : 0;
+      });
+      rotations = [rs[0], rs[1], rs[2]];
+    }
+
     const result = await processPrintJob({
       imageBuffers: [buffers[0]!, buffers[1]!, buffers[2]!],
       customization,
       cropAreas: [crops[0], crops[1], crops[2]],
+      rotations,
       jobId,
     });
 

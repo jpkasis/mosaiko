@@ -34,6 +34,13 @@ export const STEP_I18N_MAP: Record<StepId, string> = {
 // ─── Tonos state (3 images) ─────────────────────────────────────────────────
 
 export type TonosIndex = 0 | 1 | 2;
+export type TonosFitMode = 'fill' | 'fit' | 'stretch';
+export type TonosRotation = 0 | 90 | 180 | 270;
+
+export interface TonosSlot {
+  fitMode: TonosFitMode;
+  rotation: TonosRotation;
+}
 
 export interface TonosState {
   fileRefs: React.RefObject<[File | null, File | null, File | null]>;
@@ -41,6 +48,13 @@ export interface TonosState {
   cropAreas: [CropArea | null, CropArea | null, CropArea | null];
   liveCropAreas: [CropArea | null, CropArea | null, CropArea | null];
   intensity: TonosIntensity;
+  slots: [TonosSlot, TonosSlot, TonosSlot];
+}
+
+const DEFAULT_TONOS_SLOT: TonosSlot = { fitMode: 'fill', rotation: 0 };
+
+function nextRotation(r: TonosRotation): TonosRotation {
+  return ((r + 90) % 360) as TonosRotation;
 }
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
@@ -82,6 +96,8 @@ export interface BuilderFlowState {
   handleTonosCropChange: (index: TonosIndex, cropAreaPixels: CropArea) => void;
   handleTonosCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
   setTonosIntensity: (intensity: TonosIntensity) => void;
+  setTonosFitMode: (index: TonosIndex, mode: TonosFitMode) => void;
+  toggleTonosRotation: (index: TonosIndex) => void;
   advanceFromTonosCrop: () => void;
 
   // Layout rotation
@@ -176,6 +192,11 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     emptyTuple<CropArea | null>(null),
   );
   const [tonosIntensity, setTonosIntensityState] = useState<TonosIntensity>('medium');
+  const [tonosSlots, setTonosSlots] = useState<[TonosSlot, TonosSlot, TonosSlot]>([
+    { ...DEFAULT_TONOS_SLOT },
+    { ...DEFAULT_TONOS_SLOT },
+    { ...DEFAULT_TONOS_SLOT },
+  ]);
 
   // ─── Layout rotation ───
   const [layoutRotated, setLayoutRotated] = useState(false);
@@ -194,8 +215,9 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
       cropAreas: tonosCropAreas,
       liveCropAreas: tonosLiveCropAreas,
       intensity: tonosIntensity,
+      slots: tonosSlots,
     }),
-    [tonosImageSrcs, tonosCropAreas, tonosLiveCropAreas, tonosIntensity],
+    [tonosImageSrcs, tonosCropAreas, tonosLiveCropAreas, tonosIntensity, tonosSlots],
   );
 
   // ─── Derived ───
@@ -271,6 +293,11 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setTonosCropAreas(emptyTuple<CropArea | null>(null));
     setTonosLiveCropAreas(emptyTuple<CropArea | null>(null));
     setTonosIntensityState('medium');
+    setTonosSlots([
+      { ...DEFAULT_TONOS_SLOT },
+      { ...DEFAULT_TONOS_SLOT },
+      { ...DEFAULT_TONOS_SLOT },
+    ]);
   }, [tonosImageSrcs]);
 
   // ─── Category select ───
@@ -373,6 +400,49 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setTonosIntensityState(intensity);
   }, []);
 
+  const setTonosFitMode = useCallback((index: TonosIndex, mode: TonosFitMode) => {
+    setTonosSlots((prev) => {
+      if (prev[index].fitMode === mode) return prev;
+      const next: [TonosSlot, TonosSlot, TonosSlot] = [...prev];
+      next[index] = { ...prev[index], fitMode: mode };
+      return next;
+    });
+    // Reset that slot's crop area so the new mode starts fresh.
+    setTonosCropAreas((prev) => {
+      if (!prev[index]) return prev;
+      const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+      next[index] = null;
+      return next;
+    });
+    setTonosLiveCropAreas((prev) => {
+      if (!prev[index]) return prev;
+      const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+      next[index] = null;
+      return next;
+    });
+  }, []);
+
+  const toggleTonosRotation = useCallback((index: TonosIndex) => {
+    setTonosSlots((prev) => {
+      const next: [TonosSlot, TonosSlot, TonosSlot] = [...prev];
+      next[index] = { ...prev[index], rotation: nextRotation(prev[index].rotation) };
+      return next;
+    });
+    // Rotation invalidates the previous crop area; clear and let cropper re-emit.
+    setTonosCropAreas((prev) => {
+      if (!prev[index]) return prev;
+      const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+      next[index] = null;
+      return next;
+    });
+    setTonosLiveCropAreas((prev) => {
+      if (!prev[index]) return prev;
+      const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+      next[index] = null;
+      return next;
+    });
+  }, []);
+
   const advanceFromTonosCrop = useCallback(() => {
     setDirection(1);
     setCurrentStepId('preview');
@@ -437,6 +507,8 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     handleTonosCropChange,
     handleTonosCropComplete,
     setTonosIntensity,
+    setTonosFitMode,
+    toggleTonosRotation,
     advanceFromTonosCrop,
 
     layoutRotated,

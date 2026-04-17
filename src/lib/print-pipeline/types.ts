@@ -22,12 +22,14 @@ export interface SingleImagePrintJob {
 
 /**
  * Multi-image print job for Tonos. Holds 3 image buffers + 3 crop areas,
- * aligned positionally: buffer[i] goes with cropArea[i].
+ * aligned positionally: buffer[i] goes with cropArea[i]. Optional rotations
+ * are applied to each image before cropping (degrees, multiples of 90).
  */
 export interface TonosPrintJob {
   imageBuffers: [Buffer, Buffer, Buffer];
   customization: TonosCustomization;
   cropAreas: [CropArea, CropArea, CropArea];
+  rotations?: [number, number, number];
   jobId: string;
 }
 

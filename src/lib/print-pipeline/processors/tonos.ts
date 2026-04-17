@@ -17,14 +17,18 @@ import { getTonosColumnFilter } from '../utils/filter-presets';
  * 3-grid: one picture per tile in columns warm/none/cool.
  */
 export async function processTonos(job: TonosPrintJob): Promise<TileOutput[]> {
-  const { customization, imageBuffers, cropAreas } = job;
+  const { customization, imageBuffers, cropAreas, rotations } = job;
   const tileDescriptors = getTileLayout(customization);
 
-  // Crop each source image once to TILE_PRINT_SIZE.
+  // Apply rotation per image (if any), then crop each source to TILE_PRINT_SIZE.
   const croppedPerSource = await Promise.all(
-    imageBuffers.map((buf, i) =>
-      cropAndResize(buf, cropAreas[i], TILE_PRINT_SIZE, TILE_PRINT_SIZE),
-    ),
+    imageBuffers.map(async (buf, i) => {
+      const deg = rotations?.[i] ?? 0;
+      const source = deg === 0
+        ? buf
+        : await sharp(buf).rotate(deg).png().toBuffer();
+      return cropAndResize(source, cropAreas[i], TILE_PRINT_SIZE, TILE_PRINT_SIZE);
+    }),
   );
 
   const tiles = await Promise.all(

@@ -31,6 +31,11 @@ export interface CartItem {
       { x: number; y: number; width: number; height: number },
     ];
     tonosIntensity?: TonosIntensity;
+    tonosSlots?: [
+      { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
+      { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
+      { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
+    ];
     layoutRotated?: boolean;
   };
 }

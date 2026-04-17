@@ -14,7 +14,12 @@ import {
 import type { CropArea } from '@/lib/canvas-utils';
 import { useCartStore } from '@/lib/cart-store';
 import { createPreviewCanvas, getCroppedCanvas, loadImage } from '@/lib/canvas-utils';
-import { useBuilderFlow, STEP_I18N_MAP, type StepId, type TonosIndex } from './useBuilderFlow';
+import {
+  useBuilderFlow,
+  STEP_I18N_MAP,
+  type StepId,
+  type TonosIndex,
+} from './useBuilderFlow';
 import { CategorySelector } from './CategorySelector';
 import { GridSelector } from './GridSelector';
 import { PhotoUploader } from './PhotoUploader';
@@ -130,6 +135,11 @@ export function MagnetBuilder() {
             photoStorageUrls: [urls[0], urls[1], urls[2]],
             cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
             tonosIntensity: flow.tonos.intensity,
+            tonosSlots: [
+              { fitMode: flow.tonos.slots[0].fitMode, rotation: flow.tonos.slots[0].rotation },
+              { fitMode: flow.tonos.slots[1].fitMode, rotation: flow.tonos.slots[1].rotation },
+              { fitMode: flow.tonos.slots[2].fitMode, rotation: flow.tonos.slots[2].rotation },
+            ],
             layoutRotated: flow.layoutRotated,
           },
         });
@@ -205,21 +215,24 @@ export function MagnetBuilder() {
   // actually changed, otherwise MagnetPreview's effect re-fires infinitely.
   const tonosForPreview = useMemo(() => {
     if (!isTonos) return undefined;
+    const rotations = flow.tonos.slots.map((s) => s.rotation) as [number, number, number];
     return {
       imageSrcs: flow.tonos.imageSrcs,
       cropAreas: flow.tonos.cropAreas,
       intensity: flow.tonos.intensity,
+      rotations,
     };
-  }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.intensity]);
+  }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.intensity, flow.tonos.slots]);
 
   const tonosForSidebar = useMemo(() => {
     if (!isTonos) return undefined;
-    const { imageSrcs, cropAreas, liveCropAreas, intensity } = flow.tonos;
+    const { imageSrcs, cropAreas, liveCropAreas, intensity, slots } = flow.tonos;
     const merged = [0, 1, 2].map((i) => liveCropAreas[i] ?? cropAreas[i]) as [
       CropArea | null, CropArea | null, CropArea | null
     ];
-    return { imageSrcs, cropAreas: merged, intensity };
-  }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.liveCropAreas, flow.tonos.intensity]);
+    const rotations = slots.map((s) => s.rotation) as [number, number, number];
+    return { imageSrcs, cropAreas: merged, intensity, rotations };
+  }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.liveCropAreas, flow.tonos.intensity, flow.tonos.slots]);
 
   return (
     <div className="container-mosaiko py-6 md:py-10">
@@ -338,9 +351,12 @@ export function MagnetBuilder() {
                     gridConfig={flow.gridConfig}
                     cropAreas={flow.tonos.cropAreas}
                     intensity={flow.tonos.intensity}
+                    slots={flow.tonos.slots}
                     onCropChange={flow.handleTonosCropChange}
                     onCropComplete={flow.handleTonosCropComplete}
                     onIntensityChange={flow.setTonosIntensity}
+                    onFitModeChange={flow.setTonosFitMode}
+                    onToggleRotation={flow.toggleTonosRotation}
                     onAllDone={flow.advanceFromTonosCrop}
                   />
                 )}
@@ -495,6 +511,7 @@ function LivePreviewSidebar({
     imageSrcs: [string | null, string | null, string | null];
     cropAreas: [CropArea | null, CropArea | null, CropArea | null];
     intensity: TonosIntensity;
+    rotations: [number, number, number];
   };
 }) {
   const t = useTranslations('builder');

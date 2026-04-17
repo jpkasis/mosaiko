@@ -35,6 +35,7 @@ interface TonosRequest {
   photoUrls: [string, string, string];
   customization: TonosCustomization;
   cropAreas: [CropArea, CropArea, CropArea];
+  rotations?: [number, number, number];
   orderId?: string;
 }
 
@@ -205,10 +206,26 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      let rotations: [number, number, number] | undefined;
+      if (tonosBody.rotations !== undefined) {
+        if (
+          !Array.isArray(tonosBody.rotations) ||
+          tonosBody.rotations.length !== 3 ||
+          !tonosBody.rotations.every((r) => [0, 90, 180, 270].includes(r))
+        ) {
+          return NextResponse.json(
+            { error: 'Tonos rotations must be an array of 3 values from {0, 90, 180, 270}' },
+            { status: 400 },
+          );
+        }
+        rotations = [tonosBody.rotations[0], tonosBody.rotations[1], tonosBody.rotations[2]];
+      }
+
       const tonosJob: TonosPrintJob = {
         imageBuffers: [buffers[0], buffers[1], buffers[2]],
         customization: tonosBody.customization,
         cropAreas: [tonosBody.cropAreas[0], tonosBody.cropAreas[1], tonosBody.cropAreas[2]],
+        rotations,
         jobId: orderId,
       };
       job = tonosJob;
