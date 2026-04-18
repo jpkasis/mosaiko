@@ -63,7 +63,7 @@ function buildGridGradientStyle(
   cols: number,
   dimStartPct?: number,
   borderInsets?: { top: number; bottom: number; left: number; right: number },
-  splitY?: number,
+  rowSplitPcts?: number[],
 ): React.CSSProperties {
   const gradients: string[] = [];
 
@@ -74,8 +74,8 @@ function buildGridGradientStyle(
     );
   }
 
-  for (let i = 1; i < rows; i++) {
-    const pct = splitY !== undefined ? splitY : (i / rows) * 100;
+  const horizontalPcts = rowSplitPcts ?? Array.from({ length: rows - 1 }, (_, i) => ((i + 1) / rows) * 100);
+  for (const pct of horizontalPcts) {
     gradients.push(
       `linear-gradient(to bottom, transparent calc(${pct}% - 1px), rgba(255,255,255,0.4) calc(${pct}% - 0.5px), rgba(255,255,255,0.4) calc(${pct}% + 0.5px), transparent calc(${pct}% + 1px))`,
     );
@@ -119,8 +119,8 @@ interface ImageCropperProps {
   overlayDimStartPct?: number;
   /** Dim all 4 edges to show frame borders (e.g. Polaroid). Values are % of crop area. */
   overlayBorderInsets?: { top: number; bottom: number; left: number; right: number };
-  /** Custom vertical split position as % (overrides even row split). */
-  overlaySplitY?: number;
+  /** Explicit row split positions as % (overrides even row division). */
+  overlayRowSplits?: number[];
   /** Layout rotation controls */
   onLayoutRotate?: () => void;
   canRotateLayout?: boolean;
@@ -136,7 +136,7 @@ export function ImageCropper({
   overlayCols,
   overlayDimStartPct,
   overlayBorderInsets,
-  overlaySplitY,
+  overlayRowSplits,
   onLayoutRotate,
   canRotateLayout = false,
   layoutRotated = false,
@@ -157,8 +157,8 @@ export function ImageCropper({
 
   // Grid overlay as CSS gradients — renders ON the crop area, not the container
   const gridOverlayStyle = useMemo(
-    () => buildGridGradientStyle(overlayRows ?? gridConfig.rows, overlayCols ?? gridConfig.cols, overlayDimStartPct, overlayBorderInsets, overlaySplitY),
-    [gridConfig.rows, gridConfig.cols, overlayRows, overlayCols, overlayDimStartPct, overlayBorderInsets, overlaySplitY],
+    () => buildGridGradientStyle(overlayRows ?? gridConfig.rows, overlayCols ?? gridConfig.cols, overlayDimStartPct, overlayBorderInsets, overlayRowSplits),
+    [gridConfig.rows, gridConfig.cols, overlayRows, overlayCols, overlayDimStartPct, overlayBorderInsets, overlayRowSplits],
   );
 
   // Load image dimensions for stretch mode
