@@ -15,7 +15,7 @@ const CATEGORY_ORDER: CategoryType[] = [
   'spotify',
   'polaroid',
   'arte',
-  'ghibli',
+  'studio',
   'save-the-date',
   'tonos',
 ];
@@ -25,7 +25,7 @@ const I18N_KEY_MAP: Record<CategoryType, { name: string; desc: string }> = {
   spotify: { name: 'categorySpotify', desc: 'categorySpotifyDesc' },
   polaroid: { name: 'categoryPolaroid', desc: 'categoryPolaroidDesc' },
   arte: { name: 'categoryArte', desc: 'categoryArteDesc' },
-  ghibli: { name: 'categoryGhibli', desc: 'categoryGhibliDesc' },
+  studio: { name: 'categoryStudio', desc: 'categoryStudioDesc' },
   'save-the-date': { name: 'categorySaveTheDate', desc: 'categorySaveTheDateDesc' },
   tonos: { name: 'categoryTonos', desc: 'categoryTonosDesc' },
 };
@@ -86,7 +86,7 @@ function CategoryIcon({ category, isSelected }: { category: CategoryType; isSele
           <line x1="31" y1="35.5" x2="35" y2="35.5" stroke="#999" strokeWidth="0.8" opacity={0.6} />
         </svg>
       );
-    case 'ghibli':
+    case 'studio':
       return (
         <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
           <rect x="2" y="2" width="17" height="17" rx="2" fill={fill} opacity={0.7} />

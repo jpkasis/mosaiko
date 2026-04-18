@@ -75,8 +75,8 @@ export function CustomizationEditor({
         {category === 'arte' && (
           <ArteFields values={values} onChange={onValueChange} />
         )}
-        {category === 'ghibli' && (
-          <GhibliFields values={values} onChange={onValueChange} />
+        {category === 'studio' && (
+          <StudioFields values={values} onChange={onValueChange} />
         )}
         {category === 'save-the-date' && (
           <SaveTheDateFields values={values} onChange={onValueChange} />
@@ -166,7 +166,7 @@ function ArteFields({
   );
 }
 
-function GhibliFields({
+function StudioFields({
   values,
   onChange,
 }: {

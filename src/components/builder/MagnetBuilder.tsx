@@ -340,7 +340,7 @@ export function MagnetBuilder() {
                     overlayCols={flow.selectedCategory === 'arte' ? 4 : undefined}
                     overlayRowSplits={
                       flow.selectedCategory === 'polaroid' ? [55.96]
-                        : flow.selectedCategory === 'ghibli' ? [43.69, 94.77]
+                        : flow.selectedCategory === 'studio' ? [43.69, 94.77]
                           : undefined
                     }
                     onLayoutRotate={flow.handleLayoutRotate}

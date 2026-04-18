@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { MosaikoWatermark } from './MosaikoWatermark';
 import { SpotifyBarPreview } from './tile-previews/SpotifyBarPreview';
 import { ArteInfoPreview } from './tile-previews/ArteInfoPreview';
-import { GhibliPanelPreview } from './tile-previews/GhibliPanelPreview';
+import { StudioPanelPreview } from './tile-previews/StudioPanelPreview';
 import { SaveTheDateOverlay } from './tile-previews/SaveTheDateOverlay';
 
 interface TonosInputs {
@@ -72,8 +72,8 @@ export function MagnetPreview({
         return { categoryType: 'spotify', gridSize: 6, songName: textFields.songName || '', artistName: textFields.artistName || '' };
       case 'arte':
         return { categoryType: 'arte', gridSize: 9, title: textFields.title || '', artist: textFields.artist || '', year: textFields.year || '' };
-      case 'ghibli':
-        return { categoryType: 'ghibli', gridSize: 6, year: textFields.year || '', japaneseText: textFields.japaneseText || '', customText: textFields.customText || '', studioText: textFields.studioText || '' };
+      case 'studio':
+        return { categoryType: 'studio', gridSize: 6, year: textFields.year || '', japaneseText: textFields.japaneseText || '', customText: textFields.customText || '', studioText: textFields.studioText || '' };
       case 'save-the-date':
         return { categoryType: 'save-the-date', gridSize: 9, eventText: textFields.eventText || '', date: textFields.date || '' };
       case 'tonos':
@@ -175,10 +175,10 @@ export function MagnetPreview({
           return;
         }
 
-        // Studio/Ghibli: 2×2 photo area + 63-unit photo strip extending into
+        // Studio: 2×2 photo area + 63-unit photo strip extending into
         // the top of tiles 5 & 6 (matches transparent regions of the frame PNGs
         // and the print pipeline's 1055×1204 photo buffer).
-        if (categoryType === 'ghibli') {
+        if (categoryType === 'studio') {
           const BUF_W = 1055;
           const BUF_H = 1204;
           const fullCanvas = getCroppedCanvas(image, cropArea, BUF_W, BUF_H, 0);
@@ -270,7 +270,7 @@ export function MagnetPreview({
   // categories, they are indexed by photo-order.
   function tileSrcFor(descriptorIndex: number): string {
     if (categoryType === 'tonos') return tiles[descriptorIndex] ?? '';
-    if (categoryType === 'ghibli') return tiles[descriptorIndex] ?? '';
+    if (categoryType === 'studio') return tiles[descriptorIndex] ?? '';
     return tiles[photoTileIndexMap.get(descriptorIndex) ?? 0] ?? '';
   }
 
@@ -307,7 +307,7 @@ export function MagnetPreview({
           />
         ))}
 
-        {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'ghibli' && (
+        {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && (
           <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
         )}
       </div>
@@ -396,7 +396,7 @@ export function MagnetPreview({
                 />
               ))}
 
-              {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'ghibli' && (
+              {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && (
                 <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
               )}
             </div>
@@ -492,8 +492,8 @@ function TileContent({
         />
       )}
 
-      {role === 'text-panel' && categoryType === 'ghibli' && (() => {
-        const isLeft = label === 'ghibli-left';
+      {role === 'text-panel' && categoryType === 'studio' && (() => {
+        const isLeft = label === 'studio-left';
         const stripStyle = isLeft
           ? { left: '14.15%', top: '0%', width: '85.85%', height: '10.24%' }
           : { left: '0%', top: '0%', width: '85.69%', height: '10.24%' };
@@ -503,8 +503,8 @@ function TileContent({
               <img src={tileSrc} alt="" className="absolute" style={stripStyle} draggable={false} />
             )}
             <div className="absolute inset-0 z-10">
-              <GhibliPanelPreview
-                label={label as 'ghibli-left' | 'ghibli-right'}
+              <StudioPanelPreview
+                label={label as 'studio-left' | 'studio-right'}
                 year={textFields.year}
                 japaneseText={textFields.japaneseText}
                 customText={textFields.customText}
@@ -671,7 +671,7 @@ function PhotoTile({
     );
   }
 
-  if (categoryType === 'ghibli') {
+  if (categoryType === 'studio') {
     const tileNumber = index + 1;
     if (tileNumber > 4) return null;
     const insets: Record<number, { left: string; top: string; width: string; height: string }> = {

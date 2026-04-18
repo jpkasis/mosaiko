@@ -81,7 +81,7 @@ function buildGridGradientStyle(
     );
   }
 
-  // Dim non-photo area (e.g. text panels in Ghibli bottom row)
+  // Dim non-photo area (e.g. text panels in Studio bottom row)
   if (dimStartPct !== undefined) {
     gradients.push(
       `linear-gradient(to bottom, transparent 0%, transparent ${dimStartPct}%, rgba(237,232,224,0.7) ${dimStartPct}%, rgba(237,232,224,0.7) 100%)`,

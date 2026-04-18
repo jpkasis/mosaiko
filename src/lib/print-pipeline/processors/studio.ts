@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
-import type { GhibliCustomization } from '../../customization-types';
+import type { StudioCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
 
@@ -19,14 +19,14 @@ const PHOTO_AREAS = [
 ] as const;
 
 /**
- * Studio/Ghibli processor — PNG template overlays + text panels.
+ * Studio processor — PNG template overlays + text panels.
  *
  * Grid is always 6 (3 rows x 2 cols):
  *   - Top 4 tiles: photo within PNG frame (cream + teal border)
  *   - Bottom 2 tiles: PNG panel bg + composited text
  */
-export async function processGhibli(job: SingleImagePrintJob): Promise<TileOutput[]> {
-  const customization = job.customization as GhibliCustomization;
+export async function processStudio(job: SingleImagePrintJob): Promise<TileOutput[]> {
+  const customization = job.customization as StudioCustomization;
   const { year, japaneseText, customText, studioText } = customization;
 
   const scale = TILE / SRC_SIZE;
@@ -115,10 +115,10 @@ export async function processGhibli(job: SingleImagePrintJob): Promise<TileOutpu
     ...photoTiles.map((buffer, index) => ({
       index,
       buffer,
-      filename: `${job.jobId}_ghibli_tile_${index}.png`,
+      filename: `${job.jobId}_studio_tile_${index}.png`,
     })),
-    { index: 4, buffer: leftPanelBuffer, filename: `${job.jobId}_ghibli_tile_4.png` },
-    { index: 5, buffer: rightPanelBuffer, filename: `${job.jobId}_ghibli_tile_5.png` },
+    { index: 4, buffer: leftPanelBuffer, filename: `${job.jobId}_studio_tile_4.png` },
+    { index: 5, buffer: rightPanelBuffer, filename: `${job.jobId}_studio_tile_5.png` },
   ];
 }
 

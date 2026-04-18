@@ -45,9 +45,9 @@ const categories = [
     accent: 'rgba(44,44,44,0.85)',
   },
   {
-    slug: 'studio-ghibli',
-    translationKey: 'ghibli' as const,
-    image: '/categories/studio-ghibli.png',
+    slug: 'studio',
+    translationKey: 'studio' as const,
+    image: '/categories/studio.png',
     accent: 'rgba(27,77,79,0.85)',
   },
   {

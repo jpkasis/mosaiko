@@ -33,15 +33,15 @@ export const PRODUCTS: CatalogProduct[] = [
   { id: 'mos-4', category: 'mosaicos', name: 'Mosaico Mascota', price: 360, image: '/products/mosaicos/mascota-6.png', pieces: 6, grid: '3x2', gridSize: 6, originalImage: '/products/_originals/mosaicos/mascota-6.png', isPredesigned: false, seamData: { vertical: [0.338776, 0.662245], horizontal: [0.491704], widthPercent: 0.007971 } },
   { id: 'mos-5', category: 'mosaicos', name: 'Mosaico Recuerdo', price: 480, image: '/products/mosaicos/familiar-9-2.png', pieces: 9, grid: '3x3', gridSize: 9, originalImage: '/products/_originals/mosaicos/familiar-9-2.png', isPredesigned: false, seamData: { vertical: [0.338776, 0.661735], horizontal: [0.339295, 0.66326], widthPercent: 0.007147 } },
   { id: 'mos-6', category: 'mosaicos', name: 'Mosaico Tira', price: 200, image: '/products/mosaicos/panoramico-3-2.png', pieces: 3, grid: '1x3', gridSize: 3, originalImage: '/products/_originals/mosaicos/panoramico-3-2.png', isPredesigned: false, seamData: { vertical: [], horizontal: [0.337251, 0.662238], widthPercent: 0.004854 } },
-  // Studio / Ghibli
-  { id: 'ghi-1', category: 'ghibli', name: 'El Viaje de Chihiro', price: 480, image: '/products/ghibli/chihiro.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/ghibli/chihiro.png', isPredesigned: true, seamData: { vertical: [0.5], horizontal: [0.33894, 0.66157], widthPercent: 0.009202 } },
-  { id: 'ghi-2', category: 'ghibli', name: 'Mi Vecino Totoro', price: 480, image: '/products/ghibli/totoro.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/ghibli/totoro.png', isPredesigned: true, seamData: { vertical: [0.502259], horizontal: [0.33894, 0.66157], widthPercent: 0.007696 } },
-  { id: 'ghi-3', category: 'ghibli', name: 'Princesa Mononoke', price: 480, image: '/products/ghibli/mononoke.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/ghibli/mononoke.png', isPredesigned: true, seamData: { vertical: [0.500753], horizontal: [0.33894, 0.66157], widthPercent: 0.009623 } },
-  { id: 'ghi-4', category: 'ghibli', name: 'El Castillo Vagabundo', price: 480, image: '/products/ghibli/howl.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/ghibli/howl.png', isPredesigned: true, seamData: { vertical: [0.502259], horizontal: [0.33894, 0.66157], widthPercent: 0.007526 } },
-  { id: 'ghi-5', category: 'ghibli', name: 'El Viaje de Chihiro II', price: 480, image: '/products/ghibli/chihiro-2.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/ghibli/chihiro-2.png', isPredesigned: true, seamData: { vertical: [0.501506], horizontal: [0.33843, 0.66157], widthPercent: 0.008279 } },
-  { id: 'ghi-6', category: 'ghibli', name: 'Kiki Entregas a Domicilio', price: 480, image: '/products/ghibli/kiki.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/ghibli/kiki.png', isPredesigned: true, seamData: { vertical: [0.500753], horizontal: [0.33894, 0.66157], widthPercent: 0.009453 } },
-  { id: 'ghi-7', category: 'ghibli', name: 'Ponyo', price: 480, image: '/products/ghibli/ponyo.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/ghibli/ponyo.png', isPredesigned: true, seamData: { vertical: [0.500753], horizontal: [0.33894, 0.66157], widthPercent: 0.009453 } },
-  { id: 'ghi-8', category: 'ghibli', name: 'El Nino y la Garza', price: 480, image: '/products/ghibli/garza.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/ghibli/garza.png', isPredesigned: true, seamData: { vertical: [0.500753], horizontal: [0.33894, 0.66157], widthPercent: 0.009453 } },
+  // Studio
+  { id: 'stu-1', category: 'studio', name: 'El Viaje de Chihiro', price: 480, image: '/products/studio/chihiro.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/studio/chihiro.png', isPredesigned: true, seamData: { vertical: [0.5], horizontal: [0.33894, 0.66157], widthPercent: 0.009202 } },
+  { id: 'stu-2', category: 'studio', name: 'Mi Vecino Totoro', price: 480, image: '/products/studio/totoro.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/studio/totoro.png', isPredesigned: true, seamData: { vertical: [0.502259], horizontal: [0.33894, 0.66157], widthPercent: 0.007696 } },
+  { id: 'stu-3', category: 'studio', name: 'Princesa Mononoke', price: 480, image: '/products/studio/mononoke.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/studio/mononoke.png', isPredesigned: true, seamData: { vertical: [0.500753], horizontal: [0.33894, 0.66157], widthPercent: 0.009623 } },
+  { id: 'stu-4', category: 'studio', name: 'El Castillo Vagabundo', price: 480, image: '/products/studio/howl.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/studio/howl.png', isPredesigned: true, seamData: { vertical: [0.502259], horizontal: [0.33894, 0.66157], widthPercent: 0.007526 } },
+  { id: 'stu-5', category: 'studio', name: 'El Viaje de Chihiro II', price: 480, image: '/products/studio/chihiro-2.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/studio/chihiro-2.png', isPredesigned: true, seamData: { vertical: [0.501506], horizontal: [0.33843, 0.66157], widthPercent: 0.008279 } },
+  { id: 'stu-6', category: 'studio', name: 'Kiki Entregas a Domicilio', price: 480, image: '/products/studio/kiki.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/studio/kiki.png', isPredesigned: true, seamData: { vertical: [0.500753], horizontal: [0.33894, 0.66157], widthPercent: 0.009453 } },
+  { id: 'stu-7', category: 'studio', name: 'Ponyo', price: 480, image: '/products/studio/ponyo.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/studio/ponyo.png', isPredesigned: true, seamData: { vertical: [0.500753], horizontal: [0.33894, 0.66157], widthPercent: 0.009453 } },
+  { id: 'stu-8', category: 'studio', name: 'El Nino y la Garza', price: 480, image: '/products/studio/garza.png', pieces: 6, grid: '2x3', gridSize: 6, originalImage: '/products/_originals/studio/garza.png', isPredesigned: true, seamData: { vertical: [0.500753], horizontal: [0.33894, 0.66157], widthPercent: 0.009453 } },
   // Arte (4x3 visual grid, 9 pieces: 8 art tiles + 1 info tile at row 3 col 4)
   { id: 'art-1', category: 'arte', name: 'La Noche Estrellada', price: 480, image: '/products/arte/noche-estrellada.png', pieces: 9, grid: '4x3', gridSize: 9, originalImage: '/products/_originals/arte/noche-estrellada.png', isPredesigned: true, seamData: { vertical: [0.255015, 0.498843, 0.743441], horizontal: [0.338619, 0.682864], widthPercent: 0.014036 } },
   { id: 'art-2', category: 'arte', name: 'La Mona Lisa', price: 480, image: '/products/arte/mona-lisa.png', pieces: 9, grid: '4x3', gridSize: 9, originalImage: '/products/_originals/arte/mona-lisa.png', isPredesigned: true, seamData: { vertical: [0.255015, 0.498843, 0.743441], horizontal: [0.338619, 0.641432], widthPercent: 0.010506 } },
@@ -79,7 +79,7 @@ export interface CatalogCategory {
 // Lookup from kebab-case CategoryType to the camelCase i18n key used in catalogPage
 const CATEGORY_I18N_MAP: Record<CategoryType, string> = {
   mosaicos: 'mosaicos',
-  ghibli: 'ghibli',
+  studio: 'studio',
   arte: 'arte',
   'save-the-date': 'saveTheDate',
   tonos: 'tonos',
@@ -89,7 +89,7 @@ const CATEGORY_I18N_MAP: Record<CategoryType, string> = {
 
 export const CATEGORY_ACCENT: Record<CategoryType, string> = {
   mosaicos: 'bg-terracotta',
-  ghibli: 'bg-charcoal',
+  studio: 'bg-charcoal',
   arte: 'bg-gold',
   'save-the-date': 'bg-terracotta-light',
   tonos: 'bg-terracotta',
@@ -99,7 +99,7 @@ export const CATEGORY_ACCENT: Record<CategoryType, string> = {
 
 export const CATALOG_CATEGORIES: CatalogCategory[] = [
   { type: 'mosaicos', i18nKey: 'mosaicos', accentColor: 'bg-terracotta', order: 1, showPersonalizeCard: true },
-  { type: 'ghibli', i18nKey: 'ghibli', accentColor: 'bg-charcoal', order: 2, showPersonalizeCard: true },
+  { type: 'studio', i18nKey: 'studio', accentColor: 'bg-charcoal', order: 2, showPersonalizeCard: true },
   { type: 'arte', i18nKey: 'arte', accentColor: 'bg-gold', order: 3, showPersonalizeCard: true },
   { type: 'save-the-date', i18nKey: 'saveTheDate', accentColor: 'bg-terracotta-light', order: 4, showPersonalizeCard: true },
   { type: 'tonos', i18nKey: 'tonos', accentColor: 'bg-terracotta', order: 5, showPersonalizeCard: true },

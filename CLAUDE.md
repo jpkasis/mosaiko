@@ -75,7 +75,7 @@ These must meet Google publishing requirements (Google Ads, Analytics compliance
 
 ## Existing Assets
 - `MOSAIKO-images/` — 7 categories of product photos (categorized):
-  - Categoria Mosaicos, Studio Ghibli, Arte, Save the Date, Flores, Album de Spotify, Polaroid
+  - Categoria Mosaicos, Studio, Arte, Save the Date, Flores, Album de Spotify, Polaroid
 - Logo: pending from client
 
 ## Support Agents

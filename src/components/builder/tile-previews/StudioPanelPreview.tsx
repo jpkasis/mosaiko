@@ -1,7 +1,7 @@
 'use client';
 
-interface GhibliPanelPreviewProps {
-  label: 'ghibli-left' | 'ghibli-right';
+interface StudioPanelPreviewProps {
+  label: 'studio-left' | 'studio-right';
   year?: string;
   japaneseText?: string;
   customText?: string;
@@ -10,22 +10,22 @@ interface GhibliPanelPreviewProps {
 }
 
 /**
- * Studio/Ghibli text panels (tiles 5-6).
+ * Studio text panels (tiles 5-6).
  * PNG template background + Montserrat text.
  * Positioning measured from pre-made product pixel analysis (chihiro, howl, totoro):
  *   Left:  year 27%, studioText 35%, left 7%
  *   Right: japaneseText 27%, customText 36%, right 7%
  *   Font:  ~7% of tile width (46px on 664px product tiles)
  */
-export function GhibliPanelPreview({
+export function StudioPanelPreview({
   label,
   year = '',
   japaneseText = '',
   customText = '',
   studioText = '',
   className,
-}: GhibliPanelPreviewProps) {
-  const isLeft = label === 'ghibli-left';
+}: StudioPanelPreviewProps) {
+  const isLeft = label === 'studio-left';
   const tileNum = isLeft ? 5 : 6;
 
   const textStyle: React.CSSProperties = {

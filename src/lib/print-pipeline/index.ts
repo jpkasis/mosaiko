@@ -10,7 +10,7 @@ import { processSpotify } from './processors/spotify';
 import { processTonos } from './processors/tonos';
 import { processSaveTheDate } from './processors/save-the-date';
 import { processArte } from './processors/arte';
-import { processGhibli } from './processors/ghibli';
+import { processStudio } from './processors/studio';
 import { processPolaroid } from './processors/polaroid';
 
 // Re-export types for consumers
@@ -63,8 +63,8 @@ export async function processPrintJob(
     case 'arte':
       tiles = await processArte(job as SingleImagePrintJob);
       break;
-    case 'ghibli':
-      tiles = await processGhibli(job as SingleImagePrintJob);
+    case 'studio':
+      tiles = await processStudio(job as SingleImagePrintJob);
       break;
     case 'polaroid':
       tiles = await processPolaroid(job as SingleImagePrintJob);

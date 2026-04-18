@@ -20,7 +20,7 @@ Mosaiko is a custom ecommerce platform where customers upload a personal photo, 
 - **Bilingual (ES/EN)** — Spanish-first UI with full English support via next-intl, defaulting to the `es` locale
 - **Mobile-First Design** — Every component is designed for touch devices first, then scales gracefully to desktop
 - **Smooth Animations** — Staggered reveals, spring-based interactions, and fluid page transitions with Framer Motion
-- **Product Categories** — Curated collections including Mosaicos, Studio Ghibli, Arte, Save the Date, Flores, Album de Spotify, and Polaroid
+- **Product Categories** — Curated collections including Mosaicos, Studio, Arte, Save the Date, Flores, Album de Spotify, and Polaroid
 
 ## Tech Stack
 

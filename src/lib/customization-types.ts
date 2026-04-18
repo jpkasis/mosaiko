@@ -8,7 +8,7 @@ export type CategoryType =
   | 'tonos'
   | 'save-the-date'
   | 'arte'
-  | 'ghibli'
+  | 'studio'
   | 'polaroid';
 
 // ─── Tonos intensity ────────────────────────────────────────────────────────
@@ -52,8 +52,8 @@ export interface ArteCustomization {
   year: string;
 }
 
-export interface GhibliCustomization {
-  categoryType: 'ghibli';
+export interface StudioCustomization {
+  categoryType: 'studio';
   gridSize: 6;
   year: string;
   japaneseText: string;
@@ -72,7 +72,7 @@ export type CategoryCustomization =
   | TonosCustomization
   | SaveTheDateCustomization
   | ArteCustomization
-  | GhibliCustomization
+  | StudioCustomization
   | PolaroidCustomization;
 
 // ─── Category metadata (what each category supports) ────────────────────────
@@ -127,8 +127,8 @@ export const CATEGORY_REGISTRY: Record<CategoryType, CategoryMeta> = {
     hasTheme: false,
     description: 'Artwork split with info tile',
   },
-  ghibli: {
-    type: 'ghibli',
+  studio: {
+    type: 'studio',
     label: 'Studio',
     allowedGridSizes: [6],
     textFields: ['year', 'studioText', 'japaneseText', 'customText'],
@@ -224,15 +224,15 @@ export function getTileLayout(config: CategoryCustomization): TileDescriptor[] {
         { index: 8, role: 'special', label: 'arte-info', gridColumn: 4, gridRow: 3 },
       ];
 
-    case 'ghibli':
+    case 'studio':
       // 6-grid: top 4 = photo (2x2), bottom 2 = text panels
       return [
         { index: 0, role: 'photo' },
         { index: 1, role: 'photo' },
         { index: 2, role: 'photo' },
         { index: 3, role: 'photo' },
-        { index: 4, role: 'text-panel', label: 'ghibli-left' },
-        { index: 5, role: 'text-panel', label: 'ghibli-right' },
+        { index: 4, role: 'text-panel', label: 'studio-left' },
+        { index: 5, role: 'text-panel', label: 'studio-right' },
       ];
   }
 }
