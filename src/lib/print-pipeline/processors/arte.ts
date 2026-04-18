@@ -77,7 +77,7 @@ async function renderInfoTile(
     : trimmedArtist;
   const artistLines = wrapArtist(artistRaw);
 
-  const textRightX = Math.round(TILE * 0.88);
+  const textRightX = Math.round(TILE * 0.90);
   const titleFontSize = Math.round(TILE * 0.08);
   const titleLineHeight = Math.round(titleFontSize * 1.1);
   const titleStartY = Math.round(TILE * 0.10 + titleFontSize * 0.9);

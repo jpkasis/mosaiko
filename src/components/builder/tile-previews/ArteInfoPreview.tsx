@@ -55,8 +55,8 @@ export function ArteInfoPreview({
         className="absolute"
         style={{
           top: '10%',
-          left: '14%',
-          right: '12%',
+          left: '6%',
+          right: '10%',
           zIndex: 1,
           display: 'flex',
           flexDirection: 'column',
