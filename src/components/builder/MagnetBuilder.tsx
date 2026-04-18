@@ -338,7 +338,7 @@ export function MagnetBuilder() {
                           : undefined
                     }
                     overlayCols={flow.selectedCategory === 'arte' ? 4 : undefined}
-                    overlayDimStartPct={flow.selectedCategory === 'ghibli' ? 70 : undefined}
+                    overlayDimStartPct={flow.selectedCategory === 'ghibli' ? 94.77 : undefined}
                     overlaySplitY={flow.selectedCategory === 'polaroid' ? 55.96 : undefined}
                     onLayoutRotate={flow.handleLayoutRotate}
                     canRotateLayout={flow.canRotateLayout}
