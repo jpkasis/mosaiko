@@ -2,9 +2,11 @@
 
 import {
   STD_FONT_CSS_VARS,
+  hexLuminance,
   type STDFontFamily,
   type STDAnchor,
   type STDSize,
+  type STDTextTreatment,
 } from '@/lib/customization-types';
 
 interface SaveTheDateOverlayProps {
@@ -14,13 +16,16 @@ interface SaveTheDateOverlayProps {
   fontSize: STDSize;
   color: string;
   anchor: STDAnchor;
+  treatment: STDTextTreatment;
   className?: string;
 }
 
 /**
  * Single unified overlay covering the full 3×3 STD mosaic.
  * Positions a text block at one of 9 anchor points; user-controlled font,
- * size and color. Drop shadow preserved for legibility on photos.
+ * size, color, and readability treatment (shadow / outline / panel /
+ * frosted-glass / none). Panel treatments hug the text with fit-content
+ * sizing and auto-derive their background tint from the text luminance.
  */
 export function SaveTheDateOverlay({
   eventText = '',
@@ -29,6 +34,7 @@ export function SaveTheDateOverlay({
   fontSize,
   color,
   anchor,
+  treatment,
   className,
 }: SaveTheDateOverlayProps) {
   const resolvedEventText = eventText.trim() || 'Save the Date';
@@ -37,6 +43,7 @@ export function SaveTheDateOverlay({
   const pos = ANCHOR_POSITION[anchor];
   const eventFontSize = EVENT_SIZE[fontSize];
   const dateFontSize = DATE_SIZE[fontSize];
+  const decor = treatmentDecorations(treatment, color);
 
   return (
     <div
@@ -53,37 +60,47 @@ export function SaveTheDateOverlay({
           maxWidth: '84%',
         }}
       >
-        <span
+        <div
           style={{
-            fontFamily: STD_FONT_CSS_VARS[fontFamily],
-            fontSize: eventFontSize,
-            color,
-            fontWeight: 400,
-            lineHeight: 1.15,
-            letterSpacing: '0.02em',
-            textShadow:
-              '0 1px 4px rgba(0,0,0,0.55), 0 0 2px rgba(0,0,0,0.4)',
-            wordBreak: 'break-word',
+            display: 'inline-block',
+            ...decor.panelStyle,
           }}
         >
-          {resolvedEventText}
-        </span>
-        {resolvedDate && (
           <span
             style={{
+              display: 'block',
               fontFamily: STD_FONT_CSS_VARS[fontFamily],
-              fontSize: dateFontSize,
+              fontSize: eventFontSize,
               color,
               fontWeight: 400,
-              lineHeight: 1.2,
-              letterSpacing: '0.06em',
-              textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-              opacity: 0.95,
+              lineHeight: 1.15,
+              letterSpacing: '0.02em',
+              wordBreak: 'break-word',
+              ...decor.textStyle,
             }}
           >
-            {resolvedDate}
+            {resolvedEventText}
           </span>
-        )}
+          {resolvedDate && (
+            <span
+              style={{
+                display: 'block',
+                marginTop: 'clamp(1px, 0.8cqi, 6px)',
+                fontFamily: STD_FONT_CSS_VARS[fontFamily],
+                fontSize: dateFontSize,
+                color,
+                fontWeight: 400,
+                lineHeight: 1.2,
+                letterSpacing: '0.06em',
+                opacity: 0.95,
+                ...decor.textStyle,
+                ...decor.dateTextStyle,
+              }}
+            >
+              {resolvedDate}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -110,6 +127,65 @@ const DATE_SIZE: Record<STDSize, string> = {
   M: 'clamp(8px, 4.5cqi, 26px)',
   L: 'clamp(10px, 5.5cqi, 32px)',
 };
+
+interface TreatmentDecorations {
+  panelStyle: React.CSSProperties;
+  textStyle: React.CSSProperties;
+  dateTextStyle?: React.CSSProperties;
+}
+
+function treatmentDecorations(
+  treatment: STDTextTreatment,
+  textColor: string,
+): TreatmentDecorations {
+  const textIsLight = hexLuminance(textColor) >= 0.6;
+  const strokeColor = textIsLight ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.85)';
+
+  switch (treatment) {
+    case 'none':
+      return { panelStyle: {}, textStyle: {} };
+
+    case 'shadow':
+      return {
+        panelStyle: {},
+        textStyle: {
+          textShadow: '0 2px 10px rgba(0,0,0,0.75), 0 0 3px rgba(0,0,0,0.45)',
+        },
+      };
+
+    case 'outline':
+      return {
+        panelStyle: {},
+        textStyle: {
+          WebkitTextStroke: `clamp(0.5px, 0.25cqi, 1.6px) ${strokeColor}`,
+          paintOrder: 'stroke fill',
+          textShadow: '0 1px 3px rgba(0,0,0,0.35)',
+        } as React.CSSProperties,
+      };
+
+    case 'panel':
+      return {
+        panelStyle: {
+          backgroundColor: textIsLight ? 'rgba(20,20,24,0.55)' : 'rgba(250,248,244,0.7)',
+          padding: 'clamp(4px, 2cqi, 18px) clamp(8px, 3cqi, 28px)',
+          borderRadius: 'clamp(2px, 0.4cqi, 4px)',
+        },
+        textStyle: {},
+      };
+
+    case 'frosted':
+      return {
+        panelStyle: {
+          backgroundColor: textIsLight ? 'rgba(20,20,24,0.32)' : 'rgba(250,248,244,0.45)',
+          padding: 'clamp(4px, 2cqi, 18px) clamp(8px, 3cqi, 28px)',
+          borderRadius: 'clamp(2px, 0.4cqi, 4px)',
+          backdropFilter: 'blur(10px) saturate(1.1)',
+          WebkitBackdropFilter: 'blur(10px) saturate(1.1)',
+        } as React.CSSProperties,
+        textStyle: {},
+      };
+  }
+}
 
 type AnchorStyle = {
   containerStyle: React.CSSProperties;

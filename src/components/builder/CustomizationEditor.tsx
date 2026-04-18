@@ -10,6 +10,7 @@ import {
   type STDFontFamily,
   type STDAnchor,
   type STDSize,
+  type STDTextTreatment,
 } from '@/lib/customization-types';
 
 interface CustomizationEditorProps {
@@ -224,6 +225,14 @@ const STD_ANCHOR_GRID: ReadonlyArray<STDAnchor> = [
   'bottom-left', 'bottom-center', 'bottom-right',
 ];
 
+const STD_TREATMENT_OPTIONS: ReadonlyArray<{ value: STDTextTreatment; labelKey: string }> = [
+  { value: 'none',    labelKey: 'treatmentNone' },
+  { value: 'shadow',  labelKey: 'treatmentShadow' },
+  { value: 'outline', labelKey: 'treatmentOutline' },
+  { value: 'panel',   labelKey: 'treatmentPanel' },
+  { value: 'frosted', labelKey: 'treatmentFrosted' },
+];
+
 function SaveTheDateFields({
   values,
   onChange,
@@ -236,6 +245,7 @@ function SaveTheDateFields({
   const fontSize = (values.fontSize as STDSize) || STD_DEFAULTS.fontSize;
   const color = values.color || STD_DEFAULTS.color;
   const anchor = (values.anchor as STDAnchor) || STD_DEFAULTS.anchor;
+  const treatment = (values.treatment as STDTextTreatment) || STD_DEFAULTS.treatment;
 
   return (
     <>
@@ -327,6 +337,31 @@ function SaveTheDateFields({
               className="sr-only"
             />
           </label>
+        </div>
+      </motion.div>
+
+      <motion.div variants={itemVariants} className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-charcoal">{t('fieldReadability')}</span>
+        <div className="flex flex-wrap gap-2">
+          {STD_TREATMENT_OPTIONS.map((opt) => {
+            const selected = treatment === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onChange('treatment', opt.value)}
+                className={[
+                  'min-h-[40px] rounded-lg border-2 px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer',
+                  selected
+                    ? 'border-terracotta bg-terracotta text-white'
+                    : 'border-light-gray bg-white text-charcoal hover:border-warm-gray',
+                ].join(' ')}
+                aria-pressed={selected}
+              >
+                {t(opt.labelKey)}
+              </button>
+            );
+          })}
         </div>
       </motion.div>
 

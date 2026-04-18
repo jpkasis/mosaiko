@@ -50,6 +50,8 @@ export type STDAnchor =
 
 export type STDSize = 'S' | 'M' | 'L';
 
+export type STDTextTreatment = 'none' | 'shadow' | 'outline' | 'panel' | 'frosted';
+
 export interface SaveTheDateCustomization {
   categoryType: 'save-the-date';
   gridSize: 9;
@@ -59,6 +61,7 @@ export interface SaveTheDateCustomization {
   fontSize: STDSize;
   color: string;
   anchor: STDAnchor;
+  treatment: STDTextTreatment;
 }
 
 export const STD_DEFAULTS = {
@@ -66,7 +69,24 @@ export const STD_DEFAULTS = {
   fontSize: 'M' as STDSize,
   color: '#FFFFFF',
   anchor: 'top-center' as STDAnchor,
+  treatment: 'shadow' as STDTextTreatment,
 };
+
+/**
+ * YIQ-based perceived luminance of a hex color. Returns 0–1.
+ * Used to derive auto-contrast panel backgrounds for STD readability treatments.
+ */
+export function hexLuminance(hex: string): number {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 3 && clean.length !== 6) return 0.5;
+  const expanded = clean.length === 3
+    ? clean.split('').map((c) => c + c).join('')
+    : clean;
+  const r = parseInt(expanded.slice(0, 2), 16);
+  const g = parseInt(expanded.slice(2, 4), 16);
+  const b = parseInt(expanded.slice(4, 6), 16);
+  return (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+}
 
 export const STD_FONT_CSS_VARS: Record<STDFontFamily, string> = {
   cormorant: 'var(--font-cormorant), "Cormorant Garamond", Georgia, serif',

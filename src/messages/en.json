@@ -161,6 +161,12 @@
     "fieldTextColor": "Text color",
     "fieldColorCustom": "Custom",
     "fieldTextPosition": "Text position",
+    "fieldReadability": "Readability",
+    "treatmentNone": "None",
+    "treatmentShadow": "Shadow",
+    "treatmentOutline": "Outline",
+    "treatmentPanel": "Panel",
+    "treatmentFrosted": "Frosted panel",
     "continue": "Continue",
     "categoryGridBadge": "{cols}×{rows} · {count} pieces",
     "selectCategory": "Choose the style for your magnets"

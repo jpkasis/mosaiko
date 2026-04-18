@@ -16,6 +16,7 @@ import {
   type STDFontFamily,
   type STDAnchor,
   type STDSize,
+  type STDTextTreatment,
 } from '@/lib/customization-types';
 import { getTonosColumnCSSFilter } from '@/lib/print-pipeline/utils/filter-presets';
 import { Button } from '@/components/ui/Button';
@@ -88,6 +89,7 @@ export function MagnetPreview({
           fontSize: (textFields.fontSize as STDSize) || STD_DEFAULTS.fontSize,
           color: textFields.color || STD_DEFAULTS.color,
           anchor: (textFields.anchor as STDAnchor) || STD_DEFAULTS.anchor,
+          treatment: (textFields.treatment as STDTextTreatment) || STD_DEFAULTS.treatment,
         };
       case 'tonos':
         return { categoryType: 'tonos', gridSize: (gridConfig.size === 9 ? 9 : 3), intensity: tonos?.intensity ?? 'medium' };
@@ -328,6 +330,7 @@ export function MagnetPreview({
             fontSize={customizationConfig.fontSize}
             color={customizationConfig.color}
             anchor={customizationConfig.anchor}
+            treatment={customizationConfig.treatment}
           />
         )}
 
@@ -428,6 +431,7 @@ export function MagnetPreview({
                   fontSize={customizationConfig.fontSize}
                   color={customizationConfig.color}
                   anchor={customizationConfig.anchor}
+                  treatment={customizationConfig.treatment}
                 />
               )}
 

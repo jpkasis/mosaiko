@@ -161,6 +161,12 @@
     "fieldTextColor": "Color del texto",
     "fieldColorCustom": "Personalizado",
     "fieldTextPosition": "Posición del texto",
+    "fieldReadability": "Legibilidad",
+    "treatmentNone": "Ninguno",
+    "treatmentShadow": "Sombra",
+    "treatmentOutline": "Contorno",
+    "treatmentPanel": "Panel",
+    "treatmentFrosted": "Panel difuminado",
     "continue": "Continuar",
     "categoryGridBadge": "{cols}×{rows} · {count} piezas",
     "selectCategory": "Elige el estilo de tus imanes"
