@@ -1,5 +1,15 @@
 import type { Metadata } from 'next';
-import { Cormorant_Garamond, DM_Sans, Source_Sans_3, Montserrat } from 'next/font/google';
+import {
+  Cormorant_Garamond,
+  DM_Sans,
+  Source_Sans_3,
+  Montserrat,
+  Playfair_Display,
+  Dancing_Script,
+  Great_Vibes,
+  Cinzel,
+  Tenor_Sans,
+} from 'next/font/google';
 import { NextIntlClientProvider, hasLocale } from 'next-intl';
 import { getMessages, getTranslations, setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -39,6 +49,41 @@ const montserrat = Montserrat({
   weight: ['400', '500', '700'],
 });
 
+const playfair = Playfair_Display({
+  variable: '--font-playfair',
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['400', '700'],
+});
+
+const dancingScript = Dancing_Script({
+  variable: '--font-dancing-script',
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['400', '700'],
+});
+
+const greatVibes = Great_Vibes({
+  variable: '--font-great-vibes',
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['400'],
+});
+
+const cinzel = Cinzel({
+  variable: '--font-cinzel',
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['400', '700'],
+});
+
+const tenorSans = Tenor_Sans({
+  variable: '--font-tenor-sans',
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['400'],
+});
+
 export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));
 }
@@ -76,7 +121,7 @@ export default async function LocaleLayout({
   return (
     <html lang={locale}>
       <body
-        className={`${cormorant.variable} ${dmSans.variable} ${sourceSans.variable} ${montserrat.variable} grain-overlay antialiased flex min-h-dvh flex-col`}
+        className={`${cormorant.variable} ${dmSans.variable} ${sourceSans.variable} ${montserrat.variable} ${playfair.variable} ${dancingScript.variable} ${greatVibes.variable} ${cinzel.variable} ${tenorSans.variable} grain-overlay antialiased flex min-h-dvh flex-col`}
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
           <AnnouncementBar />

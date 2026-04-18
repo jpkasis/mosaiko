@@ -2,7 +2,15 @@
 
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
-import type { CategoryType } from '@/lib/customization-types';
+import {
+  STD_DEFAULTS,
+  STD_FONT_CSS_VARS,
+  STD_COLOR_PALETTE,
+  type CategoryType,
+  type STDFontFamily,
+  type STDAnchor,
+  type STDSize,
+} from '@/lib/customization-types';
 
 interface CustomizationEditorProps {
   category: CategoryType;
@@ -193,6 +201,29 @@ function StudioFields({
   );
 }
 
+const STD_FONT_OPTIONS: ReadonlyArray<{ value: STDFontFamily; label: string }> = [
+  { value: 'cormorant', label: 'Cormorant' },
+  { value: 'playfair', label: 'Playfair' },
+  { value: 'montserrat', label: 'Montserrat' },
+  { value: 'dm-sans', label: 'DM Sans' },
+  { value: 'dancing-script', label: 'Dancing' },
+  { value: 'great-vibes', label: 'Great Vibes' },
+  { value: 'cinzel', label: 'Cinzel' },
+  { value: 'tenor-sans', label: 'Tenor Sans' },
+];
+
+const STD_SIZE_OPTIONS: ReadonlyArray<{ value: STDSize; labelKey: string }> = [
+  { value: 'S', labelKey: 'fieldSizeS' },
+  { value: 'M', labelKey: 'fieldSizeM' },
+  { value: 'L', labelKey: 'fieldSizeL' },
+];
+
+const STD_ANCHOR_GRID: ReadonlyArray<STDAnchor> = [
+  'top-left', 'top-center', 'top-right',
+  'middle-left', 'middle-center', 'middle-right',
+  'bottom-left', 'bottom-center', 'bottom-right',
+];
+
 function SaveTheDateFields({
   values,
   onChange,
@@ -200,10 +231,128 @@ function SaveTheDateFields({
   values: Record<string, string>;
   onChange: (field: string, value: string) => void;
 }) {
+  const t = useTranslations('builder');
+  const fontFamily = (values.fontFamily as STDFontFamily) || STD_DEFAULTS.fontFamily;
+  const fontSize = (values.fontSize as STDSize) || STD_DEFAULTS.fontSize;
+  const color = values.color || STD_DEFAULTS.color;
+  const anchor = (values.anchor as STDAnchor) || STD_DEFAULTS.anchor;
+
   return (
     <>
-      <FieldInput field="eventText" value={values.eventText || ''} onChange={onChange} />
+      <FieldInput field="eventText" value={values.eventText || ''} onChange={onChange} placeholder="Save the Date" />
       <FieldInput field="date" value={values.date || ''} onChange={onChange} type="date" />
+
+      <motion.div variants={itemVariants} className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-charcoal">{t('fieldFontFamily')}</span>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {STD_FONT_OPTIONS.map((opt) => {
+            const selected = fontFamily === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onChange('fontFamily', opt.value)}
+                className={[
+                  'min-h-[56px] rounded-lg border-2 px-3 py-2 text-center transition-colors cursor-pointer',
+                  selected
+                    ? 'border-terracotta bg-terracotta/5'
+                    : 'border-light-gray bg-white hover:border-warm-gray',
+                ].join(' ')}
+                style={{ fontFamily: STD_FONT_CSS_VARS[opt.value], fontSize: '18px' }}
+                aria-pressed={selected}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </motion.div>
+
+      <motion.div variants={itemVariants} className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-charcoal">{t('fieldFontSize')}</span>
+        <div className="grid grid-cols-3 gap-2">
+          {STD_SIZE_OPTIONS.map((opt) => {
+            const selected = fontSize === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onChange('fontSize', opt.value)}
+                className={[
+                  'min-h-[48px] rounded-lg border-2 px-3 py-2 text-sm font-medium transition-colors cursor-pointer',
+                  selected
+                    ? 'border-terracotta bg-terracotta text-white'
+                    : 'border-light-gray bg-white text-charcoal hover:border-warm-gray',
+                ].join(' ')}
+                aria-pressed={selected}
+              >
+                {t(opt.labelKey)}
+              </button>
+            );
+          })}
+        </div>
+      </motion.div>
+
+      <motion.div variants={itemVariants} className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-charcoal">{t('fieldTextColor')}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {STD_COLOR_PALETTE.map((swatch) => {
+            const selected = color.toLowerCase() === swatch.hex.toLowerCase();
+            return (
+              <button
+                key={swatch.hex}
+                type="button"
+                onClick={() => onChange('color', swatch.hex)}
+                className={[
+                  'h-9 w-9 rounded-full border-2 transition-transform cursor-pointer',
+                  selected ? 'scale-110 border-terracotta ring-2 ring-terracotta/30' : 'border-light-gray',
+                ].join(' ')}
+                style={{ backgroundColor: swatch.hex }}
+                aria-label={swatch.nameKey}
+                aria-pressed={selected}
+              />
+            );
+          })}
+          <label className="inline-flex items-center gap-1.5 rounded-lg border-2 border-light-gray px-3 py-1.5 text-xs font-medium text-charcoal hover:border-warm-gray cursor-pointer">
+            <span
+              className="inline-block h-5 w-5 rounded-full border border-light-gray"
+              style={{ backgroundColor: color }}
+              aria-hidden="true"
+            />
+            {t('fieldColorCustom')}
+            <input
+              type="color"
+              value={color.startsWith('#') ? color : '#FFFFFF'}
+              onChange={(e) => onChange('color', e.target.value.toUpperCase())}
+              className="sr-only"
+            />
+          </label>
+        </div>
+      </motion.div>
+
+      <motion.div variants={itemVariants} className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-charcoal">{t('fieldTextPosition')}</span>
+        <div className="grid w-full max-w-[220px] grid-cols-3 grid-rows-3 gap-1.5 rounded-lg bg-light-gray/50 p-1.5">
+          {STD_ANCHOR_GRID.map((a) => {
+            const selected = anchor === a;
+            return (
+              <button
+                key={a}
+                type="button"
+                onClick={() => onChange('anchor', a)}
+                className={[
+                  'aspect-square w-full rounded-md border-2 transition-colors cursor-pointer',
+                  selected
+                    ? 'border-terracotta bg-terracotta'
+                    : 'border-light-gray bg-white hover:border-warm-gray',
+                ].join(' ')}
+                aria-label={a}
+                aria-pressed={selected}
+              />
+            );
+          })}
+        </div>
+      </motion.div>
     </>
   );
 }

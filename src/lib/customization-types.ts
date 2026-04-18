@@ -37,12 +37,69 @@ export interface TonosCustomization {
   intensity: TonosIntensity;
 }
 
+export type STDFontFamily =
+  | 'cormorant' | 'playfair'
+  | 'montserrat' | 'dm-sans'
+  | 'dancing-script' | 'great-vibes'
+  | 'cinzel' | 'tenor-sans';
+
+export type STDAnchor =
+  | 'top-left' | 'top-center' | 'top-right'
+  | 'middle-left' | 'middle-center' | 'middle-right'
+  | 'bottom-left' | 'bottom-center' | 'bottom-right';
+
+export type STDSize = 'S' | 'M' | 'L';
+
 export interface SaveTheDateCustomization {
   categoryType: 'save-the-date';
   gridSize: 9;
   eventText: string;
   date: string;
+  fontFamily: STDFontFamily;
+  fontSize: STDSize;
+  color: string;
+  anchor: STDAnchor;
 }
+
+export const STD_DEFAULTS = {
+  fontFamily: 'cormorant' as STDFontFamily,
+  fontSize: 'M' as STDSize,
+  color: '#FFFFFF',
+  anchor: 'top-center' as STDAnchor,
+};
+
+export const STD_FONT_CSS_VARS: Record<STDFontFamily, string> = {
+  cormorant: 'var(--font-cormorant), "Cormorant Garamond", Georgia, serif',
+  playfair: 'var(--font-playfair), "Playfair Display", Georgia, serif',
+  montserrat: 'var(--font-montserrat), Montserrat, sans-serif',
+  'dm-sans': 'var(--font-dm-sans), "DM Sans", sans-serif',
+  'dancing-script': 'var(--font-dancing-script), "Dancing Script", cursive',
+  'great-vibes': 'var(--font-great-vibes), "Great Vibes", cursive',
+  cinzel: 'var(--font-cinzel), Cinzel, Georgia, serif',
+  'tenor-sans': 'var(--font-tenor-sans), "Tenor Sans", sans-serif',
+};
+
+export const STD_FONT_PRINT_NAMES: Record<STDFontFamily, string> = {
+  cormorant: '"Cormorant Garamond", Georgia, serif',
+  playfair: '"Playfair Display", Georgia, serif',
+  montserrat: 'Montserrat, sans-serif',
+  'dm-sans': '"DM Sans", sans-serif',
+  'dancing-script': '"Dancing Script", cursive',
+  'great-vibes': '"Great Vibes", cursive',
+  cinzel: 'Cinzel, Georgia, serif',
+  'tenor-sans': '"Tenor Sans", sans-serif',
+};
+
+export const STD_COLOR_PALETTE: ReadonlyArray<{ hex: string; nameKey: string }> = [
+  { hex: '#FFFFFF', nameKey: 'colorWhite' },
+  { hex: '#000000', nameKey: 'colorBlack' },
+  { hex: '#F5EEDB', nameKey: 'colorCream' },
+  { hex: '#C4A875', nameKey: 'colorChampagne' },
+  { hex: '#C15F3C', nameKey: 'colorTerracotta' },
+  { hex: '#C89397', nameKey: 'colorDustyRose' },
+  { hex: '#1D2B53', nameKey: 'colorNavy' },
+  { hex: '#2E4030', nameKey: 'colorForest' },
+];
 
 export interface ArteCustomization {
   categoryType: 'arte';

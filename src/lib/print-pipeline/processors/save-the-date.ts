@@ -1,6 +1,11 @@
 import sharp from 'sharp';
 import { GRID_CONFIGS, TILE_PRINT_SIZE } from '../../grid-config';
-import type { SaveTheDateCustomization } from '../../customization-types';
+import {
+  STD_FONT_PRINT_NAMES,
+  type SaveTheDateCustomization,
+  type STDAnchor,
+  type STDSize,
+} from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
 
@@ -9,218 +14,157 @@ const TILE = TILE_PRINT_SIZE;
 /**
  * Save the Date processor.
  *
- * All tiles are the photo split normally. Specific tiles receive a light
- * semi-transparent white wash with elegant white text + drop shadow,
- * matching the romantic/wedding aesthetic of the reference designs.
- *
- * Tile placement per grid:
- *  - 9-piece (3x3): tile 0 = "Save", tile 1 = "The" + date, tile 2 = "Date"
- *  - 6-piece (3x2): tile 0 = "Save The Date", tile 1 = date
- *  - 3-piece (1x3): tile 2 = date only
+ * The user's text is composited as a single unified overlay onto the
+ * cropped photo BEFORE splitting into tiles. Each output tile naturally
+ * receives its slice of the overlay. Font family, size, color, and
+ * anchor position come from the customization.
  */
 export async function processSaveTheDate(
   job: SingleImagePrintJob,
 ): Promise<TileOutput[]> {
   const customization = job.customization as SaveTheDateCustomization;
   const grid = GRID_CONFIGS[customization.gridSize];
+  const compositeW = grid.cols * TILE;
+  const compositeH = grid.rows * TILE;
 
-  // Step 1: Crop and split the full image
   const croppedBuffer = await cropAndResize(
     job.imageBuffer,
     job.cropArea,
-    grid.cols * TILE,
-    grid.rows * TILE,
+    compositeW,
+    compositeH,
   );
 
-  const tileBuffers = await splitIntoTiles(croppedBuffer, grid.rows, grid.cols);
-
-  // Step 2: Determine which tiles get text overlays
-  const textTileConfigs = getTextTileConfigs(
-    customization.gridSize,
-    customization.eventText,
-    customization.date,
+  const overlaySvg = buildOverlaySvg(
+    customization,
+    compositeW,
+    compositeH,
   );
 
-  // Step 3: Build a map of tile index -> overlay configs
-  const overlaysByTile = new Map<number, TextTileConfig[]>();
-  for (const config of textTileConfigs) {
-    const existing = overlaysByTile.get(config.index) ?? [];
-    existing.push(config);
-    overlaysByTile.set(config.index, existing);
-  }
+  const composited = await sharp(croppedBuffer)
+    .composite([{ input: Buffer.from(overlaySvg), blend: 'over' }])
+    .png()
+    .toBuffer();
 
-  // Step 4: Apply text overlays to the designated tiles
-  const processedTiles = await Promise.all(
-    tileBuffers.map(async (buffer, index) => {
-      const overlays = overlaysByTile.get(index);
-      if (!overlays) return buffer;
+  const tileBuffers = await splitIntoTiles(composited, grid.rows, grid.cols);
 
-      // Apply each overlay sequentially to this tile
-      let result = buffer;
-      for (const config of overlays) {
-        result = await applyTextOverlay(result, config);
-      }
-      return result;
-    }),
-  );
-
-  return processedTiles.map((buffer, index) => ({
+  return tileBuffers.map((buffer, index) => ({
     index,
     buffer,
     filename: `${job.jobId}_save-the-date_tile_${index}.png`,
   }));
 }
 
-interface TextTileConfig {
-  index: number;
-  /** Lines of text to render, each with its own style */
-  lines: TextLine[];
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
-interface TextLine {
-  text: string;
-  fontSize: number;
-  fontStyle: 'italic' | 'normal';
-  /** Vertical center offset from tile center (negative = above, positive = below) */
-  yOffset: number;
+function formatDate(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const year = d.getUTCFullYear();
+  return `${day}.${month}.${year}`;
 }
 
-/**
- * Returns tile overlay configurations based on grid size.
- *
- *  9-piece (3x3 top row):
- *    tile 0: "Save" in script
- *    tile 1: "The" in script + date below
- *    tile 2: "Date" in script
- *
- *  6-piece (3x2 top row):
- *    tile 0: "Save The Date" in script
- *    tile 1: date in serif
- *
- *  3-piece (1x3):
- *    tile 2: date in serif
- */
-function getTextTileConfigs(
-  gridSize: 3 | 6 | 9,
-  _eventText: string,
-  date: string,
-): TextTileConfig[] {
-  switch (gridSize) {
-    case 9:
-      return [
-        {
-          index: 0,
-          lines: [
-            { text: 'Save', fontSize: 100, fontStyle: 'italic', yOffset: 0 },
-          ],
-        },
-        {
-          index: 1,
-          lines: [
-            { text: 'The', fontSize: 100, fontStyle: 'italic', yOffset: -50 },
-            { text: date, fontSize: 52, fontStyle: 'normal', yOffset: 70 },
-          ],
-        },
-        {
-          index: 2,
-          lines: [
-            { text: 'Date', fontSize: 100, fontStyle: 'italic', yOffset: 0 },
-          ],
-        },
-      ];
+// Event-text font size as a fraction of the composite short side.
+const EVENT_SIZE_FRACTION: Record<STDSize, number> = {
+  S: 0.055,
+  M: 0.075,
+  L: 0.095,
+};
 
-    case 6:
-      return [
-        {
-          index: 0,
-          lines: [
-            { text: 'Save The Date', fontSize: 72, fontStyle: 'italic', yOffset: 0 },
-          ],
-        },
-        {
-          index: 1,
-          lines: [
-            { text: date, fontSize: 56, fontStyle: 'normal', yOffset: 0 },
-          ],
-        },
-      ];
+// Date font size as a fraction of the composite short side.
+const DATE_SIZE_FRACTION: Record<STDSize, number> = {
+  S: 0.03,
+  M: 0.038,
+  L: 0.047,
+};
 
-    case 3:
-      return [
-        {
-          index: 2,
-          lines: [
-            { text: date, fontSize: 56, fontStyle: 'normal', yOffset: 0 },
-          ],
-        },
-      ];
+const EDGE_PAD = 0.08;
 
-    default:
-      return [];
-  }
+interface AnchorMath {
+  x: number;
+  textAnchor: 'start' | 'middle' | 'end';
+  /** y for the TOP of the first line of text. */
+  yTop: (totalHeight: number, H: number) => number;
 }
 
-/**
- * Composites a light semi-transparent wash with elegant white text
- * onto a tile. Uses white text (#FFFFFF) with a dark drop shadow
- * over a subtle rgba(255,255,255,0.2) full-tile wash.
- */
-async function applyTextOverlay(
-  tileBuffer: Buffer,
-  config: TextTileConfig,
-): Promise<Buffer> {
-  const centerY = TILE / 2;
+function resolveAnchor(anchor: STDAnchor, W: number): AnchorMath {
+  const [vert, horiz] = anchor.split('-') as [
+    'top' | 'middle' | 'bottom',
+    'left' | 'center' | 'right',
+  ];
 
-  const textElements = config.lines
-    .map((line) => {
-      const escapedText = line.text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
+  const x =
+    horiz === 'left'
+      ? Math.round(W * EDGE_PAD)
+      : horiz === 'right'
+        ? Math.round(W * (1 - EDGE_PAD))
+        : Math.round(W / 2);
 
-      const y = centerY + line.yOffset;
-      const style = line.fontStyle === 'italic' ? 'italic' : 'normal';
+  const textAnchor: 'start' | 'middle' | 'end' =
+    horiz === 'left' ? 'start' : horiz === 'right' ? 'end' : 'middle';
 
-      return `<text
-        x="${TILE / 2}" y="${y}"
-        font-family="Georgia, 'Times New Roman', serif"
-        font-size="${line.fontSize}"
-        font-style="${style}"
-        font-weight="${line.fontStyle === 'italic' ? '400' : '400'}"
-        fill="#FFFFFF"
-        text-anchor="middle"
-        dominant-baseline="central"
-        letter-spacing="${line.fontStyle === 'italic' ? '0.04em' : '0.12em'}"
-      >${escapedText}</text>`;
-    })
-    .join('\n');
+  const yTop = (totalHeight: number, H: number): number => {
+    if (vert === 'top') return Math.round(H * EDGE_PAD);
+    if (vert === 'bottom') return Math.round(H * (1 - EDGE_PAD) - totalHeight);
+    return Math.round(H / 2 - totalHeight / 2);
+  };
 
-  // Drop shadow filter for text readability over photos
-  const overlaySvg = `<svg width="${TILE}" height="${TILE}" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <filter id="textShadow" x="-10%" y="-10%" width="120%" height="120%">
-        <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="rgba(0,0,0,0.5)" />
-      </filter>
-    </defs>
+  return { x, textAnchor, yTop };
+}
 
-    <!-- Light semi-transparent wash over entire tile -->
-    <rect x="0" y="0" width="${TILE}" height="${TILE}" fill="rgba(255,255,255,0.2)" />
+function buildOverlaySvg(
+  c: SaveTheDateCustomization,
+  W: number,
+  H: number,
+): string {
+  const shortSide = Math.min(W, H);
+  const eventFontSize = Math.round(shortSide * EVENT_SIZE_FRACTION[c.fontSize]);
+  const dateFontSize = Math.round(shortSide * DATE_SIZE_FRACTION[c.fontSize]);
+  const eventLineHeight = Math.round(eventFontSize * 1.15);
+  const dateLineHeight = Math.round(dateFontSize * 1.2);
+  const gap = Math.round(shortSide * 0.015);
 
-    <!-- Text with drop shadow -->
-    <g filter="url(#textShadow)">
-      ${textElements}
+  const eventText = (c.eventText || 'Save the Date').trim();
+  const dateText = formatDate(c.date);
+
+  const totalHeight =
+    eventLineHeight + (dateText ? gap + dateLineHeight : 0);
+
+  const { x, textAnchor, yTop } = resolveAnchor(c.anchor, W);
+  const startY = yTop(totalHeight, H);
+  // SVG text baseline sits on y; raise by ~0.85 of fontSize so the visual top aligns.
+  const eventBaselineY = startY + Math.round(eventFontSize * 0.85);
+  const dateBaselineY = dateText
+    ? eventBaselineY + (eventLineHeight - Math.round(eventFontSize * 0.85)) + gap + Math.round(dateFontSize * 0.85)
+    : 0;
+
+  const fontFamily = STD_FONT_PRINT_NAMES[c.fontFamily];
+  const color = c.color;
+
+  const dropShadow = `<filter id="stdShadow" x="-10%" y="-10%" width="120%" height="120%">
+    <feDropShadow dx="0" dy="${Math.max(1, Math.round(eventFontSize * 0.04))}" stdDeviation="${Math.max(2, Math.round(eventFontSize * 0.08))}" flood-color="rgba(0,0,0,0.55)" />
+  </filter>`;
+
+  const eventEl = `<text x="${x}" y="${eventBaselineY}" font-family="${fontFamily}" font-size="${eventFontSize}" fill="${color}" text-anchor="${textAnchor}" letter-spacing="${Math.round(eventFontSize * 0.02)}">${escapeXml(eventText)}</text>`;
+
+  const dateEl = dateText
+    ? `<text x="${x}" y="${dateBaselineY}" font-family="${fontFamily}" font-size="${dateFontSize}" fill="${color}" text-anchor="${textAnchor}" letter-spacing="${Math.round(dateFontSize * 0.06)}" opacity="0.95">${escapeXml(dateText)}</text>`
+    : '';
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <defs>${dropShadow}</defs>
+    <g filter="url(#stdShadow)">
+      ${eventEl}
+      ${dateEl}
     </g>
   </svg>`;
-
-  const overlayBuffer = await sharp(Buffer.from(overlaySvg))
-    .resize(TILE, TILE)
-    .png()
-    .toBuffer();
-
-  return sharp(tileBuffer)
-    .composite([{ input: overlayBuffer, blend: 'over' }])
-    .png()
-    .toBuffer();
 }

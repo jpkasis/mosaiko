@@ -9,9 +9,13 @@ import { formatPrice, type GridConfig } from '@/lib/grid-config';
 import {
   getTileLayout,
   CATEGORY_REGISTRY,
+  STD_DEFAULTS,
   type CategoryType,
   type TonosIntensity,
   type CategoryCustomization,
+  type STDFontFamily,
+  type STDAnchor,
+  type STDSize,
 } from '@/lib/customization-types';
 import { getTonosColumnCSSFilter } from '@/lib/print-pipeline/utils/filter-presets';
 import { Button } from '@/components/ui/Button';
@@ -75,7 +79,16 @@ export function MagnetPreview({
       case 'studio':
         return { categoryType: 'studio', gridSize: 6, year: textFields.year || '', japaneseText: textFields.japaneseText || '', customText: textFields.customText || '', studioText: textFields.studioText || '' };
       case 'save-the-date':
-        return { categoryType: 'save-the-date', gridSize: 9, eventText: textFields.eventText || '', date: textFields.date || '' };
+        return {
+          categoryType: 'save-the-date',
+          gridSize: 9,
+          eventText: textFields.eventText || '',
+          date: textFields.date || '',
+          fontFamily: (textFields.fontFamily as STDFontFamily) || STD_DEFAULTS.fontFamily,
+          fontSize: (textFields.fontSize as STDSize) || STD_DEFAULTS.fontSize,
+          color: textFields.color || STD_DEFAULTS.color,
+          anchor: (textFields.anchor as STDAnchor) || STD_DEFAULTS.anchor,
+        };
       case 'tonos':
         return { categoryType: 'tonos', gridSize: (gridConfig.size === 9 ? 9 : 3), intensity: tonos?.intensity ?? 'medium' };
       case 'polaroid':
@@ -307,7 +320,18 @@ export function MagnetPreview({
           />
         ))}
 
-        {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && (
+        {categoryType === 'save-the-date' && customizationConfig.categoryType === 'save-the-date' && (
+          <SaveTheDateOverlay
+            eventText={customizationConfig.eventText}
+            date={customizationConfig.date}
+            fontFamily={customizationConfig.fontFamily}
+            fontSize={customizationConfig.fontSize}
+            color={customizationConfig.color}
+            anchor={customizationConfig.anchor}
+          />
+        )}
+
+        {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && categoryType !== 'save-the-date' && (
           <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
         )}
       </div>
@@ -396,7 +420,18 @@ export function MagnetPreview({
                 />
               ))}
 
-              {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && (
+              {categoryType === 'save-the-date' && customizationConfig.categoryType === 'save-the-date' && (
+                <SaveTheDateOverlay
+                  eventText={customizationConfig.eventText}
+                  date={customizationConfig.date}
+                  fontFamily={customizationConfig.fontFamily}
+                  fontSize={customizationConfig.fontSize}
+                  color={customizationConfig.color}
+                  anchor={customizationConfig.anchor}
+                />
+              )}
+
+              {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && categoryType !== 'save-the-date' && (
                 <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
               )}
             </div>
@@ -524,8 +559,6 @@ function TileContent({
           tonosFilter={descriptor.toneColumn
             ? getTonosColumnCSSFilter(descriptor.toneColumn, tonosIntensity)
             : undefined}
-          textFields={textFields}
-          gridSize={gridSize}
         />
       )}
     </TileWrapper>
@@ -574,39 +607,18 @@ function TileWrapper({
   );
 }
 
-function getSaveTheDateOverlay(
-  index: number,
-  gridSize: number,
-): { textPortion: 'save' | 'the' | 'date' | 'full' | 'date-only'; showDate: boolean } | null {
-  if (gridSize === 9) {
-    if (index === 0) return { textPortion: 'save', showDate: false };
-    if (index === 1) return { textPortion: 'the', showDate: true };
-    if (index === 2) return { textPortion: 'date', showDate: false };
-  } else if (gridSize === 6) {
-    if (index === 0) return { textPortion: 'full', showDate: false };
-    if (index === 1) return { textPortion: 'date-only', showDate: true };
-  } else if (gridSize === 3) {
-    if (index === 2) return { textPortion: 'date-only', showDate: true };
-  }
-  return null;
-}
-
 function PhotoTile({
   tileSrc,
   index,
   totalTiles,
   categoryType,
   tonosFilter,
-  textFields,
-  gridSize,
 }: {
   tileSrc: string;
   index: number;
   totalTiles: number;
   categoryType: CategoryType;
   tonosFilter?: string;
-  textFields?: Record<string, string>;
-  gridSize?: number;
 }) {
   if (!tileSrc) return null;
 
@@ -715,28 +727,6 @@ function PhotoTile({
     );
   }
 
-  if (categoryType === 'save-the-date' && textFields) {
-    const overlay = getSaveTheDateOverlay(index, gridSize || totalTiles);
-
-    return (
-      <div
-        className="relative overflow-hidden rounded-md"
-        style={{
-          aspectRatio: '1',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.1)',
-        }}
-      >
-        {imgElement}
-        {overlay && (
-          <SaveTheDateOverlay
-            textPortion={overlay.textPortion}
-            dateText={overlay.showDate ? textFields.date : undefined}
-            eventText={textFields.eventText}
-          />
-        )}
-      </div>
-    );
-  }
 
   return (
     <div

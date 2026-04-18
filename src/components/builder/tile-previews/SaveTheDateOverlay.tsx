@@ -1,136 +1,172 @@
 'use client';
 
-export type TextPortion = 'save' | 'the' | 'date' | 'full' | 'date-only';
+import {
+  STD_FONT_CSS_VARS,
+  type STDFontFamily,
+  type STDAnchor,
+  type STDSize,
+} from '@/lib/customization-types';
 
 interface SaveTheDateOverlayProps {
-  /** Which portion of the "Save The Date" text to display on this tile */
-  textPortion?: TextPortion;
-  /** The date string (e.g., "30.05.2026") — shown when textPortion is 'the', 'full', or 'date-only' */
-  dateText?: string;
-  /** @deprecated Use textPortion + dateText instead. Kept for backward compat with MagnetPreview. */
   eventText?: string;
-  /** @deprecated Use dateText instead. Kept for backward compat with MagnetPreview. */
   date?: string;
+  fontFamily: STDFontFamily;
+  fontSize: STDSize;
+  color: string;
+  anchor: STDAnchor;
   className?: string;
 }
 
 /**
- * Elegant semi-transparent overlay for Save the Date tiles.
- * Renders a light wash with white script text and subtle shadow.
- *
- * Usage per grid:
- *  - 9-piece (3x3): tile 0 = "save", tile 1 = "the" + date, tile 2 = "date"
- *  - 6-piece (3x2): tile 0 = "full" ("Save The Date"), tile 1 = "date-only"
- *  - 3-piece (1x3): tile 2 = "date-only"
+ * Single unified overlay covering the full 3×3 STD mosaic.
+ * Positions a text block at one of 9 anchor points; user-controlled font,
+ * size and color. Drop shadow preserved for legibility on photos.
  */
 export function SaveTheDateOverlay({
-  textPortion,
-  dateText = '',
-  eventText,
-  date,
+  eventText = '',
+  date = '',
+  fontFamily,
+  fontSize,
+  color,
+  anchor,
   className,
 }: SaveTheDateOverlayProps) {
-  // Backward compat: if called with old props (eventText/date) and no textPortion,
-  // fall back to 'full' mode showing everything on one tile.
-  const resolvedPortion: TextPortion = textPortion ?? 'full';
-  const resolvedDate = dateText || date || '';
+  const resolvedEventText = eventText.trim() || 'Save the Date';
+  const resolvedDate = formatDateForDisplay(date);
 
-  // Legacy fallback: if no textPortion was provided and no eventText/date either, hide
-  if (!textPortion && !eventText && !date) return null;
+  const pos = ANCHOR_POSITION[anchor];
+  const eventFontSize = EVENT_SIZE[fontSize];
+  const dateFontSize = DATE_SIZE[fontSize];
 
   return (
     <div
-      className={[
-        'absolute inset-0 flex flex-col items-center justify-center',
-        'bg-white/25 backdrop-blur-[0.5px]',
-        className,
-      ]
-        .filter(Boolean)
-        .join(' ')}
+      className={['pointer-events-none absolute inset-0', className].filter(Boolean).join(' ')}
+      style={{ containerType: 'inline-size' }}
     >
-      {/* Script text: Save / The / Date / Full */}
-      {resolvedPortion === 'save' && (
+      <div
+        className="absolute flex flex-col"
+        style={{
+          ...pos.containerStyle,
+          gap: 'clamp(2px, 1.2cqi, 10px)',
+          alignItems: pos.itemsAlign,
+          textAlign: pos.textAlign,
+          maxWidth: '84%',
+        }}
+      >
         <span
-          className="font-serif text-[clamp(12px,4vw,22px)] italic leading-tight text-white md:text-[clamp(16px,3vw,26px)]"
           style={{
-            textShadow: '0 1px 4px rgba(0,0,0,0.45), 0 0px 1px rgba(0,0,0,0.3)',
-            letterSpacing: '0.04em',
+            fontFamily: STD_FONT_CSS_VARS[fontFamily],
+            fontSize: eventFontSize,
+            color,
+            fontWeight: 400,
+            lineHeight: 1.15,
+            letterSpacing: '0.02em',
+            textShadow:
+              '0 1px 4px rgba(0,0,0,0.55), 0 0 2px rgba(0,0,0,0.4)',
+            wordBreak: 'break-word',
           }}
         >
-          Save
+          {resolvedEventText}
         </span>
-      )}
-
-      {resolvedPortion === 'the' && (
-        <div className="flex flex-col items-center gap-0.5">
+        {resolvedDate && (
           <span
-            className="font-serif text-[clamp(12px,4vw,22px)] italic leading-tight text-white md:text-[clamp(16px,3vw,26px)]"
             style={{
-              textShadow: '0 1px 4px rgba(0,0,0,0.45), 0 0px 1px rgba(0,0,0,0.3)',
-              letterSpacing: '0.04em',
+              fontFamily: STD_FONT_CSS_VARS[fontFamily],
+              fontSize: dateFontSize,
+              color,
+              fontWeight: 400,
+              lineHeight: 1.2,
+              letterSpacing: '0.06em',
+              textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+              opacity: 0.95,
             }}
           >
-            The
+            {resolvedDate}
           </span>
-          {resolvedDate && (
-            <span
-              className="font-serif text-[clamp(7px,2.5vw,13px)] leading-tight tracking-wider text-white md:text-[clamp(9px,2vw,15px)]"
-              style={{
-                textShadow: '0 1px 3px rgba(0,0,0,0.4)',
-              }}
-            >
-              {resolvedDate}
-            </span>
-          )}
-        </div>
-      )}
-
-      {resolvedPortion === 'date' && (
-        <span
-          className="font-serif text-[clamp(12px,4vw,22px)] italic leading-tight text-white md:text-[clamp(16px,3vw,26px)]"
-          style={{
-            textShadow: '0 1px 4px rgba(0,0,0,0.45), 0 0px 1px rgba(0,0,0,0.3)',
-            letterSpacing: '0.04em',
-          }}
-        >
-          Date
-        </span>
-      )}
-
-      {resolvedPortion === 'full' && (
-        <div className="flex flex-col items-center gap-1">
-          <span
-            className="font-serif text-[clamp(10px,3.5vw,20px)] italic leading-tight text-white md:text-[clamp(14px,2.5vw,24px)]"
-            style={{
-              textShadow: '0 1px 4px rgba(0,0,0,0.45), 0 0px 1px rgba(0,0,0,0.3)',
-              letterSpacing: '0.04em',
-            }}
-          >
-            Save The Date
-          </span>
-          {resolvedDate && (
-            <span
-              className="font-serif text-[clamp(7px,2.5vw,12px)] leading-tight tracking-wider text-white md:text-[clamp(9px,2vw,14px)]"
-              style={{
-                textShadow: '0 1px 3px rgba(0,0,0,0.4)',
-              }}
-            >
-              {resolvedDate}
-            </span>
-          )}
-        </div>
-      )}
-
-      {resolvedPortion === 'date-only' && resolvedDate && (
-        <span
-          className="font-serif text-[clamp(8px,3vw,14px)] leading-tight tracking-wider text-white md:text-[clamp(10px,2vw,16px)]"
-          style={{
-            textShadow: '0 1px 3px rgba(0,0,0,0.4)',
-          }}
-        >
-          {resolvedDate}
-        </span>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+
+function formatDateForDisplay(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const year = d.getUTCFullYear();
+  return `${day}.${month}.${year}`;
+}
+
+const EVENT_SIZE: Record<STDSize, string> = {
+  S: 'clamp(10px, 6.5cqi, 42px)',
+  M: 'clamp(12px, 8cqi, 56px)',
+  L: 'clamp(15px, 10cqi, 72px)',
+};
+
+const DATE_SIZE: Record<STDSize, string> = {
+  S: 'clamp(6px, 3.5cqi, 20px)',
+  M: 'clamp(8px, 4.5cqi, 26px)',
+  L: 'clamp(10px, 5.5cqi, 32px)',
+};
+
+type AnchorStyle = {
+  containerStyle: React.CSSProperties;
+  itemsAlign: 'flex-start' | 'center' | 'flex-end';
+  textAlign: 'left' | 'center' | 'right';
+};
+
+const EDGE = '8%';
+const MID = '50%';
+const TRANSLATE_X_CENTER = 'translateX(-50%)';
+const TRANSLATE_Y_CENTER = 'translateY(-50%)';
+const TRANSLATE_BOTH = 'translate(-50%, -50%)';
+
+const ANCHOR_POSITION: Record<STDAnchor, AnchorStyle> = {
+  'top-left': {
+    containerStyle: { top: EDGE, left: EDGE },
+    itemsAlign: 'flex-start',
+    textAlign: 'left',
+  },
+  'top-center': {
+    containerStyle: { top: EDGE, left: MID, transform: TRANSLATE_X_CENTER },
+    itemsAlign: 'center',
+    textAlign: 'center',
+  },
+  'top-right': {
+    containerStyle: { top: EDGE, right: EDGE },
+    itemsAlign: 'flex-end',
+    textAlign: 'right',
+  },
+  'middle-left': {
+    containerStyle: { top: MID, left: EDGE, transform: TRANSLATE_Y_CENTER },
+    itemsAlign: 'flex-start',
+    textAlign: 'left',
+  },
+  'middle-center': {
+    containerStyle: { top: MID, left: MID, transform: TRANSLATE_BOTH },
+    itemsAlign: 'center',
+    textAlign: 'center',
+  },
+  'middle-right': {
+    containerStyle: { top: MID, right: EDGE, transform: TRANSLATE_Y_CENTER },
+    itemsAlign: 'flex-end',
+    textAlign: 'right',
+  },
+  'bottom-left': {
+    containerStyle: { bottom: EDGE, left: EDGE },
+    itemsAlign: 'flex-start',
+    textAlign: 'left',
+  },
+  'bottom-center': {
+    containerStyle: { bottom: EDGE, left: MID, transform: TRANSLATE_X_CENTER },
+    itemsAlign: 'center',
+    textAlign: 'center',
+  },
+  'bottom-right': {
+    containerStyle: { bottom: EDGE, right: EDGE },
+    itemsAlign: 'flex-end',
+    textAlign: 'right',
+  },
+};
