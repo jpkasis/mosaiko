@@ -86,7 +86,7 @@ export function ArteInfoPreview({
             fontFamily: 'var(--font-montserrat), Montserrat, sans-serif',
             fontWeight: 400,
             color: '#E5E5E5',
-            fontSize: 'clamp(4px, 5cqi, 20px)',
+            fontSize: 'clamp(5px, 6cqi, 24px)',
             lineHeight: 1.25,
             textAlign: 'right',
           }}

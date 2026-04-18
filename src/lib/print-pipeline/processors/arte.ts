@@ -82,7 +82,7 @@ async function renderInfoTile(
   const titleLineHeight = Math.round(titleFontSize * 1.1);
   const titleStartY = Math.round(TILE * 0.10 + titleFontSize * 0.9);
 
-  const artistFontSize = Math.round(TILE * 0.05);
+  const artistFontSize = Math.round(TILE * 0.06);
   const artistLineHeight = Math.round(artistFontSize * 1.25);
   const gapBetween = Math.round(TILE * 0.02);
   const artistStartY =
