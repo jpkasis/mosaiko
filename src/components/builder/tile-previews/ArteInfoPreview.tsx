@@ -12,9 +12,10 @@ interface ArteInfoPreviewProps {
 /**
  * Client-side preview of the Arte info tile (tile 9, bottom-right).
  * Mirrors the print pipeline output from processors/arte.ts.
- * Typography per client spec (art-instructions.md): Montserrat Bold title,
- * Montserrat Regular "Artist, c. Year". Layout matches stock references in
- * MOSAIKO-images/Categoria Arte/*.png.
+ * Typography per client spec (art-instructions.md) + stock measurement
+ * (MOSAIKO-images/Categoria Arte/*.png): Montserrat Bold title and
+ * Montserrat Regular artist line, both right-aligned in the upper ~25%
+ * of the tile. Logo tucked in bottom-right corner.
  */
 export function ArteInfoPreview({
   title = '',
@@ -53,14 +54,13 @@ export function ArteInfoPreview({
       <div
         className="absolute"
         style={{
-          top: '14%',
-          left: '18%',
-          right: '10%',
-          bottom: '22%',
+          top: '10%',
+          left: '14%',
+          right: '12%',
           zIndex: 1,
           display: 'flex',
           flexDirection: 'column',
-          gap: 'clamp(3px, 2cqi, 8px)',
+          gap: 'clamp(2px, 1.5cqi, 6px)',
           overflow: 'hidden',
         }}
       >
@@ -69,10 +69,11 @@ export function ArteInfoPreview({
             fontFamily: 'var(--font-montserrat), Montserrat, sans-serif',
             fontWeight: 700,
             color: '#FFFFFF',
-            fontSize: 'clamp(7px, 13cqi, 26px)',
-            lineHeight: 1.08,
+            fontSize: 'clamp(5px, 8cqi, 30px)',
+            lineHeight: 1.1,
             letterSpacing: '0.01em',
             textTransform: 'uppercase',
+            textAlign: 'right',
           }}
         >
           {titleLines.map((line, i) => (
@@ -85,8 +86,9 @@ export function ArteInfoPreview({
             fontFamily: 'var(--font-montserrat), Montserrat, sans-serif',
             fontWeight: 400,
             color: '#E5E5E5',
-            fontSize: 'clamp(5px, 9cqi, 17px)',
+            fontSize: 'clamp(4px, 5cqi, 20px)',
             lineHeight: 1.25,
+            textAlign: 'right',
           }}
         >
           {artistLines.map((line, i) => (
@@ -102,8 +104,8 @@ export function ArteInfoPreview({
         className="pointer-events-none absolute"
         style={{
           right: '8%',
-          bottom: '7%',
-          height: 'clamp(8px, 7cqi, 16px)',
+          bottom: '6%',
+          height: 'clamp(7px, 8cqi, 22px)',
           width: 'auto',
           opacity: 0.9,
           zIndex: 2,
