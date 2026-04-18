@@ -50,7 +50,7 @@ export type STDAnchor =
 
 export type STDSize = 'S' | 'M' | 'L';
 
-export type STDTextTreatment = 'none' | 'shadow' | 'outline' | 'panel' | 'frosted';
+export type STDTextTreatment = 'none' | 'shadow' | 'outline' | 'card' | 'frame';
 
 export interface SaveTheDateCustomization {
   categoryType: 'save-the-date';

@@ -144,6 +144,44 @@ function FieldInput({
   );
 }
 
+function FieldTextarea({
+  field,
+  value,
+  onChange,
+  hint,
+  placeholder: customPlaceholder,
+  rows = 3,
+}: {
+  field: string;
+  value: string;
+  onChange: (field: string, value: string) => void;
+  hint?: string;
+  placeholder?: string;
+  rows?: number;
+}) {
+  const t = useTranslations('builder');
+  const label = t(FIELD_I18N[field] || field);
+
+  return (
+    <motion.div variants={itemVariants} className="flex flex-col gap-1.5">
+      <label htmlFor={`field-${field}`} className="text-sm font-medium text-charcoal">
+        {label}
+      </label>
+      <textarea
+        id={`field-${field}`}
+        value={value}
+        onChange={(e) => onChange(field, e.target.value)}
+        rows={rows}
+        className="min-h-[88px] rounded-lg border-2 border-light-gray bg-white px-4 py-3 text-sm text-charcoal transition-colors focus:border-terracotta focus:outline-none resize-y"
+        placeholder={customPlaceholder || label}
+      />
+      {hint && (
+        <span className="text-xs text-warm-gray">{hint}</span>
+      )}
+    </motion.div>
+  );
+}
+
 function SpotifyFields({
   values,
   onChange,
@@ -229,8 +267,8 @@ const STD_TREATMENT_OPTIONS: ReadonlyArray<{ value: STDTextTreatment; labelKey: 
   { value: 'none',    labelKey: 'treatmentNone' },
   { value: 'shadow',  labelKey: 'treatmentShadow' },
   { value: 'outline', labelKey: 'treatmentOutline' },
-  { value: 'panel',   labelKey: 'treatmentPanel' },
-  { value: 'frosted', labelKey: 'treatmentFrosted' },
+  { value: 'card',    labelKey: 'treatmentCard' },
+  { value: 'frame',   labelKey: 'treatmentFrame' },
 ];
 
 function SaveTheDateFields({
@@ -249,7 +287,14 @@ function SaveTheDateFields({
 
   return (
     <>
-      <FieldInput field="eventText" value={values.eventText || ''} onChange={onChange} placeholder="Save the Date" />
+      <FieldTextarea
+        field="eventText"
+        value={values.eventText || ''}
+        onChange={onChange}
+        placeholder="Save the Date"
+        hint={t('fieldEventTextHint')}
+        rows={3}
+      />
       <FieldInput field="date" value={values.date || ''} onChange={onChange} type="date" />
 
       <motion.div variants={itemVariants} className="flex flex-col gap-2">

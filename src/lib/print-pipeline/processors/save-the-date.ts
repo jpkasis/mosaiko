@@ -17,9 +17,11 @@ const TILE = TILE_PRINT_SIZE;
  * Save the Date processor.
  *
  * The user's text is composited as a single unified overlay onto the
- * cropped photo BEFORE splitting into tiles. Each tile naturally
- * receives its slice of the overlay. Font family, size, color, anchor,
- * and readability treatment come from the customization.
+ * cropped photo BEFORE splitting into tiles. Each output PNG tile
+ * naturally receives its slice of the overlay.
+ *
+ * Text wrapping is user-controlled: eventText is split on '\n' only.
+ * No automatic word-breaking.
  */
 export async function processSaveTheDate(
   job: SingleImagePrintJob,
@@ -36,12 +38,12 @@ export async function processSaveTheDate(
     compositeH,
   );
 
-  const composited = await applyTextOverlay(
-    croppedBuffer,
-    customization,
-    compositeW,
-    compositeH,
-  );
+  const overlaySvg = buildOverlaySvg(customization, compositeW, compositeH);
+
+  const composited = await sharp(croppedBuffer)
+    .composite([{ input: Buffer.from(overlaySvg), blend: 'over' }])
+    .png()
+    .toBuffer();
 
   const tileBuffers = await splitIntoTiles(composited, grid.rows, grid.cols);
 
@@ -83,58 +85,34 @@ const DATE_SIZE_FRACTION: Record<STDSize, number> = {
   L: 0.047,
 };
 
-const EDGE_PAD = 0.08;
-
-interface AnchorMath {
-  x: number;
-  textAnchor: 'start' | 'middle' | 'end';
-  yTop: (totalHeight: number, H: number) => number;
-}
-
-function resolveAnchor(anchor: STDAnchor, W: number): AnchorMath {
-  const [vert, horiz] = anchor.split('-') as [
-    'top' | 'middle' | 'bottom',
-    'left' | 'center' | 'right',
-  ];
-
-  const x =
-    horiz === 'left'
-      ? Math.round(W * EDGE_PAD)
-      : horiz === 'right'
-        ? Math.round(W * (1 - EDGE_PAD))
-        : Math.round(W / 2);
-
-  const textAnchor: 'start' | 'middle' | 'end' =
-    horiz === 'left' ? 'start' : horiz === 'right' ? 'end' : 'middle';
-
-  const yTop = (totalHeight: number, H: number): number => {
-    if (vert === 'top') return Math.round(H * EDGE_PAD);
-    if (vert === 'bottom') return Math.round(H * (1 - EDGE_PAD) - totalHeight);
-    return Math.round(H / 2 - totalHeight / 2);
-  };
-
-  return { x, textAnchor, yTop };
-}
+const EDGE_PAD = 0.06;
 
 interface TextLayout {
-  eventText: string;
+  eventLines: string[];
   dateText: string;
   eventFontSize: number;
   dateFontSize: number;
   eventLineHeight: number;
   dateLineHeight: number;
   gap: number;
-  totalHeight: number;
-  // Left edge and width of the tightest bounding box enclosing both lines.
-  boxLeft: number;
-  boxTop: number;
-  boxWidth: number;
-  boxHeight: number;
-  // Anchor-resolved baselines.
-  eventBaselineY: number;
-  dateBaselineY: number;
-  x: number;
+  textBlockHeight: number;
+  textBlockWidth: number;
+  // Anchor-resolved position of the tightest text bounding box.
+  blockLeft: number;
+  blockTop: number;
+  // Baseline y of the first event text line.
+  firstEventBaselineY: number;
+  textX: number;
   textAnchor: 'start' | 'middle' | 'end';
+  // Inner padding applied inside card/frame rectangles.
+  boxPadX: number;
+  boxPadY: number;
+}
+
+function charWidthFactor(fontFamily: SaveTheDateCustomization['fontFamily']): number {
+  if (fontFamily === 'dancing-script' || fontFamily === 'great-vibes') return 0.62;
+  if (fontFamily === 'cinzel') return 0.58;
+  return 0.55;
 }
 
 function computeTextLayout(
@@ -147,212 +125,219 @@ function computeTextLayout(
   const dateFontSize = Math.round(shortSide * DATE_SIZE_FRACTION[c.fontSize]);
   const eventLineHeight = Math.round(eventFontSize * 1.15);
   const dateLineHeight = Math.round(dateFontSize * 1.2);
-  const gap = Math.round(shortSide * 0.015);
+  const gap = Math.round(shortSide * 0.02);
 
-  const eventText = (c.eventText || 'Save the Date').trim();
+  const rawEvent = c.eventText.length > 0 ? c.eventText : 'Save the Date';
+  const eventLines = rawEvent.split('\n');
   const dateText = formatDate(c.date);
 
-  const totalHeight =
-    eventLineHeight + (dateText ? gap + dateLineHeight : 0);
+  const textBlockHeight =
+    eventLines.length * eventLineHeight +
+    (dateText ? gap + dateLineHeight : 0);
 
-  const { x, textAnchor, yTop } = resolveAnchor(c.anchor, W);
-  const boxTop = yTop(totalHeight, H);
-  const eventBaselineY = boxTop + Math.round(eventFontSize * 0.85);
-  const dateBaselineY = dateText
-    ? eventBaselineY + (eventLineHeight - Math.round(eventFontSize * 0.85)) + gap + Math.round(dateFontSize * 0.85)
+  const cwFactor = charWidthFactor(c.fontFamily);
+  const eventWidth = Math.max(
+    ...eventLines.map((line) => Math.round(eventFontSize * cwFactor * Math.max(1, line.length))),
+  );
+  const dateWidth = dateText
+    ? Math.round(dateFontSize * cwFactor * dateText.length)
     : 0;
+  const textBlockWidth = Math.max(eventWidth, dateWidth);
 
-  // Text width estimate. Cormorant/Playfair/Montserrat average ≈ 0.55 × fontSize
-  // for the 400 weight we're using. Bold-ish fonts (Cinzel) lean ~0.6; we use a
-  // conservative 0.58 to avoid panels that under-cover. Script fonts (Dancing
-  // Script, Great Vibes) are wider; bump to 0.62.
-  const fontCharWidth = c.fontFamily === 'dancing-script' || c.fontFamily === 'great-vibes'
-    ? 0.62
-    : c.fontFamily === 'cinzel'
-      ? 0.58
-      : 0.55;
-  const eventWidth = Math.round(eventFontSize * fontCharWidth * eventText.length);
-  const dateWidth = dateText ? Math.round(dateFontSize * 0.55 * dateText.length) : 0;
-  const boxWidth = Math.max(eventWidth, dateWidth);
+  const [vert, horiz] = c.anchor.split('-') as [
+    'top' | 'middle' | 'bottom',
+    'left' | 'center' | 'right',
+  ];
+
+  const boxPadX = Math.round(eventFontSize * 0.55);
+  const boxPadY = Math.round(eventFontSize * 0.42);
+
+  // Distinguish the text-block left edge from the visual box (card/frame) edge.
+  // The anchor positions the visual box, so the text inside starts boxPadX in.
+  const needsBox = c.treatment === 'card' || c.treatment === 'frame';
+  const boxWidth = needsBox ? textBlockWidth + boxPadX * 2 : textBlockWidth;
+  const boxHeight = needsBox ? textBlockHeight + boxPadY * 2 : textBlockHeight;
 
   const boxLeft =
-    textAnchor === 'start'
-      ? x
-      : textAnchor === 'end'
-        ? x - boxWidth
-        : Math.round(x - boxWidth / 2);
+    horiz === 'left'
+      ? Math.round(W * EDGE_PAD)
+      : horiz === 'right'
+        ? Math.round(W * (1 - EDGE_PAD)) - boxWidth
+        : Math.round((W - boxWidth) / 2);
+
+  const boxTop =
+    vert === 'top'
+      ? Math.round(H * EDGE_PAD)
+      : vert === 'bottom'
+        ? Math.round(H * (1 - EDGE_PAD)) - boxHeight
+        : Math.round((H - boxHeight) / 2);
+
+  const blockLeft = needsBox ? boxLeft + boxPadX : boxLeft;
+  const blockTop = needsBox ? boxTop + boxPadY : boxTop;
+
+  const textX =
+    horiz === 'left'
+      ? blockLeft
+      : horiz === 'right'
+        ? blockLeft + textBlockWidth
+        : blockLeft + Math.round(textBlockWidth / 2);
+  const textAnchor: 'start' | 'middle' | 'end' =
+    horiz === 'left' ? 'start' : horiz === 'right' ? 'end' : 'middle';
+
+  const firstEventBaselineY = blockTop + Math.round(eventFontSize * 0.82);
 
   return {
-    eventText,
+    eventLines,
     dateText,
     eventFontSize,
     dateFontSize,
     eventLineHeight,
     dateLineHeight,
     gap,
-    totalHeight,
-    boxLeft,
-    boxTop,
-    boxWidth,
-    boxHeight: totalHeight,
-    eventBaselineY,
-    dateBaselineY,
-    x,
+    textBlockHeight,
+    textBlockWidth,
+    blockLeft,
+    blockTop,
+    firstEventBaselineY,
+    textX,
     textAnchor,
+    boxPadX,
+    boxPadY,
   };
-}
-
-async function applyTextOverlay(
-  photo: Buffer,
-  c: SaveTheDateCustomization,
-  W: number,
-  H: number,
-): Promise<Buffer> {
-  const layout = computeTextLayout(c, W, H);
-  const fontFamily = STD_FONT_PRINT_NAMES[c.fontFamily];
-  const color = c.color;
-  const textIsLight = hexLuminance(color) >= 0.6;
-
-  // Treatment 1: frosted — blur a photo region behind the text first.
-  let base = photo;
-  if (c.treatment === 'frosted') {
-    base = await compositeFrostedPanel(photo, layout, textIsLight, c.fontSize, W, H);
-  }
-
-  const overlaySvg = buildOverlaySvg(c, layout, fontFamily, color, textIsLight, W, H);
-
-  return sharp(base)
-    .composite([{ input: Buffer.from(overlaySvg), blend: 'over' }])
-    .png()
-    .toBuffer();
-}
-
-async function compositeFrostedPanel(
-  photo: Buffer,
-  layout: TextLayout,
-  textIsLight: boolean,
-  size: STDSize,
-  W: number,
-  H: number,
-): Promise<Buffer> {
-  const padX = Math.round(layout.eventFontSize * 0.5);
-  const padY = Math.round(layout.eventFontSize * 0.35);
-  const left = Math.max(0, layout.boxLeft - padX);
-  const top = Math.max(0, layout.boxTop - padY);
-  const right = Math.min(W, layout.boxLeft + layout.boxWidth + padX);
-  const bottom = Math.min(H, layout.boxTop + layout.boxHeight + padY);
-  const width = Math.max(1, right - left);
-  const height = Math.max(1, bottom - top);
-
-  const blurRadius = size === 'S' ? 10 : size === 'L' ? 24 : 16;
-  const tint = textIsLight
-    ? { r: 20, g: 20, b: 24, alpha: 0.32 }
-    : { r: 250, g: 248, b: 244, alpha: 0.45 };
-
-  const region = await sharp(photo)
-    .extract({ left, top, width, height })
-    .blur(blurRadius)
-    .toBuffer();
-
-  const tintBuffer = await sharp({
-    create: {
-      width,
-      height,
-      channels: 4,
-      background: tint,
-    },
-  })
-    .png()
-    .toBuffer();
-
-  const tintedRegion = await sharp(region)
-    .composite([{ input: tintBuffer, blend: 'over' }])
-    .png()
-    .toBuffer();
-
-  return sharp(photo)
-    .composite([{ input: tintedRegion, left, top }])
-    .png()
-    .toBuffer();
 }
 
 function buildOverlaySvg(
   c: SaveTheDateCustomization,
-  layout: TextLayout,
-  fontFamily: string,
-  color: string,
-  textIsLight: boolean,
   W: number,
   H: number,
 ): string {
+  const layout = computeTextLayout(c, W, H);
+  const fontFamily = STD_FONT_PRINT_NAMES[c.fontFamily];
+  const color = c.color;
+  const textIsLight = hexLuminance(color) >= 0.6;
+  const treatment: STDTextTreatment = c.treatment;
+
+  // Build SVG pieces.
+  const { defs, backing } = buildTreatmentBacking(treatment, textIsLight, layout, W, H);
+  const textGroup = buildTextGroup(
+    layout,
+    fontFamily,
+    color,
+    treatment,
+    textIsLight,
+  );
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <defs>${defs}</defs>
+    ${backing}
+    ${textGroup}
+  </svg>`;
+}
+
+function buildTreatmentBacking(
+  treatment: STDTextTreatment,
+  textIsLight: boolean,
+  layout: TextLayout,
+  W: number,
+  H: number,
+): { defs: string; backing: string } {
+  const padX = layout.boxPadX;
+  const padY = layout.boxPadY;
+  const boxLeft = layout.blockLeft - padX;
+  const boxTop = layout.blockTop - padY;
+  const boxWidth = layout.textBlockWidth + padX * 2;
+  const boxHeight = layout.textBlockHeight + padY * 2;
+  const clipLeft = Math.max(0, boxLeft);
+  const clipTop = Math.max(0, boxTop);
+  const clipRight = Math.min(W, boxLeft + boxWidth);
+  const clipBottom = Math.min(H, boxTop + boxHeight);
+  const x = clipLeft;
+  const y = clipTop;
+  const w = Math.max(1, clipRight - clipLeft);
+  const h = Math.max(1, clipBottom - clipTop);
+
+  switch (treatment) {
+    case 'none':
+    case 'shadow':
+    case 'outline':
+      return { defs: '', backing: '' };
+
+    case 'card': {
+      const fill = textIsLight ? 'rgba(22,22,26,0.88)' : 'rgba(250,248,242,0.94)';
+      const innerStroke = textIsLight ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
+      const innerInset = Math.round(Math.max(4, layout.eventFontSize * 0.12));
+      const shadowFilter = `<filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="${Math.max(2, Math.round(layout.eventFontSize * 0.08))}" stdDeviation="${Math.max(4, Math.round(layout.eventFontSize * 0.18))}" flood-color="rgba(0,0,0,0.22)" />
+      </filter>`;
+      const outerRect = `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" filter="url(#cardShadow)" />`;
+      const innerRect = `<rect x="${x + innerInset}" y="${y + innerInset}" width="${Math.max(1, w - innerInset * 2)}" height="${Math.max(1, h - innerInset * 2)}" fill="none" stroke="${innerStroke}" stroke-width="1" />`;
+      return { defs: shadowFilter, backing: `${outerRect}${innerRect}` };
+    }
+
+    case 'frame': {
+      const outerStroke = textIsLight ? 'rgba(255,255,255,0.75)' : 'rgba(30,28,24,0.75)';
+      const innerStroke = textIsLight ? 'rgba(255,255,255,0.45)' : 'rgba(30,28,24,0.45)';
+      const innerInset = Math.round(Math.max(4, layout.eventFontSize * 0.14));
+      const outerRect = `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${outerStroke}" stroke-width="1.5" />`;
+      const innerRect = `<rect x="${x + innerInset}" y="${y + innerInset}" width="${Math.max(1, w - innerInset * 2)}" height="${Math.max(1, h - innerInset * 2)}" fill="none" stroke="${innerStroke}" stroke-width="1" />`;
+      return { defs: '', backing: `${outerRect}${innerRect}` };
+    }
+  }
+}
+
+function buildTextGroup(
+  layout: TextLayout,
+  fontFamily: string,
+  color: string,
+  treatment: STDTextTreatment,
+  textIsLight: boolean,
+): string {
   const {
-    eventText,
+    eventLines,
     dateText,
     eventFontSize,
     dateFontSize,
-    boxLeft,
-    boxTop,
-    boxWidth,
-    boxHeight,
-    eventBaselineY,
-    dateBaselineY,
-    x,
+    eventLineHeight,
+    firstEventBaselineY,
+    gap,
+    textX,
     textAnchor,
   } = layout;
 
-  const treatment: STDTextTreatment = c.treatment;
-  const strokeColor = textIsLight ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.85)';
+  const strokeColor = textIsLight ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
+  const outlineAttrs =
+    treatment === 'outline'
+      ? ` stroke="${strokeColor}" stroke-width="${Math.max(1, Math.round(eventFontSize * 0.045))}" paint-order="stroke fill"`
+      : '';
+  const dateOutlineAttrs =
+    treatment === 'outline'
+      ? ` stroke="${strokeColor}" stroke-width="${Math.max(1, Math.round(dateFontSize * 0.045))}" paint-order="stroke fill"`
+      : '';
 
-  // Panel rectangle (for `panel` and to match `frosted` on top of the blurred region).
-  const panelRect = (() => {
-    if (treatment !== 'panel' && treatment !== 'frosted') return '';
-    const padX = Math.round(eventFontSize * 0.5);
-    const padY = Math.round(eventFontSize * 0.35);
-    const left = Math.max(0, boxLeft - padX);
-    const top = Math.max(0, boxTop - padY);
-    const right = Math.min(W, boxLeft + boxWidth + padX);
-    const bottom = Math.min(H, boxTop + boxHeight + padY);
-    const width = Math.max(1, right - left);
-    const height = Math.max(1, bottom - top);
+  const shadowFilterId = 'stdShadow';
+  const shadowFilterAttr = treatment === 'shadow' ? ` filter="url(#${shadowFilterId})"` : '';
 
-    if (treatment === 'panel') {
-      const fill = textIsLight ? 'rgba(20,20,24,0.55)' : 'rgba(250,248,244,0.7)';
-      return `<rect x="${left}" y="${top}" width="${width}" height="${height}" rx="2" fill="${fill}" />`;
-    }
-    // Frosted's blurred+tinted region is already composited beneath; the SVG
-    // panel would double-dim it, so emit nothing here.
-    return '';
-  })();
+  const eventTspans = eventLines
+    .map((line, i) => {
+      const y = firstEventBaselineY + i * eventLineHeight;
+      return `<tspan x="${textX}" y="${y}">${escapeXml(line)}</tspan>`;
+    })
+    .join('');
 
-  const dropShadowFilter = treatment === 'shadow'
-    ? `<filter id="stdShadow" x="-10%" y="-10%" width="120%" height="120%">
-        <feDropShadow dx="0" dy="${Math.max(1, Math.round(eventFontSize * 0.05))}" stdDeviation="${Math.max(2, Math.round(eventFontSize * 0.1))}" flood-color="rgba(0,0,0,0.75)" />
-        <feDropShadow dx="0" dy="0" stdDeviation="${Math.max(1, Math.round(eventFontSize * 0.03))}" flood-color="rgba(0,0,0,0.45)" />
-      </filter>`
-    : '';
+  const eventEl = `<text font-family="${fontFamily}" font-size="${eventFontSize}" fill="${color}" text-anchor="${textAnchor}" letter-spacing="${Math.round(eventFontSize * 0.02)}"${outlineAttrs}>${eventTspans}</text>`;
 
-  const strokeAttrs = treatment === 'outline'
-    ? ` stroke="${strokeColor}" stroke-width="${Math.max(1, Math.round(eventFontSize * 0.045))}" paint-order="stroke fill"`
-    : '';
-
-  const dateStrokeAttrs = treatment === 'outline'
-    ? ` stroke="${strokeColor}" stroke-width="${Math.max(1, Math.round(dateFontSize * 0.045))}" paint-order="stroke fill"`
-    : '';
-
-  const filterRef = treatment === 'shadow' ? ` filter="url(#stdShadow)"` : '';
-
-  const eventEl = `<text x="${x}" y="${eventBaselineY}" font-family="${fontFamily}" font-size="${eventFontSize}" fill="${color}" text-anchor="${textAnchor}" letter-spacing="${Math.round(eventFontSize * 0.02)}"${strokeAttrs}>${escapeXml(eventText)}</text>`;
-
+  const dateBaselineY =
+    firstEventBaselineY + eventLines.length * eventLineHeight + gap + Math.round(dateFontSize * 0.82) - Math.round(eventFontSize * 0.82);
   const dateEl = dateText
-    ? `<text x="${x}" y="${dateBaselineY}" font-family="${fontFamily}" font-size="${dateFontSize}" fill="${color}" text-anchor="${textAnchor}" letter-spacing="${Math.round(dateFontSize * 0.06)}" opacity="0.95"${dateStrokeAttrs}>${escapeXml(dateText)}</text>`
+    ? `<text x="${textX}" y="${dateBaselineY}" font-family="${fontFamily}" font-size="${dateFontSize}" fill="${color}" text-anchor="${textAnchor}" letter-spacing="${Math.round(dateFontSize * 0.06)}" opacity="0.92"${dateOutlineAttrs}>${escapeXml(dateText)}</text>`
     : '';
 
-  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    <defs>${dropShadowFilter}</defs>
-    ${panelRect}
-    <g${filterRef}>
-      ${eventEl}
-      ${dateEl}
-    </g>
-  </svg>`;
+  if (treatment === 'shadow') {
+    return `<defs><filter id="${shadowFilterId}" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="${Math.max(2, Math.round(eventFontSize * 0.06))}" stdDeviation="${Math.max(3, Math.round(eventFontSize * 0.12))}" flood-color="rgba(0,0,0,0.65)" />
+      <feDropShadow dx="0" dy="0" stdDeviation="${Math.max(1, Math.round(eventFontSize * 0.04))}" flood-color="rgba(0,0,0,0.4)" />
+    </filter></defs><g${shadowFilterAttr}>${eventEl}${dateEl}</g>`;
+  }
+
+  return `<g>${eventEl}${dateEl}</g>`;
 }
