@@ -1,5 +1,7 @@
 'use client';
 
+import { wrapTitle, wrapArtist } from '@/lib/print-pipeline/utils/text-wrap';
+
 interface ArteInfoPreviewProps {
   title?: string;
   artist?: string;
@@ -7,20 +9,11 @@ interface ArteInfoPreviewProps {
   className?: string;
 }
 
-function wrapTitle(title: string, budget = 14): [string, string?] {
-  const t = title.trim();
-  if (t.length <= budget) return [t];
-  const slice = t.slice(0, budget + 1);
-  const lastSpace = slice.lastIndexOf(' ');
-  if (lastSpace <= 0) return [t.slice(0, budget), t.slice(budget)];
-  return [t.slice(0, lastSpace), t.slice(lastSpace + 1)];
-}
-
 /**
  * Client-side preview of the Arte info tile (tile 9, bottom-right).
  * Mirrors the print pipeline output from processors/arte.ts.
- * Typography per client spec (art-instructions.md): Montserrat Bold for title,
- * Montserrat Regular for "Artist, c. Year". Layout matches stock references in
+ * Typography per client spec (art-instructions.md): Montserrat Bold title,
+ * Montserrat Regular "Artist, c. Year". Layout matches stock references in
  * MOSAIKO-images/Categoria Arte/*.png.
  */
 export function ArteInfoPreview({
@@ -29,66 +22,91 @@ export function ArteInfoPreview({
   year = '',
   className,
 }: ArteInfoPreviewProps) {
-  const [line1, line2] = wrapTitle((title || '—').toUpperCase());
-  const artistLine = year ? (artist ? `${artist}, c. ${year}` : `c. ${year}`) : artist;
+  const trimmedTitle = title.trim();
+  const trimmedArtist = artist.trim();
+  const trimmedYear = year.trim();
+  const titleLines = wrapTitle(trimmedTitle || '—');
+  const artistRaw = trimmedYear
+    ? trimmedArtist
+      ? `${trimmedArtist}, c. ${trimmedYear}`
+      : `c. ${trimmedYear}`
+    : trimmedArtist;
+  const artistLines = artistRaw ? wrapArtist(artistRaw) : [''];
 
   return (
     <div
       className={['relative h-full w-full overflow-hidden rounded-md', className].filter(Boolean).join(' ')}
       style={{
-        backgroundColor: '#000000',
         aspectRatio: '1',
         containerType: 'inline-size',
+        contain: 'layout paint',
+        isolation: 'isolate',
+        backgroundColor: '#000000',
       }}
     >
       <div
-        className="absolute"
-        style={{
-          top: '22%',
-          left: '12%',
-          right: '12%',
-          fontFamily: 'var(--font-montserrat), Montserrat, sans-serif',
-          fontWeight: 700,
-          color: '#FFFFFF',
-          fontSize: 'clamp(8px, 10cqi, 20px)',
-          lineHeight: 1.12,
-          letterSpacing: '0.01em',
-          textTransform: 'uppercase',
-        }}
-      >
-        <div>{line1}</div>
-        {line2 && <div>{line2}</div>}
-      </div>
+        aria-hidden="true"
+        className="absolute inset-0"
+        style={{ backgroundColor: '#000000', zIndex: 0 }}
+      />
 
       <div
         className="absolute"
         style={{
-          top: line2 ? '52%' : '36%',
-          left: '12%',
-          right: '12%',
-          fontFamily: 'var(--font-montserrat), Montserrat, sans-serif',
-          fontWeight: 400,
-          color: '#CCCCCC',
-          fontSize: 'clamp(6px, 7cqi, 13px)',
-          lineHeight: 1.2,
-          whiteSpace: 'nowrap',
+          top: '14%',
+          left: '18%',
+          right: '10%',
+          bottom: '22%',
+          zIndex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'clamp(3px, 2cqi, 8px)',
           overflow: 'hidden',
-          textOverflow: 'ellipsis',
         }}
       >
-        {artistLine || '\u00A0'}
+        <div
+          style={{
+            fontFamily: 'var(--font-montserrat), Montserrat, sans-serif',
+            fontWeight: 700,
+            color: '#FFFFFF',
+            fontSize: 'clamp(7px, 13cqi, 26px)',
+            lineHeight: 1.08,
+            letterSpacing: '0.01em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {titleLines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            fontFamily: 'var(--font-montserrat), Montserrat, sans-serif',
+            fontWeight: 400,
+            color: '#E5E5E5',
+            fontSize: 'clamp(5px, 9cqi, 17px)',
+            lineHeight: 1.25,
+          }}
+        >
+          {artistLines.map((line, i) => (
+            <div key={i}>{line || '\u00A0'}</div>
+          ))}
+        </div>
       </div>
 
       <img
         src="/logos/logo-blanco.png"
-        alt="Mosaiko"
-        className="pointer-events-none absolute -translate-x-1/2"
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute"
         style={{
-          left: '50%',
-          bottom: '10%',
-          height: 'clamp(7px, 8cqi, 16px)',
+          right: '8%',
+          bottom: '7%',
+          height: 'clamp(8px, 7cqi, 16px)',
           width: 'auto',
           opacity: 0.9,
+          zIndex: 2,
         }}
         draggable={false}
       />
