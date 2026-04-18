@@ -50,7 +50,9 @@ export type STDAnchor =
 
 export type STDSize = 'S' | 'M' | 'L';
 
-export type STDTextTreatment = 'none' | 'shadow' | 'outline' | 'card' | 'frame';
+export type STDTextTreatment = 'none' | 'shadow' | 'outline' | 'halo' | 'card' | 'frame';
+
+export type STDTextIntensity = 'subtle' | 'medium' | 'intense';
 
 export interface SaveTheDateCustomization {
   categoryType: 'save-the-date';
@@ -62,6 +64,7 @@ export interface SaveTheDateCustomization {
   color: string;
   anchor: STDAnchor;
   treatment: STDTextTreatment;
+  intensity: STDTextIntensity;
 }
 
 export const STD_DEFAULTS = {
@@ -70,6 +73,7 @@ export const STD_DEFAULTS = {
   color: '#FFFFFF',
   anchor: 'top-center' as STDAnchor,
   treatment: 'shadow' as STDTextTreatment,
+  intensity: 'medium' as STDTextIntensity,
 };
 
 /**

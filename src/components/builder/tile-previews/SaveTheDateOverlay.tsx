@@ -7,6 +7,7 @@ import {
   type STDAnchor,
   type STDSize,
   type STDTextTreatment,
+  type STDTextIntensity,
 } from '@/lib/customization-types';
 
 interface SaveTheDateOverlayProps {
@@ -17,6 +18,7 @@ interface SaveTheDateOverlayProps {
   color: string;
   anchor: STDAnchor;
   treatment: STDTextTreatment;
+  intensity: STDTextIntensity;
   className?: string;
 }
 
@@ -37,6 +39,7 @@ export function SaveTheDateOverlay({
   color,
   anchor,
   treatment,
+  intensity,
   className,
 }: SaveTheDateOverlayProps) {
   const resolvedEventText = eventText.length > 0 ? eventText : 'Save the Date';
@@ -47,7 +50,7 @@ export function SaveTheDateOverlay({
   const dateFontSize = DATE_SIZE[fontSize];
   const textIsLight = hexLuminance(color) >= 0.6;
 
-  const treatmentEl = renderTreatment(treatment, color, textIsLight, {
+  const treatmentEl = renderTreatment(treatment, intensity, color, textIsLight, {
     fontFamily,
     eventFontSize,
     dateFontSize,
@@ -123,8 +126,24 @@ function TextBlock({ fontFamily, eventFontSize, dateFontSize, eventText, date, e
   );
 }
 
+const SHADOW_INTENSITY: Record<STDTextIntensity, string> = {
+  subtle:
+    '0 1px 5px rgba(0,0,0,0.6), 0 0 8px rgba(0,0,0,0.25), 0 1px 1px rgba(0,0,0,0.45)',
+  medium:
+    '0 2px 8px rgba(0,0,0,0.75), 0 0 12px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.6)',
+  intense:
+    '0 4px 18px rgba(0,0,0,0.85), 0 0 30px rgba(0,0,0,0.55), 0 2px 4px rgba(0,0,0,0.7)',
+};
+
+const HALO_INTENSITY: Record<STDTextIntensity, { blur1: number; blur2: number }> = {
+  subtle:  { blur1: 6,  blur2: 12 },
+  medium:  { blur1: 14, blur2: 26 },
+  intense: { blur1: 26, blur2: 48 },
+};
+
 function renderTreatment(
   treatment: STDTextTreatment,
+  intensity: STDTextIntensity,
   textColor: string,
   textIsLight: boolean,
   text: TextProps,
@@ -144,13 +163,25 @@ function renderTreatment(
         <div style={{ display: 'inline-block', ...baseColor }}>
           <TextBlock
             {...text}
+            extraStyle={{ textShadow: SHADOW_INTENSITY[intensity] }}
+          />
+        </div>
+      );
+
+    case 'halo': {
+      const haloColor = textIsLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)';
+      const spread = HALO_INTENSITY[intensity];
+      return (
+        <div style={{ display: 'inline-block', ...baseColor }}>
+          <TextBlock
+            {...text}
             extraStyle={{
-              textShadow:
-                '0 2px 8px rgba(0,0,0,0.75), 0 0 12px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.6)',
+              textShadow: `0 0 ${spread.blur1}px ${haloColor}, 0 0 ${spread.blur2}px ${haloColor}`,
             }}
           />
         </div>
       );
+    }
 
     case 'outline': {
       const strokeColor = textIsLight ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';

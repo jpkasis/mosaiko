@@ -168,6 +168,11 @@
     "treatmentOutline": "Contorno",
     "treatmentCard": "Tarjeta",
     "treatmentFrame": "Marco",
+    "treatmentHalo": "Halo",
+    "fieldIntensity": "Intensidad",
+    "intensitySubtle": "Sutil",
+    "intensityMedium": "Media",
+    "intensityIntense": "Intensa",
     "continue": "Continuar",
     "categoryGridBadge": "{cols}×{rows} · {count} piezas",
     "selectCategory": "Elige el estilo de tus imanes"

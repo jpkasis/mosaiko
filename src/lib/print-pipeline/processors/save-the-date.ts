@@ -7,6 +7,7 @@ import {
   type STDAnchor,
   type STDSize,
   type STDTextTreatment,
+  type STDTextIntensity,
 } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
@@ -225,6 +226,7 @@ function buildOverlaySvg(
     color,
     treatment,
     textIsLight,
+    c.intensity,
   );
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
@@ -260,6 +262,7 @@ function buildTreatmentBacking(
     case 'none':
     case 'shadow':
     case 'outline':
+    case 'halo':
       return { defs: '', backing: '' };
 
     case 'card': {
@@ -285,12 +288,19 @@ function buildTreatmentBacking(
   }
 }
 
+const SHADOW_INTENSITY_MULT: Record<STDTextIntensity, number> = {
+  subtle: 0.55,
+  medium: 1.0,
+  intense: 1.85,
+};
+
 function buildTextGroup(
   layout: TextLayout,
   fontFamily: string,
   color: string,
   treatment: STDTextTreatment,
   textIsLight: boolean,
+  intensity: STDTextIntensity,
 ): string {
   const {
     eventLines,
@@ -315,7 +325,10 @@ function buildTextGroup(
       : '';
 
   const shadowFilterId = 'stdShadow';
+  const haloFilterId = 'stdHalo';
   const shadowFilterAttr = treatment === 'shadow' ? ` filter="url(#${shadowFilterId})"` : '';
+  const haloFilterAttr = treatment === 'halo' ? ` filter="url(#${haloFilterId})"` : '';
+  const mult = SHADOW_INTENSITY_MULT[intensity];
 
   const eventTspans = eventLines
     .map((line, i) => {
@@ -333,10 +346,23 @@ function buildTextGroup(
     : '';
 
   if (treatment === 'shadow') {
-    return `<defs><filter id="${shadowFilterId}" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="${Math.max(2, Math.round(eventFontSize * 0.06))}" stdDeviation="${Math.max(3, Math.round(eventFontSize * 0.12))}" flood-color="rgba(0,0,0,0.65)" />
-      <feDropShadow dx="0" dy="0" stdDeviation="${Math.max(1, Math.round(eventFontSize * 0.04))}" flood-color="rgba(0,0,0,0.4)" />
+    const dy = Math.max(2, Math.round(eventFontSize * 0.06 * mult));
+    const blurBig = Math.max(3, Math.round(eventFontSize * 0.12 * mult));
+    const blurSmall = Math.max(1, Math.round(eventFontSize * 0.04 * mult));
+    return `<defs><filter id="${shadowFilterId}" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="${dy}" stdDeviation="${blurBig}" flood-color="rgba(0,0,0,${Math.min(0.9, 0.55 + 0.12 * mult).toFixed(2)})" />
+      <feDropShadow dx="0" dy="0" stdDeviation="${blurSmall}" flood-color="rgba(0,0,0,${Math.min(0.7, 0.35 + 0.08 * mult).toFixed(2)})" />
     </filter></defs><g${shadowFilterAttr}>${eventEl}${dateEl}</g>`;
+  }
+
+  if (treatment === 'halo') {
+    const haloFlood = textIsLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)';
+    const innerBlur = Math.max(4, Math.round(eventFontSize * 0.1 * mult));
+    const outerBlur = Math.max(8, Math.round(eventFontSize * 0.22 * mult));
+    return `<defs><filter id="${haloFilterId}" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="${innerBlur}" flood-color="${haloFlood}" />
+      <feDropShadow dx="0" dy="0" stdDeviation="${outerBlur}" flood-color="${haloFlood}" />
+    </filter></defs><g${haloFilterAttr}>${eventEl}${dateEl}</g>`;
   }
 
   return `<g>${eventEl}${dateEl}</g>`;

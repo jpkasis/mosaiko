@@ -168,6 +168,11 @@
     "treatmentOutline": "Outline",
     "treatmentCard": "Card",
     "treatmentFrame": "Frame",
+    "treatmentHalo": "Halo",
+    "fieldIntensity": "Intensity",
+    "intensitySubtle": "Subtle",
+    "intensityMedium": "Medium",
+    "intensityIntense": "Intense",
     "continue": "Continue",
     "categoryGridBadge": "{cols}×{rows} · {count} pieces",
     "selectCategory": "Choose the style for your magnets"

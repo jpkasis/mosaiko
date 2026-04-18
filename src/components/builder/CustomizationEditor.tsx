@@ -11,6 +11,7 @@ import {
   type STDAnchor,
   type STDSize,
   type STDTextTreatment,
+  type STDTextIntensity,
 } from '@/lib/customization-types';
 
 interface CustomizationEditorProps {
@@ -266,9 +267,16 @@ const STD_ANCHOR_GRID: ReadonlyArray<STDAnchor> = [
 const STD_TREATMENT_OPTIONS: ReadonlyArray<{ value: STDTextTreatment; labelKey: string }> = [
   { value: 'none',    labelKey: 'treatmentNone' },
   { value: 'shadow',  labelKey: 'treatmentShadow' },
+  { value: 'halo',    labelKey: 'treatmentHalo' },
   { value: 'outline', labelKey: 'treatmentOutline' },
   { value: 'card',    labelKey: 'treatmentCard' },
   { value: 'frame',   labelKey: 'treatmentFrame' },
+];
+
+const STD_INTENSITY_OPTIONS: ReadonlyArray<{ value: STDTextIntensity; labelKey: string }> = [
+  { value: 'subtle',  labelKey: 'intensitySubtle' },
+  { value: 'medium',  labelKey: 'intensityMedium' },
+  { value: 'intense', labelKey: 'intensityIntense' },
 ];
 
 function SaveTheDateFields({
@@ -284,6 +292,8 @@ function SaveTheDateFields({
   const color = values.color || STD_DEFAULTS.color;
   const anchor = (values.anchor as STDAnchor) || STD_DEFAULTS.anchor;
   const treatment = (values.treatment as STDTextTreatment) || STD_DEFAULTS.treatment;
+  const intensity = (values.intensity as STDTextIntensity) || STD_DEFAULTS.intensity;
+  const intensityApplies = treatment === 'shadow' || treatment === 'halo';
 
   return (
     <>
@@ -409,6 +419,33 @@ function SaveTheDateFields({
           })}
         </div>
       </motion.div>
+
+      {intensityApplies && (
+        <motion.div variants={itemVariants} className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-charcoal">{t('fieldIntensity')}</span>
+          <div className="grid grid-cols-3 gap-2">
+            {STD_INTENSITY_OPTIONS.map((opt) => {
+              const selected = intensity === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => onChange('intensity', opt.value)}
+                  className={[
+                    'min-h-[44px] rounded-lg border-2 px-3 py-2 text-sm font-medium transition-colors cursor-pointer',
+                    selected
+                      ? 'border-terracotta bg-terracotta text-white'
+                      : 'border-light-gray bg-white text-charcoal hover:border-warm-gray',
+                  ].join(' ')}
+                  aria-pressed={selected}
+                >
+                  {t(opt.labelKey)}
+                </button>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
 
       <motion.div variants={itemVariants} className="flex flex-col gap-2">
         <span className="text-sm font-medium text-charcoal">{t('fieldTextPosition')}</span>
