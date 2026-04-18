@@ -338,7 +338,6 @@ export function MagnetBuilder() {
                           : undefined
                     }
                     overlayCols={flow.selectedCategory === 'arte' ? 4 : undefined}
-                    overlayDimStartPct={flow.selectedCategory === 'ghibli' ? 94.77 : undefined}
                     overlayRowSplits={
                       flow.selectedCategory === 'polaroid' ? [55.96]
                         : flow.selectedCategory === 'ghibli' ? [43.69, 94.77]
