@@ -175,12 +175,45 @@ export function MagnetPreview({
           return;
         }
 
+        // Studio/Ghibli: 2×2 photo area + 63-unit photo strip extending into
+        // the top of tiles 5 & 6 (matches transparent regions of the frame PNGs
+        // and the print pipeline's 1055×1204 photo buffer).
+        if (categoryType === 'ghibli') {
+          const BUF_W = 1055;
+          const BUF_H = 1204;
+          const fullCanvas = getCroppedCanvas(image, cropArea, BUF_W, BUF_H, 0);
+          const regions = [
+            { sx: 0,   sy: 0,    sw: 528, sh: 526 }, // tile 1: top-left photo
+            { sx: 528, sy: 0,    sw: 527, sh: 526 }, // tile 2: top-right photo
+            { sx: 0,   sy: 526,  sw: 528, sh: 615 }, // tile 3: mid-left photo
+            { sx: 528, sy: 526,  sw: 527, sh: 615 }, // tile 4: mid-right photo
+            { sx: 0,   sy: 1141, sw: 528, sh: 63  }, // tile 5: left text panel strip
+            { sx: 528, sy: 1141, sw: 527, sh: 63  }, // tile 6: right text panel strip
+          ];
+
+          const urls: string[] = [];
+          for (const r of regions) {
+            const tc = document.createElement('canvas');
+            tc.width = r.sw;
+            tc.height = r.sh;
+            const ctx = tc.getContext('2d')!;
+            ctx.drawImage(fullCanvas, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+            urls.push(tc.toDataURL('image/jpeg', 0.9));
+            tc.width = 0;
+            tc.height = 0;
+          }
+          fullCanvas.width = 0;
+          fullCanvas.height = 0;
+          if (cancelled) return;
+          setTiles(urls);
+          return;
+        }
+
         const photoRows = categoryType === 'spotify' || categoryType === 'arte' ? 2
-          : categoryType === 'ghibli' ? 3
           : gridConfig.rows;
         const photoCols = gridConfig.cols;
 
-        const splitTileCount = categoryType === 'ghibli' ? gridConfig.size : photoTileCount;
+        const splitTileCount = photoTileCount;
         const splitConfig = {
           ...gridConfig,
           size: splitTileCount as typeof gridConfig.size,
@@ -237,6 +270,7 @@ export function MagnetPreview({
   // categories, they are indexed by photo-order.
   function tileSrcFor(descriptorIndex: number): string {
     if (categoryType === 'tonos') return tiles[descriptorIndex] ?? '';
+    if (categoryType === 'ghibli') return tiles[descriptorIndex] ?? '';
     return tiles[photoTileIndexMap.get(descriptorIndex) ?? 0] ?? '';
   }
 
@@ -461,8 +495,8 @@ function TileContent({
       {role === 'text-panel' && categoryType === 'ghibli' && (() => {
         const isLeft = label === 'ghibli-left';
         const stripStyle = isLeft
-          ? { left: '14.15%', top: '0%', width: '85.85%', height: '100%' }
-          : { left: '0%', top: '0%', width: '85.69%', height: '100%' };
+          ? { left: '14.15%', top: '0%', width: '85.85%', height: '10.24%' }
+          : { left: '0%', top: '0%', width: '85.69%', height: '10.24%' };
         return (
           <div className="relative h-full w-full overflow-hidden" style={{ aspectRatio: '1' }}>
             {tileSrc && (

@@ -92,9 +92,24 @@ export async function processGhibli(job: SingleImagePrintJob): Promise<TileOutpu
     }),
   );
 
+  // Extract the 63-unit photo strip that extends into the top of tiles 5 & 6.
+  const stripWLeft = Math.round(colLeftW * scale);
+  const stripWRight = Math.round(colRightW * scale);
+  const stripHpx = Math.round(stripH * scale);
+  const stripTop = Math.round((rowTopH + rowBotH) * scale);
+
+  const leftStripBuffer = await sharp(croppedBuffer)
+    .extract({ left: 0, top: stripTop, width: stripWLeft, height: stripHpx })
+    .png()
+    .toBuffer();
+  const rightStripBuffer = await sharp(croppedBuffer)
+    .extract({ left: stripWLeft, top: stripTop, width: stripWRight, height: stripHpx })
+    .png()
+    .toBuffer();
+
   // Generate text panels (tiles 5 and 6)
-  const leftPanelBuffer = await renderLeftPanel(year, studioText);
-  const rightPanelBuffer = await renderRightPanel(japaneseText, customText);
+  const leftPanelBuffer = await renderLeftPanel(year, studioText, leftStripBuffer);
+  const rightPanelBuffer = await renderRightPanel(japaneseText, customText, rightStripBuffer);
 
   return [
     ...photoTiles.map((buffer, index) => ({
@@ -107,12 +122,25 @@ export async function processGhibli(job: SingleImagePrintJob): Promise<TileOutpu
   ];
 }
 
-async function renderLeftPanel(year: string, studioText?: string): Promise<Buffer> {
+async function renderLeftPanel(
+  year: string,
+  studioText: string | undefined,
+  photoStrip: Buffer,
+): Promise<Buffer> {
   const templateBuffer = await readFile(join(TEMPLATE_DIR, '5.png'));
-  const baseBuffer = await sharp(templateBuffer)
+  const resizedTemplate = await sharp(templateBuffer)
     .resize(TILE, TILE, { fit: 'fill' })
     .png()
     .toBuffer();
+
+  // Cream base (matches the template body colour so the strip edges blend).
+  const baseBuffer = await sharp({
+    create: { width: TILE, height: TILE, channels: 4, background: { r: 235, g: 234, b: 230, alpha: 255 } },
+  }).png().toBuffer();
+
+  // Photo strip is inset from the left by 14.146% (87/615) to match the
+  // transparent region of template 5.
+  const photoLeft = Math.round((87 / SRC_SIZE) * TILE);
 
   const textX = Math.round(TILE * 0.07);
   const yearY = Math.round(TILE * 0.325);
@@ -125,15 +153,33 @@ async function renderLeftPanel(year: string, studioText?: string): Promise<Buffe
 
   const textBuffer = await sharp(Buffer.from(textSvg)).resize(TILE, TILE).png().toBuffer();
 
-  return sharp(baseBuffer).composite([{ input: textBuffer }]).png().toBuffer();
+  return sharp(baseBuffer)
+    .composite([
+      { input: photoStrip, left: photoLeft, top: 0 },
+      { input: resizedTemplate },
+      { input: textBuffer },
+    ])
+    .png()
+    .toBuffer();
 }
 
-async function renderRightPanel(japaneseText: string, customText: string): Promise<Buffer> {
+async function renderRightPanel(
+  japaneseText: string,
+  customText: string,
+  photoStrip: Buffer,
+): Promise<Buffer> {
   const templateBuffer = await readFile(join(TEMPLATE_DIR, '6.png'));
-  const baseBuffer = await sharp(templateBuffer)
+  const resizedTemplate = await sharp(templateBuffer)
     .resize(TILE, TILE, { fit: 'fill' })
     .png()
     .toBuffer();
+
+  const baseBuffer = await sharp({
+    create: { width: TILE, height: TILE, channels: 4, background: { r: 235, g: 234, b: 230, alpha: 255 } },
+  }).png().toBuffer();
+
+  // Right panel's transparent region starts at x=0.
+  const photoLeft = 0;
 
   const textRight = Math.round(TILE * 0.93);
   const jpY = Math.round(TILE * 0.325);
@@ -146,7 +192,14 @@ async function renderRightPanel(japaneseText: string, customText: string): Promi
 
   const textBuffer = await sharp(Buffer.from(textSvg)).resize(TILE, TILE).png().toBuffer();
 
-  return sharp(baseBuffer).composite([{ input: textBuffer }]).png().toBuffer();
+  return sharp(baseBuffer)
+    .composite([
+      { input: photoStrip, left: photoLeft, top: 0 },
+      { input: resizedTemplate },
+      { input: textBuffer },
+    ])
+    .png()
+    .toBuffer();
 }
 
 function escapeXml(text: string): string {
