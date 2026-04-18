@@ -2,9 +2,10 @@
 
 **Transforma tus recuerdos en arte magnetico** — Transform your memories into magnetic art
 
-[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Shopify](https://img.shields.io/badge/Shopify-checkout-95BF47?style=flat-square&logo=shopify&logoColor=white)](https://shopify.dev/)
 [![License](https://img.shields.io/badge/License-Private-red?style=flat-square)]()
 
 ---
@@ -20,19 +21,26 @@ Mosaiko is a custom ecommerce platform where customers upload a personal photo, 
 - **Bilingual (ES/EN)** — Spanish-first UI with full English support via next-intl, defaulting to the `es` locale
 - **Mobile-First Design** — Every component is designed for touch devices first, then scales gracefully to desktop
 - **Smooth Animations** — Staggered reveals, spring-based interactions, and fluid page transitions with Framer Motion
-- **Product Categories** — Curated collections including Mosaicos, Studio, Arte, Save the Date, Flores, Album de Spotify, and Polaroid
+- **Product Categories** — Seven curated flows: Mosaicos, Studio, Arte, Save the Date, Tonos, Spotify, and Polaroid — each with its own crop geometry, overlay template, and print pipeline
+- **Server-Side Print Pipeline** — Sharp-based processors generate per-tile PNGs at print resolution (827 px) with category-specific frame compositing
+- **Shopify Checkout** — Cart attributes carry custom crop/upload metadata; Storefront API creates the checkout, Admin API receives fulfillment webhooks
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Framework | [Next.js 15](https://nextjs.org/) (App Router) |
+| Framework | [Next.js 16](https://nextjs.org/) (App Router) |
 | Language | [TypeScript 5](https://www.typescriptlang.org/) |
 | Styling | [Tailwind CSS 4](https://tailwindcss.com/) + CSS custom properties |
 | Animations | [Framer Motion](https://www.framer.com/motion/) |
 | State | [Zustand](https://zustand.docs.pmnd.rs/) |
 | Image Crop | [react-easy-crop](https://github.com/ValentinH/react-easy-crop) |
-| Image Split | HTML5 Canvas API |
+| Client Split | HTML5 Canvas API |
+| Print Pipeline | [Sharp](https://sharp.pixelplumbing.com/) + SVG overlays |
+| Commerce | [Shopify](https://shopify.dev/) (Storefront + Admin APIs) |
+| Image Storage | [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/) |
+| Email | [Resend](https://resend.com/) |
+| Auth (admin) | bcryptjs + jose (JWT cookies) |
 | i18n | [next-intl](https://next-intl-docs.vercel.app/) |
 | Hosting | [Vercel](https://vercel.com/) |
 
@@ -84,32 +92,46 @@ npm run lint
 ```
 src/
   app/
-    [locale]/              # Locale-aware routes (es, en)
-      page.tsx             # Homepage
-      personalizar/        # Magnet builder page
-      carrito/             # Cart page
-    globals.css            # Global styles & design tokens
-    layout.tsx             # Root layout
+    [locale]/                # Locale-aware routes (es, en)
+      page.tsx                 # Homepage
+      personalizar/            # Magnet builder
+      carrito/                 # Cart
+      catalogo/                # Catalog + category filter
+      pedido-confirmado/       # Order confirmation
+      terminos/ privacidad/    # Legal pages
+      ...
+    admin/                   # Admin panel (always Spanish, auth-gated)
+    api/                     # Route handlers (checkout, webhooks, print)
   components/
-    builder/               # Magnet builder flow
-      PhotoUploader.tsx    #   Upload step
-      ImageCropper.tsx     #   Crop & adjust step
-      GridSelector.tsx     #   Grid layout picker
-      MagnetPreview.tsx    #   Live mosaic preview
-      MagnetBuilder.tsx    #   Builder orchestrator
-    cart/                  # Shopping cart
-    home/                  # Landing page sections
-    layout/                # Header, Footer, AnnouncementBar
-    ui/                    # Reusable primitives (Button, Badge, Container)
-  i18n/                    # Internationalization config
+    builder/                 # Magnet builder flow
+      CategorySelector.tsx     #   Step 1
+      PhotoUploader.tsx        #   Step 2
+      ImageCropper.tsx         #   Step 3 — per-category aspect + overlay
+      CustomizationEditor.tsx  #   Step 4 — text panels, Tonos intensity
+      MagnetPreview.tsx        #   Step 5 — live tile preview
+      MagnetBuilder.tsx        #   Orchestrator (Zustand flow state)
+      tile-previews/           #   Per-category tile render components
+    cart/                    # CartDrawer, CartPage, CartItem
+    home/                    # Hero, HowItWorks, FeaturedCategories, etc.
+    layout/                  # Header, Footer, AnnouncementBar
+    ui/                      # Button, Badge, Container primitives
   lib/
-    canvas-utils.ts        # Image splitting logic
-    cart-store.ts          # Zustand cart state
-    grid-config.ts         # Grid layout definitions
-  messages/
-    es.json                # Spanish translations
-    en.json                # English translations
-  middleware.ts            # Locale detection & routing
+    canvas-utils.ts          # Client-side image split
+    cart-store.ts            # Zustand cart
+    grid-config.ts           # Category + grid-size layout overrides
+    customization-types.ts   # Per-category discriminated union
+    catalog-data.ts          # Pre-designed product catalog
+    print-pipeline/          # Sharp-based server processors
+      processors/               # mosaicos / spotify / tonos / save-the-date /
+      utils/                    # arte / studio / polaroid
+    shopify/                 # Storefront + Admin clients, cart mutations
+    r2/                      # Cloudflare R2 upload helpers
+  messages/                  # ES + EN translations (next-intl)
+  middleware.ts              # Locale routing
+public/
+  templates/                 # Per-category PNG frame overlays
+  products/                  # Pre-designed product thumbnails
+  categories/                # Category cover images
 ```
 
 ## Design System
@@ -132,35 +154,48 @@ src/
 
 The design language blends Mexican warmth with modern ecommerce clarity. Every color, animation, and spacing decision is intentional — no generic templates, no filler.
 
+## Architecture
+
+Mosaiko is a **Shopify-backed storefront**: the custom Next.js frontend handles the photo builder experience, then hands off to Shopify's hosted checkout with custom cart attributes carrying the user's uploads and crop metadata. Shopify is the source of truth for orders, customers, and payments; print files live in Cloudflare R2 and are referenced via Shopify metafields. There is no separate app database.
+
+```
+User photo ─► Cloudflare R2 (originals bucket)
+      ▼
+ Crop / customize ─► Shopify cart (attributes)
+      ▼
+ Shopify checkout (OXXO / SPEI / cards, PCI-compliant)
+      ▼
+ order webhook ─► Next.js /api/print ─► Sharp pipeline
+      ▼                                      ▼
+ Email (Resend)                     R2 (print-files bucket)
+      ▼                                      ▼
+              Admin panel ZIP download by order
+```
+
 ## Roadmap
 
 ### Phase 1 — Storefront Foundation &#10003;
-- Landing page with hero, how-it-works, featured categories, trust badges, and CTA
-- Magnet builder: upload, crop, grid select, live preview
-- Shopping cart with state management
-- Bilingual support (ES/EN)
-- Mobile-first responsive layout
+- Landing page (hero, how-it-works, featured categories, trust badges, CTA)
+- Magnet builder: category → upload → crop → customize → preview
+- Seven category flows with category-specific crop aspects, overlay templates, and print pipelines
+- Shopping cart with Zustand + persistence
+- Bilingual (ES/EN) mobile-first UI
 
-### Phase 2 — Payments & Orders
-- Stripe Mexico integration (cards, OXXO, SPEI)
-- Order creation and confirmation flow
-- Email notifications via Resend
+### Phase 2 — Checkout & Fulfillment &#10003;
+- Shopify Storefront API checkout (OXXO, SPEI, cards)
+- Cart attributes carry R2 upload URLs + crop metadata
+- Order webhook triggers Sharp print pipeline per category
+- Resend emails: order confirmation, admin notification, shipping
 
-### Phase 3 — Admin Panel
-- Content management for all site sections
-- Product and category CRUD
-- Order management with print file downloads
-- Analytics dashboard (GA4 + Google Ads)
+### Phase 3 — Admin Panel &#10003; (core)
+- bcrypt + JWT cookie auth (single admin user via env var)
+- Order list with status tabs, order detail with customer/product/print files
+- Onboarding overlay for non-technical client
+- **Pending:** Shopify-metaobjects CMS, analytics embed, settings, products CRUD
 
-### Phase 4 — Backend & Auth
-- Supabase integration (Postgres, Storage, Auth)
-- User accounts and order history
-- Image storage and print-ready file generation
-
-### Phase 5 — Polish & Launch
-- SEO optimization and structured data
-- Legal pages (Terms, Privacy, Cookies)
-- Performance audits and Lighthouse tuning
+### Phase 4 — Polish & Launch
+- SEO, structured data, Open Graph
+- Performance + Lighthouse tuning
 - Production deployment on Vercel
 
 ---
