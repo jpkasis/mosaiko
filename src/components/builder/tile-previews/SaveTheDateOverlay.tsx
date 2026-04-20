@@ -60,7 +60,7 @@ export function SaveTheDateOverlay({
 
   return (
     <div
-      className={['pointer-events-none absolute inset-0', className].filter(Boolean).join(' ')}
+      className={['pointer-events-none absolute inset-0 z-20', className].filter(Boolean).join(' ')}
       style={{ containerType: 'inline-size' }}
     >
       <div
