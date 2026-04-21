@@ -182,6 +182,7 @@
     "empty": "Your cart is empty",
     "emptyHint": "Add custom magnets or browse our catalog!",
     "continueShopping": "Continue shopping",
+    "continueShoppingHint": "Get inspired with more designs in our catalog",
     "subtotal": "Subtotal",
     "shipping": "Shipping",
     "free": "Free",
@@ -189,7 +190,12 @@
     "checkout": "Checkout",
     "remove": "Remove",
     "pieces": "{count} pieces",
-    "customDesign": "Custom design"
+    "customDesign": "Custom design",
+    "intensity": "Intensity: {level}",
+    "tonosIntensity_mild": "mild",
+    "tonosIntensity_medium": "medium",
+    "tonosIntensity_strong": "strong",
+    "noCustomText": "No custom text"
   },
   "cookies": {
     "title": "Your privacy matters",

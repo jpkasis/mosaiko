@@ -4,6 +4,8 @@ import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { useCartStore, type CartItem as CartItemType } from '@/lib/cart-store';
 import { formatPrice } from '@/lib/grid-config';
+import { CATEGORY_REGISTRY } from '@/lib/customization-types';
+import { CustomizationSummary } from './CustomizationSummary';
 
 interface CartItemProps {
   item: CartItemType;
@@ -16,7 +18,12 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
   const updateQuantity = useCartStore((s) => s.updateQuantity);
 
   const thumbnailSize = size === 'full' ? 'h-24 w-24 sm:h-28 sm:w-28' : 'h-20 w-20';
-  const displayName = item.type === 'custom' ? t('customDesign') : item.name;
+  const displayName =
+    item.type === 'custom'
+      ? item.customizations
+        ? CATEGORY_REGISTRY[item.customizations.categoryType].label
+        : t('customDesign')
+      : item.name;
 
   return (
     <motion.div
@@ -68,6 +75,9 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
             <p className="mt-0.5 text-xs text-warm-gray">
               {t('pieces', { count: item.gridSize })}
             </p>
+            {item.type === 'custom' && (
+              <CustomizationSummary customizations={item.customizations} />
+            )}
           </div>
 
           {/* Remove button */}

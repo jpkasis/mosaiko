@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -13,7 +13,8 @@ import {
 } from '@/lib/customization-types';
 import type { CropArea } from '@/lib/canvas-utils';
 import { useCartStore } from '@/lib/cart-store';
-import { createPreviewCanvas, getCroppedCanvas, loadImage } from '@/lib/canvas-utils';
+import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
+import { buildPrintCustomization } from '@/lib/shopify/customization-serializer';
 import {
   useBuilderFlow,
   STEP_I18N_MAP,
@@ -57,6 +58,63 @@ async function uploadPhoto(file: File): Promise<string> {
   return publicUrl as string;
 }
 
+/**
+ * Attempts to upload the user's photo to R2. On failure (common in local
+ * dev without live R2 creds), falls back to a base64 data URL so the
+ * add-to-cart flow still completes. The composite endpoint accepts either.
+ * For production the URL path is preferred (smaller request body).
+ */
+async function uploadOrEncode(file: File): Promise<
+  { kind: 'url'; url: string } | { kind: 'data'; data: string }
+> {
+  try {
+    const url = await uploadPhoto(file);
+    return { kind: 'url', url };
+  } catch {
+    const data = await fileToDataUrl(file);
+    return { kind: 'data', data };
+  }
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader error'));
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(file);
+  });
+}
+
+interface CartCompositeResponse {
+  jobId: string;
+  categoryType: CategoryType;
+  compositeKey: string;
+  compositeUrl: string;
+  thumbKey: string;
+  thumbUrl: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Asks the server to assemble the canonical magnet composite for the
+ * current builder state and returns the R2 URLs of the full-res PNG + the
+ * JPEG thumbnail. Runs the same Sharp pipeline the order webhook uses, so
+ * the cart thumbnail is a faithful preview of what will be printed.
+ */
+async function requestCartComposite(body: Record<string, unknown>): Promise<CartCompositeResponse> {
+  const res = await fetch('/api/cart-composite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `cart-composite request failed (${res.status})`);
+  }
+  return (await res.json()) as CartCompositeResponse;
+}
+
 export function MagnetBuilder() {
   const t = useTranslations('builder');
   const tc = useTranslations('common');
@@ -68,12 +126,27 @@ export function MagnetBuilder() {
 
   const flow = useBuilderFlow({ initialCategory, initialGrid });
 
+  // Listen for the top-nav "Personalizar" click-while-already-here signal.
+  // The header dispatches BUILDER_RESET_EVENT so we can reset to step 1
+  // without a URL change. flow.handleReset is a stable useCallback, so
+  // rebinding on every render would be wasteful — empty-deps is correct.
+  useEffect(() => {
+    const onReset = () => flow.handleReset();
+    window.addEventListener(BUILDER_RESET_EVENT, onReset);
+    return () => window.removeEventListener(BUILDER_RESET_EVENT, onReset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleAddToCart = useCallback(async () => {
     if (!flow.gridConfig || !flow.selectedCategory) return;
+    if (flow.isUploading) return; // guard against double-clicks
 
+    flow.setAddToCartError(null);
     flow.setIsUploading(true);
 
     try {
+      const meta = CATEGORY_REGISTRY[flow.selectedCategory];
+
       if (flow.selectedCategory === 'tonos') {
         // Tonos: 3 images, 3 crops, intensity.
         const srcs = flow.tonos.imageSrcs;
@@ -84,43 +157,55 @@ export function MagnetBuilder() {
           return;
         }
 
-        // Build a small composed preview by rendering each source at its crop.
-        const previewCanvas = document.createElement('canvas');
-        const previewSize = 360;
-        previewCanvas.width = previewSize;
-        previewCanvas.height = previewSize;
-        const ctx = previewCanvas.getContext('2d')!;
-
-        const cols = flow.gridConfig.cols;
-        const rows = flow.gridConfig.rows;
-        const cellW = previewSize / cols;
-        const cellH = previewSize / rows;
-
-        await Promise.all(
-          srcs.map(async (src, i) => {
-            const area = cropAreas[i]!;
-            const image = await loadImage(src!);
-            const tileCanvas = getCroppedCanvas(image, area, Math.ceil(cellW), Math.ceil(cellH), 0);
-            // Draw into all tiles where sourceImageIndex === i.
-            if (flow.gridConfig!.size === 9) {
-              for (let c = 0; c < 3; c++) {
-                ctx.drawImage(tileCanvas, c * cellW, i * cellH, cellW, cellH);
-              }
-            } else {
-              ctx.drawImage(tileCanvas, i * cellW, 0, cellW, cellH);
-            }
-            tileCanvas.width = 0;
-            tileCanvas.height = 0;
-          }),
+        const uploaded = await Promise.all(
+          (files as File[]).map(uploadOrEncode),
         );
+        // If ANY upload failed (falling back to data URL), re-encode all 3 so
+        // the endpoint receives a homogeneous shape. Mixing URL/data in a
+        // 3-slot array would force the endpoint to branch per slot, which is
+        // strictly worse than paying the re-encode cost for the 1-2 that
+        // already succeeded.
+        const anyFailed = uploaded.some((u) => u.kind !== 'url');
+        const photoStorageUrls = uploaded.map((u) => (u.kind === 'url' ? u.url : '')) as [
+          string, string, string,
+        ];
 
-        const previewUrl = previewCanvas.toDataURL('image/jpeg', 0.85);
-        previewCanvas.width = 0;
-        previewCanvas.height = 0;
+        const tonosSlots: [
+          { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
+          { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
+          { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
+        ] = [
+          { fitMode: flow.tonos.slots[0].fitMode, rotation: flow.tonos.slots[0].rotation },
+          { fitMode: flow.tonos.slots[1].fitMode, rotation: flow.tonos.slots[1].rotation },
+          { fitMode: flow.tonos.slots[2].fitMode, rotation: flow.tonos.slots[2].rotation },
+        ];
 
-        const urls = await Promise.all((files as File[]).map(uploadPhoto));
+        const customization = buildPrintCustomization({
+          categoryType: 'tonos',
+          gridSize: flow.gridConfig.size,
+          tonosIntensity: flow.tonos.intensity,
+          tonosSlots,
+        });
 
-        const meta = CATEGORY_REGISTRY[flow.selectedCategory];
+        const compositeBody: Record<string, unknown> = {
+          cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
+          customization,
+          rotations: tonosSlots.map((s) => s.rotation) as [number, number, number],
+        };
+        if (anyFailed) {
+          // Encode every slot as a data URL so the endpoint gets a
+          // consistent 3-tuple. Re-read already-succeeded uploads from the
+          // original File handles — a few MB of base64 on a local fallback
+          // path is preferable to mixing URL/data and complicating the API.
+          const allDataUrls = (await Promise.all(
+            (files as File[]).map((f) => fileToDataUrl(f)),
+          )) as [string, string, string];
+          compositeBody.photoDataUrls = allDataUrls;
+        } else {
+          compositeBody.photoUrls = photoStorageUrls;
+        }
+        const composite = await requestCartComposite(compositeBody);
+
         addItem({
           type: 'custom',
           name: `Mosaico ${meta.label} ${flow.gridConfig.size} piezas`,
@@ -128,19 +213,18 @@ export function MagnetBuilder() {
           gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
           price: flow.gridConfig.price,
           quantity: 1,
-          previewUrl,
+          previewUrl: composite.thumbUrl,
           tileUrls: [],
           customizations: {
             categoryType: 'tonos',
-            photoStorageUrls: [urls[0], urls[1], urls[2]],
+            photoStorageUrls,
             cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
             tonosIntensity: flow.tonos.intensity,
-            tonosSlots: [
-              { fitMode: flow.tonos.slots[0].fitMode, rotation: flow.tonos.slots[0].rotation },
-              { fitMode: flow.tonos.slots[1].fitMode, rotation: flow.tonos.slots[1].rotation },
-              { fitMode: flow.tonos.slots[2].fitMode, rotation: flow.tonos.slots[2].rotation },
-            ],
+            tonosSlots,
             layoutRotated: flow.layoutRotated,
+            compositeJobId: composite.jobId,
+            compositeKey: composite.compositeKey,
+            compositeUrl: composite.compositeUrl,
           },
         });
         return;
@@ -149,23 +233,28 @@ export function MagnetBuilder() {
       // Single-image categories.
       if (!flow.imageSrc || !flow.cropAreaPixels) return;
 
-      const image = await loadImage(flow.imageSrc);
-      const previewCanvas = createPreviewCanvas(
-        image, flow.cropAreaPixels, flow.gridConfig, 120, 4, 0,
-      );
-      const previewUrl = previewCanvas.toDataURL('image/jpeg', 0.85);
-
-      let photoStorageUrl = '';
       const file = flow.imageFileRef.current;
-      if (file) {
-        try {
-          photoStorageUrl = await uploadPhoto(file);
-        } catch {
-          // upload failed — proceed without a storage URL
-        }
+      if (!file) {
+        throw new Error('Missing original photo file');
       }
+      const uploaded = await uploadOrEncode(file);
+      const photoStorageUrl = uploaded.kind === 'url' ? uploaded.url : '';
 
-      const meta = CATEGORY_REGISTRY[flow.selectedCategory];
+      const customization = buildPrintCustomization({
+        categoryType: flow.selectedCategory,
+        gridSize: flow.gridConfig.size,
+        textFields:
+          Object.keys(flow.customizationValues).length > 0
+            ? flow.customizationValues
+            : undefined,
+      });
+
+      const composite = await requestCartComposite(
+        uploaded.kind === 'url'
+          ? { photoUrl: uploaded.url, cropArea: flow.cropAreaPixels, customization }
+          : { photoData: uploaded.data, cropArea: flow.cropAreaPixels, customization },
+      );
+
       addItem({
         type: 'custom',
         name: `Mosaico ${meta.label} ${flow.gridConfig.size} piezas`,
@@ -173,31 +262,27 @@ export function MagnetBuilder() {
         gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
         price: flow.gridConfig.price,
         quantity: 1,
-        previewUrl,
+        previewUrl: composite.thumbUrl,
         tileUrls: [],
         customizations: {
           categoryType: flow.selectedCategory,
-          textFields: Object.keys(flow.customizationValues).length > 0
-            ? flow.customizationValues
-            : undefined,
+          textFields:
+            Object.keys(flow.customizationValues).length > 0
+              ? flow.customizationValues
+              : undefined,
           photoStorageUrl,
           cropArea: flow.cropAreaPixels,
           layoutRotated: flow.layoutRotated,
+          compositeJobId: composite.jobId,
+          compositeKey: composite.compositeKey,
+          compositeUrl: composite.compositeUrl,
         },
       });
-    } catch {
-      if (flow.gridConfig) {
-        addItem({
-          type: 'custom',
-          name: `Mosaico ${flow.gridConfig.size} piezas`,
-          gridSize: flow.gridConfig.size,
-          gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
-          price: flow.gridConfig.price,
-          quantity: 1,
-          previewUrl: '',
-          tileUrls: [],
-        });
-      }
+    } catch (error) {
+      console.error('[MagnetBuilder] add-to-cart failed:', error);
+      flow.setAddToCartError(
+        error instanceof Error ? error.message : 'No se pudo preparar tu mosaico. Intenta de nuevo.',
+      );
     } finally {
       flow.setIsUploading(false);
     }
@@ -373,17 +458,34 @@ export function MagnetBuilder() {
                   />
                 )}
                 {flow.currentStepId === 'preview' && flow.gridConfig && (
-                  <MagnetPreview
-                    imageSrc={isTonos ? null : flow.imageSrc}
-                    cropArea={isTonos ? null : flow.cropAreaPixels}
-                    gridConfig={flow.gridConfig}
-                    onAddToCart={handleAddToCart}
-                    onReset={flow.handleReset}
-                    isUploading={flow.isUploading}
-                    categoryType={flow.selectedCategory ?? undefined}
-                    textFields={flow.customizationValues}
-                    tonos={tonosForPreview}
-                  />
+                  <div className="flex flex-col gap-3">
+                    {flow.addToCartError && (
+                      <div
+                        role="alert"
+                        className="rounded-lg border border-error/30 bg-error/5 px-4 py-3 text-sm text-error"
+                      >
+                        {flow.addToCartError}
+                        <button
+                          type="button"
+                          onClick={() => flow.setAddToCartError(null)}
+                          className="ml-3 text-xs font-medium underline underline-offset-2"
+                        >
+                          Reintentar
+                        </button>
+                      </div>
+                    )}
+                    <MagnetPreview
+                      imageSrc={isTonos ? null : flow.imageSrc}
+                      cropArea={isTonos ? null : flow.cropAreaPixels}
+                      gridConfig={flow.gridConfig}
+                      onAddToCart={handleAddToCart}
+                      onReset={flow.handleReset}
+                      isUploading={flow.isUploading}
+                      categoryType={flow.selectedCategory ?? undefined}
+                      textFields={flow.customizationValues}
+                      tonos={tonosForPreview}
+                    />
+                  </div>
                 )}
               </motion.div>
             </AnimatePresence>

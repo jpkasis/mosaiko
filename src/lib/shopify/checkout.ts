@@ -1,5 +1,6 @@
 import { createCart, addToCart } from './mutations/cart';
 import { getVariantId, isVariantMapConfigured } from './variant-map';
+import { toPrintCustomization } from './customization-serializer';
 import type { CartLineInput } from './types';
 import type { CartItem } from '../cart-store';
 
@@ -68,7 +69,7 @@ export async function createCheckout(
     if (item.customizations) {
       attributes.push(
         { key: 'category', value: item.customizations.categoryType },
-        { key: '_customization', value: JSON.stringify(item.customizations) },
+        { key: '_customization', value: JSON.stringify(toPrintCustomization(item)) },
       );
 
       if (item.customizations.categoryType === 'tonos') {

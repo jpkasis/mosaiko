@@ -182,6 +182,7 @@
     "empty": "Tu carrito está vacío",
     "emptyHint": "¡Agrega imanes personalizados o de nuestro catálogo!",
     "continueShopping": "Seguir comprando",
+    "continueShoppingHint": "Inspírate con más diseños en el catálogo",
     "subtotal": "Subtotal",
     "shipping": "Envío",
     "free": "Gratis",
@@ -189,7 +190,12 @@
     "checkout": "Ir a pagar",
     "remove": "Eliminar",
     "pieces": "{count} piezas",
-    "customDesign": "Diseño personalizado"
+    "customDesign": "Diseño personalizado",
+    "intensity": "Intensidad: {level}",
+    "tonosIntensity_mild": "suave",
+    "tonosIntensity_medium": "media",
+    "tonosIntensity_strong": "intensa",
+    "noCustomText": "Sin texto personalizado"
   },
   "cookies": {
     "title": "Tu privacidad nos importa",

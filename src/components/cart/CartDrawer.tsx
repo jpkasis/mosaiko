@@ -208,12 +208,13 @@ export function CartDrawer() {
                   </Link>
 
                   {/* Continue shopping */}
-                  <button
+                  <Link
+                    href="/catalogo"
                     onClick={closeDrawer}
-                    className="mt-3 w-full text-center text-sm text-warm-gray transition-colors hover:text-charcoal cursor-pointer"
+                    className="mt-3 block w-full text-center text-sm text-warm-gray transition-colors hover:text-charcoal"
                   >
                     {t('continueShopping')}
-                  </button>
+                  </Link>
                 </div>
               </>
             )}
