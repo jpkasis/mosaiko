@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { uploadBuffer } from '@/lib/storage';
+import { put as putBlob } from '@/lib/cart-composite-blob-cache';
 import type {
   CategoryCustomization,
   TonosCustomization,
@@ -323,9 +324,12 @@ export async function POST(request: NextRequest) {
     // expires this prefix after ~30 days so abandoned carts self-clean;
     // paid orders copy the composite into `print-files/` before splitting.
     // If R2 is unreachable (e.g. local dev with placeholder creds), fall
-    // back to returning the composite + thumb as data URLs so the cart
-    // still reflects the correct layout — the order flow will regenerate
-    // from the original photo at webhook time either way.
+    // back to stashing the composite + thumb in a per-process in-memory
+    // cache and return URLs that resolve via /api/cart-composite/blob/[id].
+    // The client must never receive data: URLs here — storing those on the
+    // Zustand cart item overflows the browser's localStorage quota after a
+    // handful of adds. The order flow regenerates from the original photo
+    // at webhook time either way.
     const compositeKey = `cart-composites/${jobId}.png`;
     const thumbKey = `cart-composites/${jobId}_thumb.jpg`;
 
@@ -345,19 +349,31 @@ export async function POST(request: NextRequest) {
         height: composed.height,
       });
     } catch (uploadError) {
+      if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_BLOB_FALLBACK) {
+        console.error(
+          '[api/cart-composite] R2 upload failed in production:',
+          uploadError instanceof Error ? uploadError.message : uploadError,
+        );
+        return NextResponse.json(
+          { error: 'Storage unavailable' },
+          { status: 503 },
+        );
+      }
       console.warn(
-        '[api/cart-composite] R2 upload unavailable, returning data URLs:',
+        '[api/cart-composite] R2 upload unavailable, using in-memory blob cache:',
         uploadError instanceof Error ? uploadError.message : uploadError,
       );
-      const compositeDataUrl = `data:image/png;base64,${composed.composite.toString('base64')}`;
-      const thumbDataUrl = `data:image/jpeg;base64,${composed.thumb.toString('base64')}`;
+      const compositeBlobId = `${jobId}.png`;
+      const thumbBlobId = `${jobId}_thumb.jpg`;
+      putBlob(compositeBlobId, composed.composite, 'image/png');
+      putBlob(thumbBlobId, composed.thumb, 'image/jpeg');
       return NextResponse.json({
         jobId,
         categoryType: composed.categoryType,
         compositeKey: null,
-        compositeUrl: compositeDataUrl,
+        compositeUrl: `/api/cart-composite/blob/${compositeBlobId}`,
         thumbKey: null,
-        thumbUrl: thumbDataUrl,
+        thumbUrl: `/api/cart-composite/blob/${thumbBlobId}`,
         width: composed.width,
         height: composed.height,
       });
