@@ -11,6 +11,11 @@ export interface CartItem {
   gridLayout: { rows: number; cols: number };
   price: number;
   quantity: number;
+  /**
+   * Thumbnail shown in the cart. For custom items this is the R2 URL of a
+   * downscaled JPEG produced by /api/cart-composite — the canonical
+   * category-aware composite. For predesigned items it's the catalog image.
+   */
   previewUrl: string;
   tileUrls: string[];
   // For predesigned products
@@ -37,6 +42,14 @@ export interface CartItem {
       { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
     ];
     layoutRotated?: boolean;
+    /**
+     * R2 key + URL of the canonical composite image produced at add-to-cart.
+     * Kept alongside the photo metadata so the Shopify webhook can skip
+     * re-rendering at order time by splitting the same composite.
+     */
+    compositeJobId?: string;
+    compositeKey?: string;
+    compositeUrl?: string;
   };
 }
 

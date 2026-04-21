@@ -113,6 +113,8 @@ export interface BuilderFlowState {
   // Upload state
   isUploading: boolean;
   setIsUploading: (v: boolean) => void;
+  addToCartError: string | null;
+  setAddToCartError: (v: string | null) => void;
 
   // Reset
   handleReset: () => void;
@@ -206,6 +208,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
 
   // ─── Upload ───
   const [isUploading, setIsUploading] = useState(false);
+  const [addToCartError, setAddToCartError] = useState<string | null>(null);
 
   // ─── Stable Tonos view ───
   const tonos = useMemo<TonosState>(
@@ -521,6 +524,8 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
 
     isUploading,
     setIsUploading,
+    addToCartError,
+    setAddToCartError,
 
     handleReset,
   };

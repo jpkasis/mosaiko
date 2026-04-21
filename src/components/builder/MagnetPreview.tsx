@@ -495,7 +495,7 @@ export function MagnetPreview({
             disabled={isUploading}
             className="font-serif font-bold"
           >
-            {isUploading ? 'Subiendo foto...' : priceText}
+            {isUploading ? 'Preparando tu mosaico...' : priceText}
           </Button>
 
           <button

@@ -103,15 +103,19 @@ export const STD_FONT_CSS_VARS: Record<STDFontFamily, string> = {
   'tenor-sans': 'var(--font-tenor-sans), "Tenor Sans", sans-serif',
 };
 
+// Single-quoted family names are safe to interpolate into SVG
+// `font-family="..."` attributes; double-quoted family names would
+// collide with the outer attribute delimiter and break SVG parsing in
+// libvips / librsvg at render time.
 export const STD_FONT_PRINT_NAMES: Record<STDFontFamily, string> = {
-  cormorant: '"Cormorant Garamond", Georgia, serif',
-  playfair: '"Playfair Display", Georgia, serif',
+  cormorant: "'Cormorant Garamond', Georgia, serif",
+  playfair: "'Playfair Display', Georgia, serif",
   montserrat: 'Montserrat, sans-serif',
-  'dm-sans': '"DM Sans", sans-serif',
-  'dancing-script': '"Dancing Script", cursive',
-  'great-vibes': '"Great Vibes", cursive',
+  'dm-sans': "'DM Sans', sans-serif",
+  'dancing-script': "'Dancing Script', cursive",
+  'great-vibes': "'Great Vibes', cursive",
   cinzel: 'Cinzel, Georgia, serif',
-  'tenor-sans': '"Tenor Sans", sans-serif',
+  'tenor-sans': "'Tenor Sans', sans-serif",
 };
 
 export const STD_COLOR_PALETTE: ReadonlyArray<{ hex: string; nameKey: string }> = [

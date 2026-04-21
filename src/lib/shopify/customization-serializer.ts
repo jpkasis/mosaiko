@@ -1,7 +1,10 @@
 import type { CartItem } from '../cart-store';
+import type { GridSize } from '../grid-config';
 import {
   STD_DEFAULTS,
   type CategoryCustomization,
+  type CategoryType,
+  type TonosIntensity,
   type STDFontFamily,
   type STDSize,
   type STDAnchor,
@@ -25,16 +28,49 @@ import {
  * never land in `textFields`; merge in `STD_DEFAULTS` so the printed
  * magnet always has a complete, typed configuration.
  */
+/**
+ * Shape accepted by `buildPrintCustomization` — a narrower subset of the
+ * builder's in-memory flow state. Lets the pre-cart path build a
+ * `CategoryCustomization` for /api/cart-composite without having to
+ * construct a fake CartItem.
+ */
+export interface PrintCustomizationInput {
+  categoryType: CategoryType;
+  gridSize: GridSize;
+  textFields?: Record<string, string>;
+  tonosIntensity?: TonosIntensity;
+  tonosSlots?: CartItem['customizations'] extends infer T
+    ? T extends { tonosSlots?: infer S } ? S : never
+    : never;
+}
+
 export function toPrintCustomization(item: CartItem): CategoryCustomization {
   const c = item.customizations;
   if (!c) {
     throw new Error('toPrintCustomization called on cart item without customizations');
   }
+  return buildPrintCustomization({
+    categoryType: c.categoryType,
+    gridSize: item.gridSize,
+    textFields: c.textFields,
+    tonosIntensity: c.tonosIntensity,
+    tonosSlots: c.tonosSlots,
+  });
+}
 
-  const gridSize = item.gridSize;
-  const tf = c.textFields ?? {};
+/**
+ * Produces a flat, typed `CategoryCustomization` discriminated union from
+ * the builder's customization input. Used at add-to-cart time (to call
+ * /api/cart-composite) and at checkout time (to serialize into Shopify
+ * line-item attributes). One translation boundary, zero divergence.
+ */
+export function buildPrintCustomization(
+  input: PrintCustomizationInput,
+): CategoryCustomization {
+  const { categoryType, gridSize } = input;
+  const tf = input.textFields ?? {};
 
-  switch (c.categoryType) {
+  switch (categoryType) {
     case 'mosaicos':
       return {
         categoryType: 'mosaicos',
@@ -86,15 +122,15 @@ export function toPrintCustomization(item: CartItem): CategoryCustomization {
       const base = {
         categoryType: 'tonos' as const,
         gridSize: (gridSize === 9 ? 9 : 3) as 3 | 9,
-        intensity: c.tonosIntensity ?? 'medium',
+        intensity: input.tonosIntensity ?? 'medium',
       };
       // tonosSlots carries per-slot rotations; the webhook reads them to
       // forward into the Tonos processor. Keep them alongside the union
       // shape (cast because CategoryCustomization doesn't declare them).
-      if (c.tonosSlots) {
+      if (input.tonosSlots) {
         return {
           ...base,
-          tonosSlots: c.tonosSlots,
+          tonosSlots: input.tonosSlots,
         } as unknown as CategoryCustomization;
       }
       return base;
