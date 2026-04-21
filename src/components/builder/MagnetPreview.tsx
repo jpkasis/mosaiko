@@ -302,6 +302,23 @@ export function MagnetPreview({
     }
     if (error || tiles.length === 0) return null;
 
+    const stdSliceCompact: STDTileSlice | undefined =
+      customizationConfig.categoryType === 'save-the-date'
+        ? {
+            eventText: customizationConfig.eventText,
+            date: customizationConfig.date,
+            fontFamily: customizationConfig.fontFamily,
+            fontSize: customizationConfig.fontSize,
+            color: customizationConfig.color,
+            anchor: customizationConfig.anchor,
+            treatment: customizationConfig.treatment,
+            intensity: customizationConfig.intensity,
+            gridRows: gridConfig.rows,
+            gridCols: gridConfig.cols,
+            gapPx: 0,
+          }
+        : undefined;
+
     return (
       <div
         className="relative mx-auto grid"
@@ -321,21 +338,9 @@ export function MagnetPreview({
             textFields={textFields}
             gridSize={gridConfig.size}
             tonosIntensity={tonos?.intensity ?? 'medium'}
+            stdSlice={stdSliceCompact}
           />
         ))}
-
-        {categoryType === 'save-the-date' && customizationConfig.categoryType === 'save-the-date' && (
-          <SaveTheDateOverlay
-            eventText={customizationConfig.eventText}
-            date={customizationConfig.date}
-            fontFamily={customizationConfig.fontFamily}
-            fontSize={customizationConfig.fontSize}
-            color={customizationConfig.color}
-            anchor={customizationConfig.anchor}
-            treatment={customizationConfig.treatment}
-            intensity={customizationConfig.intensity}
-          />
-        )}
 
         {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && categoryType !== 'save-the-date' && (
           <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
@@ -405,44 +410,53 @@ export function MagnetPreview({
               </Button>
             </div>
           ) : (
-            <div
-              className="relative mx-auto grid"
-              style={{
-                gridTemplateColumns: `repeat(${gridConfig.cols}, 1fr)`,
-                gridTemplateRows: `repeat(${gridConfig.rows}, 1fr)`,
-                gap: '4px',
-                maxWidth: `${gridConfig.cols * 120}px`,
-              }}
-            >
-              {tileLayout.map((descriptor) => (
-                <TileContent
-                  key={descriptor.index}
-                  descriptor={descriptor}
-                  tileSrc={tileSrcFor(descriptor.index)}
-                  categoryType={categoryType}
-                  textFields={textFields}
-                  gridSize={gridConfig.size}
-                  tonosIntensity={tonos?.intensity ?? 'medium'}
-                />
-              ))}
+            (() => {
+              const MAIN_GAP_PX = 4;
+              const stdSliceMain: STDTileSlice | undefined =
+                customizationConfig.categoryType === 'save-the-date'
+                  ? {
+                      eventText: customizationConfig.eventText,
+                      date: customizationConfig.date,
+                      fontFamily: customizationConfig.fontFamily,
+                      fontSize: customizationConfig.fontSize,
+                      color: customizationConfig.color,
+                      anchor: customizationConfig.anchor,
+                      treatment: customizationConfig.treatment,
+                      intensity: customizationConfig.intensity,
+                      gridRows: gridConfig.rows,
+                      gridCols: gridConfig.cols,
+                      gapPx: MAIN_GAP_PX,
+                    }
+                  : undefined;
+              return (
+                <div
+                  className="relative mx-auto grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${gridConfig.cols}, 1fr)`,
+                    gridTemplateRows: `repeat(${gridConfig.rows}, 1fr)`,
+                    gap: `${MAIN_GAP_PX}px`,
+                    maxWidth: `${gridConfig.cols * 120}px`,
+                  }}
+                >
+                  {tileLayout.map((descriptor) => (
+                    <TileContent
+                      key={descriptor.index}
+                      descriptor={descriptor}
+                      tileSrc={tileSrcFor(descriptor.index)}
+                      categoryType={categoryType}
+                      textFields={textFields}
+                      gridSize={gridConfig.size}
+                      tonosIntensity={tonos?.intensity ?? 'medium'}
+                      stdSlice={stdSliceMain}
+                    />
+                  ))}
 
-              {categoryType === 'save-the-date' && customizationConfig.categoryType === 'save-the-date' && (
-                <SaveTheDateOverlay
-                  eventText={customizationConfig.eventText}
-                  date={customizationConfig.date}
-                  fontFamily={customizationConfig.fontFamily}
-                  fontSize={customizationConfig.fontSize}
-                  color={customizationConfig.color}
-                  anchor={customizationConfig.anchor}
-                  treatment={customizationConfig.treatment}
-                  intensity={customizationConfig.intensity}
-                />
-              )}
-
-              {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && categoryType !== 'save-the-date' && (
-                <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
-              )}
-            </div>
+                  {categoryType !== 'spotify' && categoryType !== 'arte' && categoryType !== 'polaroid' && categoryType !== 'studio' && categoryType !== 'save-the-date' && (
+                    <MosaikoWatermark variant={categoryType === 'tonos' ? 'white' : 'dark'} />
+                  )}
+                </div>
+              );
+            })()
           )}
         </motion.div>
       </div>
@@ -498,6 +512,20 @@ export function MagnetPreview({
 
 // ─── Tile content wrapper ───────────────────────────────────────────────────
 
+interface STDTileSlice {
+  eventText: string;
+  date: string;
+  fontFamily: STDFontFamily;
+  fontSize: STDSize;
+  color: string;
+  anchor: STDAnchor;
+  treatment: STDTextTreatment;
+  intensity: STDTextIntensity;
+  gridRows: number;
+  gridCols: number;
+  gapPx: number;
+}
+
 function TileContent({
   descriptor,
   tileSrc,
@@ -505,6 +533,7 @@ function TileContent({
   textFields,
   gridSize,
   tonosIntensity,
+  stdSlice,
 }: {
   descriptor: ReturnType<typeof getTileLayout>[number];
   tileSrc: string;
@@ -512,6 +541,7 @@ function TileContent({
   textFields: Record<string, string>;
   gridSize: number;
   tonosIntensity: TonosIntensity;
+  stdSlice?: STDTileSlice;
 }) {
   const { index, role, label, gridColumn, gridRow } = descriptor;
   const placementStyle: React.CSSProperties | undefined =
@@ -558,7 +588,36 @@ function TileContent({
         );
       })()}
 
-      {role === 'photo' && (
+      {role === 'photo' && categoryType === 'save-the-date' && stdSlice && (
+        <div className="relative h-full w-full overflow-hidden" style={{ aspectRatio: '1' }}>
+          <PhotoTile
+            tileSrc={tileSrc}
+            index={index}
+            totalTiles={gridSize}
+            categoryType={categoryType}
+            tonosFilter={descriptor.toneColumn
+              ? getTonosColumnCSSFilter(descriptor.toneColumn, tonosIntensity)
+              : undefined}
+          />
+          <SaveTheDateOverlay
+            eventText={stdSlice.eventText}
+            date={stdSlice.date}
+            fontFamily={stdSlice.fontFamily}
+            fontSize={stdSlice.fontSize}
+            color={stdSlice.color}
+            anchor={stdSlice.anchor}
+            treatment={stdSlice.treatment}
+            intensity={stdSlice.intensity}
+            tileRow={Math.floor(index / stdSlice.gridCols)}
+            tileCol={index % stdSlice.gridCols}
+            gridRows={stdSlice.gridRows}
+            gridCols={stdSlice.gridCols}
+            gapPx={stdSlice.gapPx}
+          />
+        </div>
+      )}
+
+      {role === 'photo' && categoryType !== 'save-the-date' && (
         <PhotoTile
           tileSrc={tileSrc}
           index={index}

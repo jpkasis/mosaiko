@@ -19,17 +19,28 @@ interface SaveTheDateOverlayProps {
   anchor: STDAnchor;
   treatment: STDTextTreatment;
   intensity: STDTextIntensity;
+  /** Tile's row index in the grid (0-indexed). */
+  tileRow: number;
+  /** Tile's column index in the grid (0-indexed). */
+  tileCol: number;
+  /** Total rows in the grid. */
+  gridRows: number;
+  /** Total columns in the grid. */
+  gridCols: number;
+  /** Pixel gap between tiles in the grid. */
+  gapPx: number;
   className?: string;
 }
 
 /**
- * Single unified overlay covering the full 3×3 STD mosaic.
- * Positions a text block at one of 9 anchor points with user-controlled
- * font, size, color, and invitation-grade readability treatment.
+ * Per-tile slice of the unified STD overlay. Each tile receives a copy
+ * sized to the full grid, then offset with negative `top`/`left` so the
+ * portion visible inside the tile lines up with the same conceptual
+ * full-grid overlay across the rest of the mosaic. The parent tile must
+ * have `overflow: hidden` to clip the slice.
  *
  * Wrapping: `white-space: pre` — text only breaks on the user's
- * explicit `\n`s. No auto-wrap. Users insert line breaks via the Enter
- * key in the textarea input.
+ * explicit `\n`s. No auto-wrap.
  */
 export function SaveTheDateOverlay({
   eventText = '',
@@ -40,6 +51,11 @@ export function SaveTheDateOverlay({
   anchor,
   treatment,
   intensity,
+  tileRow,
+  tileCol,
+  gridRows,
+  gridCols,
+  gapPx,
   className,
 }: SaveTheDateOverlayProps) {
   const resolvedEventText = eventText.length > 0 ? eventText : 'Save the Date';
@@ -58,10 +74,21 @@ export function SaveTheDateOverlay({
     date: resolvedDate,
   });
 
+  const widthExtraPx = (gridCols - 1) * gapPx;
+  const heightExtraPx = (gridRows - 1) * gapPx;
+  const leftOffsetPx = tileCol * gapPx;
+  const topOffsetPx = tileRow * gapPx;
+
   return (
     <div
-      className={['pointer-events-none absolute inset-0', className].filter(Boolean).join(' ')}
-      style={{ containerType: 'inline-size' }}
+      className={['pointer-events-none absolute z-10', className].filter(Boolean).join(' ')}
+      style={{
+        width: `calc(${gridCols * 100}% + ${widthExtraPx}px)`,
+        height: `calc(${gridRows * 100}% + ${heightExtraPx}px)`,
+        top: `calc(${-tileRow * 100}% - ${topOffsetPx}px)`,
+        left: `calc(${-tileCol * 100}% - ${leftOffsetPx}px)`,
+        containerType: 'inline-size',
+      }}
     >
       <div
         className="absolute"
