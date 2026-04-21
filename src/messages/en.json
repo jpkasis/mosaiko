@@ -189,7 +189,11 @@
     "checkout": "Checkout",
     "remove": "Remove",
     "pieces": "{count} pieces",
-    "customDesign": "Custom design"
+    "customDesign": "Custom design",
+    "intensity": "Intensity: {level}",
+    "tonosIntensity_mild": "mild",
+    "tonosIntensity_medium": "medium",
+    "tonosIntensity_strong": "strong"
   },
   "cookies": {
     "title": "Your privacy matters",

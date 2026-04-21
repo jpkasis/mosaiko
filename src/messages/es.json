@@ -189,7 +189,11 @@
     "checkout": "Ir a pagar",
     "remove": "Eliminar",
     "pieces": "{count} piezas",
-    "customDesign": "Diseño personalizado"
+    "customDesign": "Diseño personalizado",
+    "intensity": "Intensidad: {level}",
+    "tonosIntensity_mild": "suave",
+    "tonosIntensity_medium": "media",
+    "tonosIntensity_strong": "intensa"
   },
   "cookies": {
     "title": "Tu privacidad nos importa",
