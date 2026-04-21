@@ -8,12 +8,16 @@ interface CustomizationSummaryProps {
 }
 
 /**
- * Renders a one-to-two-line summary of the custom text a user typed into
- * the builder. Shown in CartItem so custom orders read as specifically as
- * predesigned ones ("Studio — El Viaje de Chihiro"), instead of the bare
- * generic "Diseño personalizado".
+ * Renders a summary of the custom text that will be printed on the magnet.
  *
- * Returns null for categories without user-entered text (mosaicos, polaroid).
+ * Mirrors the print pipeline's effective output — including the Save the
+ * Date placeholder fallback (`save-the-date.ts:131`) — so the cart line
+ * is an honest preview of what the customer will receive. Placeholder
+ * text (i.e. user did not personalize this field) renders in muted
+ * italic to distinguish it from user-typed text.
+ *
+ * Returns null only for categories with no text concept at all (mosaicos
+ * and polaroid).
  */
 export function CustomizationSummary({ customizations }: CustomizationSummaryProps) {
   const t = useTranslations('cart');
@@ -21,42 +25,62 @@ export function CustomizationSummary({ customizations }: CustomizationSummaryPro
   if (!customizations) return null;
   const tf = customizations.textFields ?? {};
 
-  let line: string | null = null;
+  let text: string | null = null;
+  let isPlaceholder = false;
 
   switch (customizations.categoryType) {
     case 'save-the-date': {
-      const eventFirstLine = (tf.eventText ?? '').split('\n')[0].trim();
+      const typed = (tf.eventText ?? '').split('\n')[0].trim();
       const formattedDate = formatDisplayDate(tf.date);
-      const parts = [eventFirstLine, formattedDate].filter(Boolean);
-      line = parts.length > 0 ? parts.join(' · ') : null;
+      const eventLabel = typed || 'Save the Date';
+      const parts = [eventLabel, formattedDate].filter(Boolean);
+      text = parts.join(' · ');
+      isPlaceholder = !typed;
       break;
     }
     case 'spotify': {
       const song = (tf.songName ?? '').trim();
       const artist = (tf.artistName ?? '').trim();
-      if (song && artist) line = `${song} — ${artist}`;
-      else line = song || artist || null;
+      if (!song && !artist) {
+        text = t('noCustomText');
+        isPlaceholder = true;
+      } else if (song && artist) {
+        text = `${song} — ${artist}`;
+      } else {
+        text = song || artist;
+      }
       break;
     }
     case 'arte': {
       const title = (tf.title ?? '').trim();
       const artist = (tf.artist ?? '').trim();
       const year = (tf.year ?? '').trim();
-      const rhs = [artist, year].filter(Boolean).join(', ');
-      if (title && rhs) line = `${title} · ${rhs}`;
-      else line = title || rhs || null;
+      if (!title && !artist && !year) {
+        text = t('noCustomText');
+        isPlaceholder = true;
+      } else {
+        const rhs = [artist, year].filter(Boolean).join(', ');
+        text = title && rhs ? `${title} · ${rhs}` : title || rhs;
+      }
       break;
     }
     case 'studio': {
       const year = (tf.year ?? '').trim();
-      const custom = (tf.customText ?? '').trim();
-      const parts = [year, custom].filter(Boolean);
-      line = parts.length > 0 ? parts.join(' · ') : null;
+      const studioText = (tf.studioText ?? '').trim();
+      const japaneseText = (tf.japaneseText ?? '').trim();
+      const customText = (tf.customText ?? '').trim();
+      const parts = [year, studioText, japaneseText, customText].filter(Boolean);
+      if (parts.length === 0) {
+        text = t('noCustomText');
+        isPlaceholder = true;
+      } else {
+        text = parts.join(' · ');
+      }
       break;
     }
     case 'tonos': {
       const level = customizations.tonosIntensity ?? 'medium';
-      line = t('intensity', { level: t(`tonosIntensity_${level}`) });
+      text = t('intensity', { level: t(`tonosIntensity_${level}`) });
       break;
     }
     case 'mosaicos':
@@ -64,11 +88,15 @@ export function CustomizationSummary({ customizations }: CustomizationSummaryPro
       return null;
   }
 
-  if (!line) return null;
+  if (!text) return null;
+
+  const classes = isPlaceholder
+    ? 'mt-0.5 truncate text-xs italic text-warm-gray/70'
+    : 'mt-0.5 truncate text-xs italic text-warm-gray';
 
   return (
-    <p className="mt-0.5 truncate text-xs italic text-warm-gray" title={line}>
-      {line}
+    <p className={classes} title={text}>
+      {text}
     </p>
   );
 }

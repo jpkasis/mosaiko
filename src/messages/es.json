@@ -193,7 +193,8 @@
     "intensity": "Intensidad: {level}",
     "tonosIntensity_mild": "suave",
     "tonosIntensity_medium": "media",
-    "tonosIntensity_strong": "intensa"
+    "tonosIntensity_strong": "intensa",
+    "noCustomText": "Sin texto personalizado"
   },
   "cookies": {
     "title": "Tu privacidad nos importa",
