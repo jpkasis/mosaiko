@@ -5,6 +5,7 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { Link, useRouter, usePathname } from '@/i18n/navigation';
 import { useCartStore, selectCartCount } from '@/lib/cart-store';
+import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MosaikoLogo } from '@/components/ui/MosaikoLogo';
 
@@ -67,6 +68,19 @@ export function Header() {
     setMobileMenuOpen(false);
   }
 
+  // When the user clicks the "Personalizar" nav from inside /personalizar,
+  // the URL doesn't change so Link does nothing. Dispatch a custom event
+  // that MagnetBuilder listens for to reset its flow to step 1.
+  function handleNavClick(
+    e: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) {
+    if (href === '/personalizar' && pathname === '/personalizar') {
+      e.preventDefault();
+      window.dispatchEvent(new Event(BUILDER_RESET_EVENT));
+    }
+  }
+
   return (
     <header
       className={[
@@ -86,6 +100,7 @@ export function Header() {
             <Link
               key={link.key}
               href={link.href}
+              onClick={(e) => handleNavClick(e, link.href)}
               className="text-sm font-medium text-charcoal transition-colors hover:text-terracotta"
             >
               {t(link.key)}
@@ -194,7 +209,10 @@ export function Header() {
                 >
                   <Link
                     href={link.href}
-                    onClick={closeMobileMenu}
+                    onClick={(e) => {
+                      handleNavClick(e, link.href);
+                      closeMobileMenu();
+                    }}
                     className="flex h-12 items-center rounded-lg px-4 text-lg font-medium text-charcoal transition-colors hover:bg-terracotta/10 hover:text-terracotta"
                   >
                     {t(link.key)}

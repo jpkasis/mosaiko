@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -13,6 +13,7 @@ import {
 } from '@/lib/customization-types';
 import type { CropArea } from '@/lib/canvas-utils';
 import { useCartStore } from '@/lib/cart-store';
+import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
 import { buildPrintCustomization } from '@/lib/shopify/customization-serializer';
 import {
   useBuilderFlow,
@@ -124,6 +125,17 @@ export function MagnetBuilder() {
   const initialGrid = searchParams.get('grid') ? (Number(searchParams.get('grid')) as GridSize) : null;
 
   const flow = useBuilderFlow({ initialCategory, initialGrid });
+
+  // Listen for the top-nav "Personalizar" click-while-already-here signal.
+  // The header dispatches BUILDER_RESET_EVENT so we can reset to step 1
+  // without a URL change. flow.handleReset is a stable useCallback, so
+  // rebinding on every render would be wasteful — empty-deps is correct.
+  useEffect(() => {
+    const onReset = () => flow.handleReset();
+    window.addEventListener(BUILDER_RESET_EVENT, onReset);
+    return () => window.removeEventListener(BUILDER_RESET_EVENT, onReset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAddToCart = useCallback(async () => {
     if (!flow.gridConfig || !flow.selectedCategory) return;
