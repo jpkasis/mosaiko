@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { useCartStore, selectCartTotal, selectCartCount } from '@/lib/cart-store';
 import { formatPrice } from '@/lib/grid-config';
-import { Overlay } from '@/components/ui/Overlay';
+import { Overlay, OverlayTitle } from '@/components/ui/Overlay';
 import { CartItem } from './CartItem';
 import { CheckoutButton } from './CheckoutButton';
 
@@ -29,14 +29,16 @@ export function CartDrawer() {
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-light-gray px-5 py-4">
-        <h2 className="font-serif text-xl font-semibold text-charcoal">
-          {t('title')}
-          {count > 0 && (
-            <span className="ml-2 text-sm font-normal text-warm-gray">
-              ({count})
-            </span>
-          )}
-        </h2>
+        <OverlayTitle asChild>
+          <h2 className="font-serif text-xl font-semibold text-charcoal">
+            {t('title')}
+            {count > 0 && (
+              <span className="ml-2 text-sm font-normal text-warm-gray">
+                ({count})
+              </span>
+            )}
+          </h2>
+        </OverlayTitle>
         <button
           onClick={closeDrawer}
           className="flex h-12 w-12 items-center justify-center rounded-lg transition-colors hover:bg-charcoal/5 cursor-pointer"

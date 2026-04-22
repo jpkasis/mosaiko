@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Overlay } from '@/components/ui/Overlay';
+import { Overlay, OverlayTitle } from '@/components/ui/Overlay';
 
 const NAV_ITEMS = [
   {
@@ -155,6 +155,7 @@ export function AdminSidebar() {
         ariaLabel="Menú de administración"
         contentClassName="bg-white sm:max-w-[280px]"
       >
+        <OverlayTitle className="sr-only">Menú de administración</OverlayTitle>
         <SidebarBody
           pathname={pathname}
           onNavigate={closeMobile}

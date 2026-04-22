@@ -8,7 +8,7 @@ import { useCartStore, selectCartCount } from '@/lib/cart-store';
 import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
 import { motion } from 'framer-motion';
 import { MosaikoLogo } from '@/components/ui/MosaikoLogo';
-import { Overlay } from '@/components/ui/Overlay';
+import { Overlay, OverlayTitle } from '@/components/ui/Overlay';
 
 const NAV_LINKS = [
   { href: '/catalogo' as const, key: 'catalog' },
@@ -188,6 +188,7 @@ export function Header() {
         ariaLabel="Navegacion movil"
         contentClassName="bg-cream pt-[var(--header-height)]"
       >
+        <OverlayTitle className="sr-only">Navegacion movil</OverlayTitle>
         <nav
           className="container-mosaiko flex flex-col gap-1 pt-6"
           aria-label="Navegacion movil"

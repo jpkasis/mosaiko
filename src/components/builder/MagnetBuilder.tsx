@@ -30,7 +30,7 @@ import { PhotoUploaderMulti } from './PhotoUploaderMulti';
 import { ImageCropper } from './ImageCropper';
 import { ImageCropperMulti } from './ImageCropperMulti';
 import { MagnetPreview } from './MagnetPreview';
-import { Overlay } from '@/components/ui/Overlay';
+import { Overlay, OverlayTitle } from '@/components/ui/Overlay';
 
 const CustomizationEditor = dynamic(
   () => import('./CustomizationEditor').then((m) => m.CustomizationEditor),
@@ -548,6 +548,7 @@ export function MagnetBuilder() {
             ariaLabel="Vista previa del mosaico"
             contentClassName="pb-safe"
           >
+            <OverlayTitle className="sr-only">Vista previa del mosaico</OverlayTitle>
             <div className="overflow-y-auto p-4">
               <div className="mx-auto w-full max-w-sm">
                 <LivePreviewSidebar
