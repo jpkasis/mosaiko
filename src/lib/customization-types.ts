@@ -1,4 +1,5 @@
 import type { GridSize } from './grid-config';
+import { CATEGORY_LAYOUTS } from './category-layouts';
 
 // ─── Category identifiers ───────────────────────────────────────────────────
 
@@ -245,79 +246,35 @@ export interface TileDescriptor {
   toneColumn?: TonosToneColumn;
 }
 
-const TONOS_COLUMNS: readonly TonosToneColumn[] = ['warm', 'none', 'cool'];
-
 /**
  * Returns the tile layout for a given category customization.
- * Describes which tiles are photo tiles, special tiles, or text panels.
+ *
+ * Adapter: the canonical layout data lives in `src/lib/category-layouts/`.
+ * This function translates each category's `LayoutTile` descriptors into
+ * the historical flat shape existing consumers expect. PR 1b migrates
+ * consumers to the new contract and deletes this compatibility layer.
  */
 export function getTileLayout(config: CategoryCustomization): TileDescriptor[] {
-  const { categoryType, gridSize } = config;
-
-  switch (categoryType) {
-    case 'mosaicos':
-    case 'polaroid':
-      return Array.from({ length: gridSize }, (_, i) => ({
-        index: i,
-        role: 'photo' as const,
-      }));
-
-    case 'spotify':
-      // 6-grid: top 4 = photo (2x2), bottom 2 = black bar
-      return [
-        { index: 0, role: 'photo' },
-        { index: 1, role: 'photo' },
-        { index: 2, role: 'photo' },
-        { index: 3, role: 'photo' },
-        { index: 4, role: 'special', label: 'spotify-bar-left' },
-        { index: 5, role: 'special', label: 'spotify-bar-right' },
-      ];
-
-    case 'tonos':
-      // Rows = uploaded picture, columns = tone (warm/none/cool).
-      // 9-grid: 3 rows × 3 cols, sourceImageIndex = row.
-      // 3-grid: 1 row × 3 cols, sourceImageIndex = column (one picture per tile).
-      if (gridSize === 9) {
-        return Array.from({ length: 9 }, (_, i) => ({
-          index: i,
-          role: 'photo' as const,
-          sourceImageIndex: Math.floor(i / 3) as 0 | 1 | 2,
-          toneColumn: TONOS_COLUMNS[i % 3],
-        }));
-      }
-      return Array.from({ length: 3 }, (_, i) => ({
-        index: i,
-        role: 'photo' as const,
-        sourceImageIndex: i as 0 | 1 | 2,
-        toneColumn: TONOS_COLUMNS[i],
-      }));
-
-    case 'save-the-date':
-      // All tiles are photo tiles (with text overlay)
-      return Array.from({ length: gridSize }, (_, i) => ({
-        index: i,
-        role: 'photo' as const,
-      }));
-
-    case 'arte':
-      // 4×2+1 layout: 8 photo tiles in 2 rows of 4, info tile at row 3 col 4
-      return [
-        ...Array.from({ length: 8 }, (_, i) => ({
-          index: i,
-          role: 'photo' as const,
-        })),
-        { index: 8, role: 'special', label: 'arte-info', gridColumn: 4, gridRow: 3 },
-      ];
-
-    case 'studio':
-      // 6-grid: top 4 = photo (2x2), bottom 2 = text panels
-      return [
-        { index: 0, role: 'photo' },
-        { index: 1, role: 'photo' },
-        { index: 2, role: 'photo' },
-        { index: 3, role: 'photo' },
-        { index: 4, role: 'text-panel', label: 'studio-left' },
-        { index: 5, role: 'text-panel', label: 'studio-right' },
-      ];
+  const layout = CATEGORY_LAYOUTS[config.categoryType];
+  const tiles = layout.tiles[config.gridSize];
+  if (!tiles) {
+    throw new Error(
+      `[customization-types] getTileLayout: ${config.categoryType} has no tiles for grid ${config.gridSize}`,
+    );
   }
+  return tiles.map((tile): TileDescriptor => {
+    // Category-specific meta is a discriminated union; the old flat shape
+    // exposes every field as top-level optional. Probe with an index access
+    // so categories that don't have a given field just return undefined.
+    const meta = tile.meta as
+      | { label?: string; sourceImageIndex?: 0 | 1 | 2; toneColumn?: TonosToneColumn }
+      | undefined;
+    const out: TileDescriptor = { index: tile.index, role: tile.role };
+    if (meta?.label !== undefined) out.label = meta.label;
+    if (tile.col !== undefined) out.gridColumn = tile.col;
+    if (tile.row !== undefined) out.gridRow = tile.row;
+    if (meta?.sourceImageIndex !== undefined) out.sourceImageIndex = meta.sourceImageIndex;
+    if (meta?.toneColumn !== undefined) out.toneColumn = meta.toneColumn;
+    return out;
+  });
 }

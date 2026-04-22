@@ -4,6 +4,8 @@ import type {
   CategoryCustomization,
   TonosCustomization,
 } from '../../customization-types';
+import { CATEGORY_LAYOUTS } from '../../category-layouts';
+import { deriveCompositeLayout } from '../../category-layouts/derive';
 import type { TileOutput } from '../types';
 
 /**
@@ -29,105 +31,18 @@ export interface CompositeLayout {
 
 /**
  * Resolves the grid layout each category uses when assembling its print
- * tiles into one gapless composite image. Driven by the same descriptors
- * the DOM preview uses, so the canonical composite matches what the user
- * sees in the step-5 interactive preview.
+ * tiles into one gapless composite image.
  *
- * Default for most categories: row-major placement at TILE_PRINT_SIZE.
- * Arte is the special case — sparse 4×3 grid where tiles 0-7 occupy the
- * top two rows and tile 8 sits at (row=2, col=3).
+ * Adapter: delegates to `deriveCompositeLayout` in `category-layouts/`, so
+ * the canonical layout data drives both the DOM preview (PR 1b) and the
+ * server-side assembly. The `CompositeLayout` return shape is preserved for
+ * existing callers.
  */
 export function getCompositeLayout(
   customization: CategoryCustomization,
 ): CompositeLayout {
-  const TILE = TILE_PRINT_SIZE;
-
-  switch (customization.categoryType) {
-    case 'mosaicos': {
-      const size = customization.gridSize;
-      const { rows, cols } = gridRowsCols(size);
-      return rowMajorLayout(rows, cols, TILE, size);
-    }
-
-    case 'save-the-date': {
-      const rows = 3;
-      const cols = 3;
-      return rowMajorLayout(rows, cols, TILE, 9);
-    }
-
-    case 'spotify': {
-      // 3 rows × 2 cols; tiles 0-3 photo (rows 0-1), tiles 4-5 bottom bar (row 2)
-      return rowMajorLayout(3, 2, TILE, 6);
-    }
-
-    case 'arte': {
-      // 4 cols × 3 rows, sparse: tiles 0-7 in rows 0-1, tile 8 at (row=2, col=3)
-      const tiles: TilePlacement[] = [];
-      for (let i = 0; i < 8; i++) {
-        const row = Math.floor(i / 4);
-        const col = i % 4;
-        tiles.push({ index: i, left: col * TILE, top: row * TILE, width: TILE, height: TILE });
-      }
-      tiles.push({ index: 8, left: 3 * TILE, top: 2 * TILE, width: TILE, height: TILE });
-      return { width: 4 * TILE, height: 3 * TILE, tiles };
-    }
-
-    case 'studio': {
-      // 2 cols × 3 rows; tiles 0-3 photo (rows 0-1), tiles 4-5 text panels (row 2)
-      return rowMajorLayout(3, 2, TILE, 6);
-    }
-
-    case 'polaroid': {
-      return rowMajorLayout(2, 2, TILE, 4);
-    }
-
-    case 'tonos': {
-      if (customization.gridSize === 9) {
-        return rowMajorLayout(3, 3, TILE, 9);
-      }
-      return rowMajorLayout(1, 3, TILE, 3);
-    }
-  }
-
-  // Exhaustiveness check
-  const _exhaustive: never = customization;
-  throw new Error(
-    `[assemble-tiles] Unhandled category: ${(_exhaustive as { categoryType: string }).categoryType}`,
-  );
-}
-
-function gridRowsCols(size: 3 | 4 | 6 | 9): { rows: number; cols: number } {
-  switch (size) {
-    case 3: return { rows: 1, cols: 3 };
-    case 4: return { rows: 2, cols: 2 };
-    case 6: return { rows: 3, cols: 2 };
-    case 9: return { rows: 3, cols: 3 };
-  }
-}
-
-function rowMajorLayout(
-  rows: number,
-  cols: number,
-  tileSize: number,
-  tileCount: number,
-): CompositeLayout {
-  const tiles: TilePlacement[] = [];
-  for (let i = 0; i < tileCount; i++) {
-    const row = Math.floor(i / cols);
-    const col = i % cols;
-    tiles.push({
-      index: i,
-      left: col * tileSize,
-      top: row * tileSize,
-      width: tileSize,
-      height: tileSize,
-    });
-  }
-  return {
-    width: cols * tileSize,
-    height: rows * tileSize,
-    tiles,
-  };
+  const layout = CATEGORY_LAYOUTS[customization.categoryType];
+  return deriveCompositeLayout(layout, customization.gridSize, TILE_PRINT_SIZE);
 }
 
 /**

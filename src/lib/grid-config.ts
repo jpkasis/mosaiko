@@ -1,3 +1,5 @@
+import { CATEGORY_LAYOUTS } from './category-layouts';
+
 export type GridSize = 3 | 4 | 6 | 9;
 
 export interface GridConfig {
@@ -47,7 +49,10 @@ export const GRID_CONFIGS: Record<GridSize, GridConfig> = {
 export const TILE_PRINT_SIZE = 827; // 7cm at 300dpi
 
 // ─── Per-category layout overrides ──────────────────────────────────────────
-// gridSize determines pricing. The visual/print layout varies per category.
+// Derived from `CATEGORY_LAYOUTS` so the legacy lookup keys and the canonical
+// contract stay in lockstep. PR 1b migrates the remaining consumer (the
+// rotatable check in `useBuilderFlow`) to `layout.rotatable` directly and
+// this export can be deleted.
 
 export interface CategoryLayoutOverride {
   rows: number;   // total visual rows (CSS grid)
@@ -55,18 +60,42 @@ export interface CategoryLayoutOverride {
   aspect: number; // crop aspect ratio (width / height)
 }
 
-export const CATEGORY_LAYOUT_OVERRIDES: Partial<Record<string, CategoryLayoutOverride>> = {
-  'arte:9': { rows: 3, cols: 4, aspect: 4 / 2 },
-  'spotify:6': { rows: 3, cols: 2, aspect: 1 },   // photo area is 2×2 (top 4 tiles)
-  'studio:6': { rows: 3, cols: 2, aspect: 1055 / 1204 }, // matches photo buffer (colLeftW+colRightW) / (rowTopH+rowBotH+stripH)
-  'polaroid:4': { rows: 2, cols: 2, aspect: 180 / 160 }, // crop matches visible photo opening inside Polaroid frame
-};
+function buildOverrides(): Partial<Record<string, CategoryLayoutOverride>> {
+  const out: Partial<Record<string, CategoryLayoutOverride>> = {};
+  for (const [cat, layout] of Object.entries(CATEGORY_LAYOUTS)) {
+    for (const [sizeStr, dim] of Object.entries(layout.dimensions)) {
+      const size = Number(sizeStr) as GridSize;
+      const aspect = layout.cropAspect[size];
+      if (aspect === undefined || !dim) continue;
+      const base = GRID_CONFIGS[size];
+      // Preserve the legacy convention: only non-base combinations appear in
+      // this map. That keeps the `!!overrides[cat:size]` truthiness check in
+      // downstream callers semantically identical.
+      if (
+        aspect !== base.aspect ||
+        dim.rows !== base.rows ||
+        dim.cols !== base.cols
+      ) {
+        out[`${cat}:${size}`] = { rows: dim.rows, cols: dim.cols, aspect };
+      }
+    }
+  }
+  return out;
+}
+
+export const CATEGORY_LAYOUT_OVERRIDES: Partial<Record<string, CategoryLayoutOverride>> =
+  buildOverrides();
 
 /**
  * Returns the effective grid config for a category + grid size combination.
- * Merges any layout override into the base config, preserving price.
+ * Pulls rows / cols / aspect from the canonical `CATEGORY_LAYOUTS` contract;
+ * price and label always come from `GRID_CONFIGS` (they describe the
+ * physical magnet, not the visual layout).
  */
-export function getEffectiveGridConfig(gridSize: GridSize, categoryType?: string): GridConfig {
+export function getEffectiveGridConfig(
+  gridSize: GridSize,
+  categoryType?: string,
+): GridConfig {
   const base = GRID_CONFIGS[gridSize];
   if (!categoryType) return base;
   const override = CATEGORY_LAYOUT_OVERRIDES[`${categoryType}:${gridSize}`];
