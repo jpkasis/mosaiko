@@ -125,7 +125,8 @@ export function CookieBanner() {
           initial="hidden"
           animate="visible"
           exit="exit"
-          className="fixed inset-x-0 bottom-0 z-[9998] px-4 pb-4 sm:px-6 sm:pb-6"
+          className="fixed inset-x-0 bottom-0 px-4 pb-4 sm:px-6 sm:pb-6"
+          style={{ zIndex: 'var(--z-cookie)' }}
         >
           <div className="mx-auto max-w-xl rounded-2xl border border-light-gray/60 bg-warm-white/80 p-5 shadow-lg backdrop-blur-xl sm:p-6">
             {/* Cookie icon + title */}

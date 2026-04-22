@@ -6,8 +6,9 @@ import { useParams } from 'next/navigation';
 import { Link, useRouter, usePathname } from '@/i18n/navigation';
 import { useCartStore, selectCartCount } from '@/lib/cart-store';
 import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { MosaikoLogo } from '@/components/ui/MosaikoLogo';
+import { Overlay } from '@/components/ui/Overlay';
 
 const NAV_LINKS = [
   { href: '/catalogo' as const, key: 'catalog' },
@@ -43,17 +44,8 @@ export function Header() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Lock body scroll when mobile menu is open
-  useEffect(() => {
-    if (mobileMenuOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [mobileMenuOpen]);
+  // Scroll lock is now handled by the Overlay primitive (via Radix +
+  // react-remove-scroll). Nothing to do here.
 
   function handleLanguageSwitch() {
     const nextLocale = locale === 'es' ? 'en' : 'es';
@@ -84,9 +76,10 @@ export function Header() {
   return (
     <header
       className={[
-        'sticky top-0 z-40 h-[var(--header-height)] bg-cream transition-shadow duration-300',
+        'sticky top-0 h-[var(--header-height)] bg-cream transition-shadow duration-300',
         scrolled ? 'shadow-sm border-b border-light-gray' : '',
       ].join(' ')}
+      style={{ zIndex: 'var(--z-header)' }}
     >
       <div className="container-mosaiko flex h-full items-center justify-between">
         {/* Logo */}
@@ -186,79 +179,76 @@ export function Header() {
         </div>
       </div>
 
-      {/* Mobile Menu Overlay */}
-      <AnimatePresence>
-        {mobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 top-[var(--header-height)] z-50 bg-cream md:hidden"
-          >
-            <nav
-              className="container-mosaiko flex flex-col gap-1 pt-6"
-              aria-label="Navegacion movil"
+      {/* Mobile menu overlay — full-height right drawer below md breakpoint */}
+      <Overlay
+        open={mobileMenuOpen}
+        onOpenChange={setMobileMenuOpen}
+        variant="drawer-right"
+        zLayer="drawer"
+        ariaLabel="Navegacion movil"
+        contentClassName="bg-cream pt-[var(--header-height)]"
+      >
+        <nav
+          className="container-mosaiko flex flex-col gap-1 pt-6"
+          aria-label="Navegacion movil"
+        >
+          {MOBILE_NAV_LINKS.map((link, i) => (
+            <motion.div
+              key={link.key}
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.05, duration: 0.25 }}
             >
-              {MOBILE_NAV_LINKS.map((link, i) => (
-                <motion.div
-                  key={link.key}
-                  initial={{ opacity: 0, x: -16 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05, duration: 0.25 }}
-                >
-                  <Link
-                    href={link.href}
-                    onClick={(e) => {
-                      handleNavClick(e, link.href);
-                      closeMobileMenu();
-                    }}
-                    className="flex h-12 items-center rounded-lg px-4 text-lg font-medium text-charcoal transition-colors hover:bg-terracotta/10 hover:text-terracotta"
-                  >
-                    {t(link.key)}
-                  </Link>
-                </motion.div>
-              ))}
-
-              {/* Language switch in mobile */}
-              <motion.div
-                initial={{ opacity: 0, x: -16 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{
-                  delay: MOBILE_NAV_LINKS.length * 0.05,
-                  duration: 0.25,
+              <Link
+                href={link.href}
+                onClick={(e) => {
+                  handleNavClick(e, link.href);
+                  closeMobileMenu();
                 }}
-                className="mt-4 border-t border-light-gray pt-4"
+                className="flex min-h-[48px] items-center rounded-lg px-4 text-lg font-medium text-charcoal transition-colors hover:bg-terracotta/10 hover:text-terracotta"
               >
-                <button
-                  onClick={() => {
-                    handleLanguageSwitch();
-                    closeMobileMenu();
-                  }}
-                  className="flex h-12 items-center gap-2 rounded-lg px-4 text-lg font-medium text-warm-gray transition-colors hover:text-charcoal cursor-pointer"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="2" y1="12" x2="22" y2="12" />
-                    <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
-                  </svg>
-                  {locale === 'es' ? 'English' : 'Espanol'}
-                </button>
-              </motion.div>
-            </nav>
+                {t(link.key)}
+              </Link>
+            </motion.div>
+          ))}
+
+          {/* Language switch in mobile */}
+          <motion.div
+            initial={{ opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{
+              delay: MOBILE_NAV_LINKS.length * 0.05,
+              duration: 0.25,
+            }}
+            className="mt-4 border-t border-light-gray pt-4"
+          >
+            <button
+              onClick={() => {
+                handleLanguageSwitch();
+                closeMobileMenu();
+              }}
+              className="flex min-h-[48px] items-center gap-2 rounded-lg px-4 text-lg font-medium text-warm-gray transition-colors hover:text-charcoal cursor-pointer"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
+              </svg>
+              {locale === 'es' ? 'English' : 'Espanol'}
+            </button>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </nav>
+      </Overlay>
     </header>
   );
 }

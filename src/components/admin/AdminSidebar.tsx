@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Overlay } from '@/components/ui/Overlay';
 
 const NAV_ITEMS = [
   {
@@ -41,17 +41,90 @@ const NAV_ITEMS = [
   },
 ];
 
+function SidebarBody({
+  pathname,
+  onNavigate,
+  showCloseButton,
+}: {
+  pathname: string;
+  onNavigate: () => void;
+  showCloseButton: boolean;
+}) {
+  return (
+    <>
+      {/* Brand */}
+      <div className="flex h-16 items-center justify-between px-6" style={{ borderBottom: '1px solid #e5e0d4' }}>
+        <Link href="/admin" className="flex items-center gap-2" onClick={onNavigate}>
+          <span
+            className="text-xl font-bold tracking-tight"
+            style={{ fontFamily: 'var(--font-cormorant), Georgia, serif', color: '#422102' }}
+          >
+            Mosaiko
+          </span>
+          <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ backgroundColor: '#e5e0d4', color: '#7a6b5a' }}>
+            Admin
+          </span>
+        </Link>
+        {showCloseButton && (
+          <button
+            onClick={onNavigate}
+            className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg hover:bg-cream"
+            aria-label="Cerrar menú"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#422102" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 px-3 py-4">
+        <ul className="flex flex-col gap-1">
+          {NAV_ITEMS.map((item) => {
+            const isActive = pathname.startsWith(item.href);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={onNavigate}
+                  className={[
+                    'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-terracotta/10 text-terracotta'
+                      : 'text-warm-gray hover:bg-cream hover:text-charcoal',
+                  ].join(' ')}
+                >
+                  <span className={isActive ? 'text-terracotta' : 'text-warm-gray'}>{item.icon}</span>
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      {/* Footer */}
+      <div className="px-4 py-3 text-center text-[11px] text-warm-gray/50" style={{ borderTop: '1px solid #e5e0d4' }}>
+        Mosaiko v1.0
+      </div>
+    </>
+  );
+}
+
 export function AdminSidebar() {
   const pathname = usePathname();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const closeMobile = () => setIsMobileOpen(false);
 
   return (
     <>
       {/* Mobile hamburger */}
       <button
         onClick={() => setIsMobileOpen(true)}
-        className="fixed left-4 top-4 z-40 flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg bg-white shadow-sm lg:hidden"
-        style={{ border: '1px solid #e5e0d4' }}
+        className="fixed left-4 top-4 flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg bg-white shadow-sm lg:hidden"
+        style={{ border: '1px solid #e5e0d4', zIndex: 'var(--z-header)' }}
         aria-label="Abrir menú"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#422102" strokeWidth="2" strokeLinecap="round">
@@ -61,83 +134,33 @@ export function AdminSidebar() {
         </svg>
       </button>
 
-      {/* Mobile overlay */}
-      <AnimatePresence>
-        {isMobileOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/30 lg:hidden"
-            onClick={() => setIsMobileOpen(false)}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Sidebar */}
+      {/* Desktop sidebar — static, always visible on lg+ */}
       <aside
-        className={[
-          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-white transition-transform duration-300 lg:translate-x-0',
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full',
-        ].join(' ')}
-        style={{ borderRight: '1px solid #e5e0d4' }}
+        className="fixed inset-y-0 left-0 hidden w-64 flex-col bg-white lg:flex"
+        style={{ borderRight: '1px solid #e5e0d4', zIndex: 'var(--z-header)' }}
       >
-        {/* Brand */}
-        <div className="flex h-16 items-center justify-between px-6" style={{ borderBottom: '1px solid #e5e0d4' }}>
-          <Link href="/admin" className="flex items-center gap-2">
-            <span
-              className="text-xl font-bold tracking-tight"
-              style={{ fontFamily: 'var(--font-cormorant), Georgia, serif', color: '#422102' }}
-            >
-              Mosaiko
-            </span>
-            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ backgroundColor: '#e5e0d4', color: '#7a6b5a' }}>
-              Admin
-            </span>
-          </Link>
-          <button
-            onClick={() => setIsMobileOpen(false)}
-            className="cursor-pointer lg:hidden"
-            aria-label="Cerrar menú"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#422102" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 px-3 py-4">
-          <ul className="flex flex-col gap-1">
-            {NAV_ITEMS.map((item) => {
-              const isActive = pathname.startsWith(item.href);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    onClick={() => setIsMobileOpen(false)}
-                    className={[
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-terracotta/10 text-terracotta'
-                        : 'text-warm-gray hover:bg-cream hover:text-charcoal',
-                    ].join(' ')}
-                  >
-                    <span className={isActive ? 'text-terracotta' : 'text-warm-gray'}>{item.icon}</span>
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-
-        {/* Footer */}
-        <div className="px-4 py-3 text-center text-[11px] text-warm-gray/50" style={{ borderTop: '1px solid #e5e0d4' }}>
-          Mosaiko v1.0
-        </div>
+        <SidebarBody
+          pathname={pathname}
+          onNavigate={() => undefined}
+          showCloseButton={false}
+        />
       </aside>
+
+      {/* Mobile sidebar — overlay-wrapped drawer below lg */}
+      <Overlay
+        open={isMobileOpen}
+        onOpenChange={setIsMobileOpen}
+        variant="drawer-left"
+        zLayer="drawer"
+        ariaLabel="Menú de administración"
+        contentClassName="bg-white sm:max-w-[280px]"
+      >
+        <SidebarBody
+          pathname={pathname}
+          onNavigate={closeMobile}
+          showCloseButton
+        />
+      </Overlay>
     </>
   );
 }

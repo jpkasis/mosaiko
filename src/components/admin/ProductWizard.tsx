@@ -7,6 +7,7 @@ import type { SeamDetectionResult } from '@/lib/admin/seam-detection';
 import type { CategoryType } from '@/lib/customization-types';
 import { CATALOG_CATEGORIES } from '@/lib/catalog-data';
 import { GRID_CONFIGS, type GridSize } from '@/lib/grid-config';
+import { Overlay, OverlayTitle } from '@/components/ui/Overlay';
 
 interface ProductWizardProps {
   onClose: () => void;
@@ -182,23 +183,27 @@ export function ProductWizard({ onClose, onSaved }: ProductWizardProps) {
   }, [detection, tempImageKey, name, category, price, contentType, onSaved]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-
-      {/* Dialog */}
-      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid #e5e0d4' }}>
+    <Overlay
+      open
+      onOpenChange={(open) => { if (!open) onClose(); }}
+      variant="modal-center"
+      zLayer="modal"
+      ariaLabel="Agregar producto"
+      contentClassName="bg-white max-w-lg max-h-[90vh] overflow-hidden"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid #e5e0d4' }}>
+        <OverlayTitle asChild>
           <h2 className="text-lg font-semibold text-charcoal" style={{ fontFamily: 'var(--font-cormorant), Georgia, serif' }}>
             Agregar Producto
           </h2>
-          <button onClick={onClose} className="cursor-pointer text-warm-gray hover:text-charcoal">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
+        </OverlayTitle>
+        <button onClick={onClose} className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg text-warm-gray hover:bg-cream hover:text-charcoal" aria-label="Cerrar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
 
         {/* Step indicator */}
         <div className="flex gap-1 px-6 py-3" style={{ borderBottom: '1px solid #e5e0d4' }}>
@@ -317,8 +322,7 @@ export function ProductWizard({ onClose, onSaved }: ProductWizardProps) {
               </button>
             </div>
           )}
-        </div>
       </div>
-    </div>
+    </Overlay>
   );
 }
