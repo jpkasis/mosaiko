@@ -41,6 +41,9 @@ export const studioLayout = {
     // 94.77% = (526+615)/1204 (top of the bleed strip).
     6: { rowSplits: [43.69, 94.77] },
   },
+  // Photo-region bounds below are verified against the actual template PNGs
+  // by `scripts/measure-frame-templates.ts`. Re-run that script if the
+  // templates are re-exported from source.
   frame: {
     templateDir: 'studio',
     photo: {

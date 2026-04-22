@@ -37,6 +37,9 @@ export const polaroidLayout = {
     // and matches the client preview's vSplit.
     4: { rowSplits: [55.96] },
   },
+  // Photo-region bounds below are verified against the actual template PNGs
+  // by `scripts/measure-frame-templates.ts`. Re-run that script if the
+  // templates are re-exported from source.
   frame: {
     templateDir: 'polaroid',
     photo: {
