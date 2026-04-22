@@ -64,10 +64,13 @@ function buildOverrides(): Partial<Record<string, CategoryLayoutOverride>> {
   const out: Partial<Record<string, CategoryLayoutOverride>> = {};
   for (const [cat, layout] of Object.entries(CATEGORY_LAYOUTS)) {
     for (const [sizeStr, dim] of Object.entries(layout.dimensions)) {
+      if (!dim) continue;
       const size = Number(sizeStr) as GridSize;
-      const aspect = layout.cropAspect[size];
-      if (aspect === undefined || !dim) continue;
       const base = GRID_CONFIGS[size];
+      // Fall the aspect back to the base before comparing so a future
+      // category that differs only in dimensions (same aspect, custom
+      // rows/cols) still surfaces as an override.
+      const aspect = layout.cropAspect[size] ?? base.aspect;
       // Preserve the legacy convention: only non-base combinations appear in
       // this map. That keeps the `!!overrides[cat:size]` truthiness check in
       // downstream callers semantically identical.
