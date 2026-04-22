@@ -361,7 +361,7 @@ export function MagnetBuilder() {
           </AnimatePresence>
 
           <div className="relative overflow-hidden">
-            <AnimatePresence custom={flow.direction} mode="wait">
+            <AnimatePresence custom={flow.direction} mode="wait" initial={false}>
               <motion.div
                 key={flow.currentStepId}
                 custom={flow.direction}

@@ -122,6 +122,17 @@ body {
   outline-offset: 2px;
 }
 
+/* Form inputs carry their own visible focus state via border-color changes
+   (see FieldInput / FieldTextarea). The global outline is redundant there
+   and its 2px offset gets clipped by ancestor `overflow-hidden` wrappers
+   (e.g. the builder's step slide container). Disable it just for editable
+   form controls — buttons, links, and other focusables still get the
+   global terracotta ring. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
 /* ── Utility Classes ── */
 .container-mosaiko {
   width: 100%;
