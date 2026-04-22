@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -30,6 +30,7 @@ import { PhotoUploaderMulti } from './PhotoUploaderMulti';
 import { ImageCropper } from './ImageCropper';
 import { ImageCropperMulti } from './ImageCropperMulti';
 import { MagnetPreview } from './MagnetPreview';
+import { Overlay } from '@/components/ui/Overlay';
 
 const CustomizationEditor = dynamic(
   () => import('./CustomizationEditor').then((m) => m.CustomizationEditor),
@@ -297,6 +298,13 @@ export function MagnetBuilder() {
 
   const isTonos = flow.selectedCategory === 'tonos';
 
+  // Mobile-only live-preview drawer. Desktop keeps the sticky sidebar.
+  const [previewDrawerOpen, setPreviewDrawerOpen] = useState(false);
+  // Only show the FAB once the user is past the category pick — the preview
+  // has nothing to render before a category + image exist.
+  const showPreviewFab =
+    flow.selectedCategory !== null && flow.currentStepId !== 'category';
+
   // Cropper overlay guide is layout-defined: each category publishes its
   // overlay rows / cols / row-splits via the contract.
   const cropperOverlay = useMemo(() => {
@@ -372,7 +380,10 @@ export function MagnetBuilder() {
             )}
           </AnimatePresence>
 
-          <div className="relative overflow-hidden">
+          {/* overflow-x-hidden clips the slide transition sideways but lets
+              focus rings, dropdown menus, and long select lists bleed
+              vertically without being cut off. */}
+          <div className="relative overflow-x-hidden overflow-y-visible">
             <AnimatePresence custom={flow.direction} mode="wait" initial={false}>
               <motion.div
                 key={flow.currentStepId}
@@ -510,6 +521,51 @@ export function MagnetBuilder() {
           />
         </aside>
       </div>
+
+      {/* Mobile live-preview FAB: on <lg viewports the sidebar is hidden,
+          so the preview moves into a bottom-drawer the user opens on
+          demand. Desktop sidebar above stays untouched. */}
+      {showPreviewFab && (
+        <>
+          <button
+            type="button"
+            onClick={() => setPreviewDrawerOpen(true)}
+            className="fixed bottom-4 right-4 flex h-14 w-14 items-center justify-center rounded-full bg-terracotta text-white shadow-lg transition-transform hover:scale-105 active:scale-[0.98] lg:hidden pb-safe"
+            style={{ ['--safe-min' as string]: '0.5rem', zIndex: 'var(--z-toast)' }}
+            aria-label="Ver vista previa"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+
+          <Overlay
+            open={previewDrawerOpen}
+            onOpenChange={setPreviewDrawerOpen}
+            variant="drawer-bottom"
+            zLayer="drawer"
+            ariaLabel="Vista previa del mosaico"
+            contentClassName="pb-safe"
+          >
+            <div className="overflow-y-auto p-4">
+              <div className="mx-auto w-full max-w-sm">
+                <LivePreviewSidebar
+                  currentStepId={flow.currentStepId}
+                  selectedGrid={flow.selectedGrid}
+                  imageSrc={flow.imageSrc}
+                  gridConfig={flow.gridConfig}
+                  liveCropArea={flow.liveCropArea}
+                  cropAreaPixels={flow.cropAreaPixels}
+                  selectedCategory={flow.selectedCategory}
+                  textFields={flow.customizationValues}
+                  tonos={tonosForSidebar}
+                />
+              </div>
+            </div>
+          </Overlay>
+        </>
+      )}
     </div>
   );
 }
@@ -527,71 +583,91 @@ function StepIndicator({
 }) {
   const t = useTranslations('builder');
   const currentIdx = stepSequence.indexOf(currentStepId);
+  const currentLabel = t(STEP_I18N_MAP[currentStepId]);
 
   return (
-    <div className="flex items-center justify-center gap-0 overflow-x-auto">
-      {stepSequence.map((stepId, index) => {
-        const isActive = stepId === currentStepId;
-        const isCompleted = index < currentIdx;
-        const isClickable = index < currentIdx;
+    <>
+      {/* Mobile progress bar: thin track + label. Replaces the horizontal
+          6-circle scroll that used to overflow on 375-px viewports. */}
+      <div className="flex flex-col items-center gap-2 sm:hidden">
+        <div className="flex w-full items-baseline justify-between text-xs font-medium text-warm-gray">
+          <span>Paso {currentIdx + 1} de {stepSequence.length}</span>
+          <span className="text-terracotta">{currentLabel}</span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-light-gray">
+          <div
+            className="h-full rounded-full bg-terracotta transition-all duration-300"
+            style={{
+              width: `${((currentIdx + 1) / stepSequence.length) * 100}%`,
+            }}
+          />
+        </div>
+      </div>
 
-        return (
-          <div key={stepId} className="flex items-center shrink-0">
-            <button
-              onClick={() => isClickable && onStepClick(stepId)}
-              disabled={!isClickable}
-              className={[
-                'flex flex-col items-center gap-1.5',
-                isClickable ? 'cursor-pointer' : 'cursor-default',
-              ].join(' ')}
-              aria-label={`${t(STEP_I18N_MAP[stepId])} — Paso ${index + 1}`}
-              aria-current={isActive ? 'step' : undefined}
-            >
-              <div
+      {/* Desktop / tablet: the classic circle indicator. */}
+      <div className="hidden items-center justify-center gap-0 overflow-x-auto sm:flex">
+        {stepSequence.map((stepId, index) => {
+          const isActive = stepId === currentStepId;
+          const isCompleted = index < currentIdx;
+          const isClickable = index < currentIdx;
+
+          return (
+            <div key={stepId} className="flex items-center shrink-0">
+              <button
+                onClick={() => isClickable && onStepClick(stepId)}
+                disabled={!isClickable}
                 className={[
-                  'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all duration-300',
-                  'md:h-10 md:w-10 md:text-sm',
-                  isActive
-                    ? 'bg-terracotta text-white shadow-md shadow-terracotta/30'
-                    : isCompleted
-                      ? 'bg-terracotta text-[#efebe0]'
-                      : 'bg-light-gray text-warm-gray',
+                  'flex flex-col items-center gap-1.5',
+                  isClickable ? 'cursor-pointer' : 'cursor-default',
                 ].join(' ')}
+                aria-label={`${t(STEP_I18N_MAP[stepId])} — Paso ${index + 1}`}
+                aria-current={isActive ? 'step' : undefined}
               >
-                {isCompleted ? (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                ) : (
-                  index + 1
-                )}
-              </div>
-              <span
-                className={[
-                  'hidden text-xs font-medium sm:block',
-                  isActive
-                    ? 'text-terracotta'
-                    : isCompleted
+                <div
+                  className={[
+                    'flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold transition-all duration-300',
+                    isActive
+                      ? 'bg-terracotta text-white shadow-md shadow-terracotta/30'
+                      : isCompleted
+                        ? 'bg-terracotta text-[#efebe0]'
+                        : 'bg-light-gray text-warm-gray',
+                  ].join(' ')}
+                >
+                  {isCompleted ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    index + 1
+                  )}
+                </div>
+                <span
+                  className={[
+                    'text-xs font-medium',
+                    isActive
                       ? 'text-terracotta'
-                      : 'text-warm-gray',
-                ].join(' ')}
-              >
-                {t(STEP_I18N_MAP[stepId])}
-              </span>
-            </button>
+                      : isCompleted
+                        ? 'text-terracotta'
+                        : 'text-warm-gray',
+                  ].join(' ')}
+                >
+                  {t(STEP_I18N_MAP[stepId])}
+                </span>
+              </button>
 
-            {index < stepSequence.length - 1 && (
-              <div
-                className={[
-                  'mx-2 h-0.5 w-8 rounded-full transition-colors duration-300 md:mx-3 md:w-12',
-                  index < currentIdx ? 'bg-terracotta' : 'bg-light-gray',
-                ].join(' ')}
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
+              {index < stepSequence.length - 1 && (
+                <div
+                  className={[
+                    'mx-3 h-0.5 w-12 rounded-full transition-colors duration-300',
+                    index < currentIdx ? 'bg-terracotta' : 'bg-light-gray',
+                  ].join(' ')}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
