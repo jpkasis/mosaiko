@@ -43,12 +43,47 @@
 
   /* Spacing */
   --container-max: 1280px;
-  --header-height: 72px;
+  --header-height-mobile: 64px;
+  --header-height-desktop: 72px;
+  --header-height: var(--header-height-desktop);
   --announcement-height: 40px;
+
+  /* Z-index stack (single source of truth; numeric values ordered low → high)
+     Header sits above page content; drawers (cart, mobile menu) above header;
+     modals above drawers so a dialog inside a drawer still works; toast above
+     modals for confirmations; cookie banner above toast to ensure consent
+     remains reachable; grain overlay on top as a pure visual effect. */
+  --z-header: 40;
+  --z-drawer: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+  --z-cookie: 80;
+  --z-grain: 90;
 
   /* Transitions */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Mobile header height — applied below the Tailwind `sm` breakpoint. */
+@media (max-width: 639px) {
+  :root {
+    --header-height: var(--header-height-mobile);
+  }
+}
+
+/* Reduced-motion safety net — disables all CSS transitions/animations for
+   users who opt in. Framer Motion has its own useReducedMotion hook that
+   kicks in for JS-driven animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @theme inline {
@@ -210,12 +245,44 @@ textarea:focus-visible {
   scrollbar-width: none;
 }
 
+/* ── Safe-area utilities ──
+   iOS notch + home-bar insets. Combine with normal padding via `max()` so the
+   element gets at least the design padding even on devices without insets. */
+.pt-safe {
+  padding-top: max(var(--safe-min, 0px), env(safe-area-inset-top));
+}
+.pb-safe {
+  padding-bottom: max(var(--safe-min, 0px), env(safe-area-inset-bottom));
+}
+.pl-safe {
+  padding-left: max(var(--safe-min, 0px), env(safe-area-inset-left));
+}
+.pr-safe {
+  padding-right: max(var(--safe-min, 0px), env(safe-area-inset-right));
+}
+.px-safe {
+  padding-left: max(var(--safe-min, 0px), env(safe-area-inset-left));
+  padding-right: max(var(--safe-min, 0px), env(safe-area-inset-right));
+}
+.py-safe {
+  padding-top: max(var(--safe-min, 0px), env(safe-area-inset-top));
+  padding-bottom: max(var(--safe-min, 0px), env(safe-area-inset-bottom));
+}
+
 /* ── react-easy-crop sizing overrides ──
    Tailwind preflight applies `img { max-width: 100%; height: auto }` to all
    images, which clamps the cropper's media element to the container width.
    That defeats cover mode (where the image MUST overflow the container so
    the user can pan/choose the crop) and produces brown gaps when dragging
-   non-square photos. Reassert the library's intended sizing here. */
+   non-square photos. Reassert the library's intended sizing here.
+
+   Also: `touch-action: none` blocks page pinch-zoom inside the cropper so
+   two-finger gestures go to react-easy-crop instead of the browser viewport.
+   Everywhere else on the page, default touch-action applies — `userScalable`
+   accessibility zoom still works for visually impaired users. */
+.reactEasyCrop_Container {
+  touch-action: none;
+}
 .reactEasyCrop_Container .reactEasyCrop_Image,
 .reactEasyCrop_Container .reactEasyCrop_Video {
   max-width: none;
@@ -244,6 +311,6 @@ textarea:focus-visible {
   height: 100%;
   pointer-events: none;
   opacity: 0.03;
-  z-index: 9999;
+  z-index: var(--z-grain);
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
 }
