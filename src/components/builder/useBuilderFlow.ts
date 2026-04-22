@@ -1,10 +1,11 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
-import { GRID_CONFIGS, getEffectiveGridConfig, CATEGORY_LAYOUT_OVERRIDES, type GridSize, type GridConfig } from '@/lib/grid-config';
+import { GRID_CONFIGS, getEffectiveGridConfig, type GridSize, type GridConfig } from '@/lib/grid-config';
 import {
   CATEGORY_REGISTRY,
   type CategoryType,
   type TonosIntensity,
 } from '@/lib/customization-types';
+import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
 import type { CropArea } from '@/lib/canvas-utils';
 
 // ─── Step system ────────────────────────────────────────────────────────────
@@ -241,10 +242,11 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
 
   const canRotateLayout = useMemo(() => {
     if (!baseGridConfig || !selectedCategory) return false;
-    if (selectedCategory === 'tonos') return false;
-    const hasOverride = !!CATEGORY_LAYOUT_OVERRIDES[`${selectedCategory}:${selectedGrid}`];
-    return baseGridConfig.rows !== baseGridConfig.cols && !hasOverride;
-  }, [baseGridConfig, selectedCategory, selectedGrid]);
+    // `layout.rotatable` collapses both the old checks (non-Tonos, non-override)
+    // into a single declarative field on the category contract.
+    if (!CATEGORY_LAYOUTS[selectedCategory].rotatable) return false;
+    return baseGridConfig.rows !== baseGridConfig.cols;
+  }, [baseGridConfig, selectedCategory]);
 
   const currentStepIndex = useMemo(
     () => stepSequence.indexOf(currentStepId),

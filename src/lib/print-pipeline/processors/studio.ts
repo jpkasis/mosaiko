@@ -5,18 +5,22 @@ import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { StudioCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
+import { studioLayout } from '../../category-layouts/studio';
 
 const TILE = TILE_PRINT_SIZE;
 const TEMPLATE_DIR = join(process.cwd(), 'mosaic-categories/studio/studio-template-PNGs');
-const SRC_SIZE = 615;
 
-// Transparent area bounds per photo tile (measured from PNGs at 615px)
-const PHOTO_AREAS = [
-  { left: 87, top: 88, right: 615, bottom: 614 },   // tile 1: frame on top+left
-  { left: 0, top: 88, right: 527, bottom: 614 },     // tile 2: frame on top+right
-  { left: 87, top: 0, right: 615, bottom: 615 },     // tile 3: frame on left only
-  { left: 0, top: 0, right: 527, bottom: 615 },      // tile 4: frame on right only
-] as const;
+// Per-tile photo cutout bounds sourced from the shared category-layouts
+// contract so the server processor and client preview derive from the same
+// coordinate table.
+const SRC_SIZE = studioLayout.frame!.photo.sourceSize;
+const PHOTO_TILES = studioLayout.frame!.photo.tiles as Record<number, {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}>;
+const PHOTO_AREAS = Array.from({ length: 4 }, (_, i) => PHOTO_TILES[i]);
 
 /**
  * Studio processor — PNG template overlays + text panels.
@@ -32,11 +36,13 @@ export async function processStudio(job: SingleImagePrintJob): Promise<TileOutpu
   const scale = TILE / SRC_SIZE;
 
   // Calculate visible photo area across the 4 tiles
-  const colLeftW = 615 - 87;  // 528
-  const colRightW = 527;
-  const rowTopH = 614 - 88;   // 526
-  const rowBotH = 615;
-  const stripH = 63;           // photo extends 63px into text panel tiles (5-6)
+  const colLeftW = PHOTO_AREAS[0].right - PHOTO_AREAS[0].left;  // 528
+  const colRightW = PHOTO_AREAS[1].right - PHOTO_AREAS[1].left; // 527
+  const rowTopH = PHOTO_AREAS[0].bottom - PHOTO_AREAS[0].top;   // 526
+  const rowBotH = PHOTO_AREAS[2].bottom - PHOTO_AREAS[2].top;   // 615
+  // Photo extends into tiles 5-6 (text panels). The bleed height is declared
+  // once on the layout so the client preview and server processor agree.
+  const stripH = studioLayout.frame!.photo.photoStripHeight ?? 0;
 
   const printPhotoW = Math.round((colLeftW + colRightW) * scale);
   const printPhotoH = Math.round((rowTopH + rowBotH + stripH) * scale);

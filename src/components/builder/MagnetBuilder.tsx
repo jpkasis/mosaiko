@@ -11,6 +11,8 @@ import {
   type CategoryType,
   type TonosIntensity,
 } from '@/lib/customization-types';
+import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
+import { deriveCropperOverlay } from '@/lib/category-layouts/derive';
 import type { CropArea } from '@/lib/canvas-utils';
 import { useCartStore } from '@/lib/cart-store';
 import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
@@ -295,6 +297,16 @@ export function MagnetBuilder() {
 
   const isTonos = flow.selectedCategory === 'tonos';
 
+  // Cropper overlay guide is layout-defined: each category publishes its
+  // overlay rows / cols / row-splits via the contract.
+  const cropperOverlay = useMemo(() => {
+    if (!flow.selectedCategory || flow.selectedGrid == null) return null;
+    return deriveCropperOverlay(
+      CATEGORY_LAYOUTS[flow.selectedCategory],
+      flow.selectedGrid,
+    );
+  }, [flow.selectedCategory, flow.selectedGrid]);
+
   // Stable props for child MagnetPreview / sidebar. Referential identity must
   // be preserved across renders when the underlying arrays / intensity haven't
   // actually changed, otherwise MagnetPreview's effect re-fires infinitely.
@@ -417,17 +429,9 @@ export function MagnetBuilder() {
                     gridConfig={flow.gridConfig}
                     onCropComplete={flow.handleCropComplete}
                     onCropChange={flow.handleCropChange}
-                    overlayRows={
-                      flow.selectedCategory === 'arte' ? 2
-                        : flow.selectedCategory === 'spotify' ? 2
-                          : undefined
-                    }
-                    overlayCols={flow.selectedCategory === 'arte' ? 4 : undefined}
-                    overlayRowSplits={
-                      flow.selectedCategory === 'polaroid' ? [55.96]
-                        : flow.selectedCategory === 'studio' ? [43.69, 94.77]
-                          : undefined
-                    }
+                    overlayRows={cropperOverlay?.rows}
+                    overlayCols={cropperOverlay?.cols}
+                    overlayRowSplits={cropperOverlay?.rowSplits}
                     onLayoutRotate={flow.handleLayoutRotate}
                     canRotateLayout={flow.canRotateLayout}
                     layoutRotated={flow.layoutRotated}

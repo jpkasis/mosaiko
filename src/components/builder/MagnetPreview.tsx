@@ -19,6 +19,8 @@ import {
   type STDTextTreatment,
   type STDTextIntensity,
 } from '@/lib/customization-types';
+import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
+import { deriveClientInset } from '@/lib/category-layouts/derive';
 import { getTonosColumnCSSFilter } from '@/lib/print-pipeline/utils/filter-presets';
 import { Button } from '@/components/ui/Button';
 import { MosaikoWatermark } from './MosaikoWatermark';
@@ -715,22 +717,23 @@ function PhotoTile({
 
   if (categoryType === 'polaroid') {
     const tileNumber = index + 1;
-    const insets: Record<number, { left: string; top: string; width: string; height: string }> = {
-      1: { left: '9.92%', top: '10.41%', width: '90.08%', height: '89.59%' },
-      2: { left: '0%', top: '10.41%', width: '90.08%', height: '89.59%' },
-      3: { left: '9.92%', top: '0%', width: '90.08%', height: '70.52%' },
-      4: { left: '0%', top: '0%', width: '90.08%', height: '70.52%' },
-    };
-    const area = insets[tileNumber];
+    const inset = deriveClientInset(CATEGORY_LAYOUTS.polaroid, index);
     return (
       <div className="relative overflow-hidden" style={{ aspectRatio: '1' }}>
-        <img
-          src={tileSrc}
-          alt={`Pieza ${index + 1} de ${totalTiles}`}
-          className="absolute"
-          style={{ left: area.left, top: area.top, width: area.width, height: area.height }}
-          draggable={false}
-        />
+        {inset && (
+          <img
+            src={tileSrc}
+            alt={`Pieza ${index + 1} de ${totalTiles}`}
+            className="absolute"
+            style={{
+              left: `${inset.left}%`,
+              top: `${inset.top}%`,
+              width: `${inset.width}%`,
+              height: `${inset.height}%`,
+            }}
+            draggable={false}
+          />
+        )}
         <img
           src={`/templates/polaroid/${tileNumber}.png`}
           alt=""
@@ -753,22 +756,23 @@ function PhotoTile({
   if (categoryType === 'studio') {
     const tileNumber = index + 1;
     if (tileNumber > 4) return null;
-    const insets: Record<number, { left: string; top: string; width: string; height: string }> = {
-      1: { left: '14.15%', top: '14.31%', width: '85.85%', height: '85.53%' },
-      2: { left: '0%', top: '14.31%', width: '85.69%', height: '85.53%' },
-      3: { left: '14.15%', top: '0%', width: '85.85%', height: '100%' },
-      4: { left: '0%', top: '0%', width: '85.69%', height: '100%' },
-    };
-    const area = insets[tileNumber]!;
+    const inset = deriveClientInset(CATEGORY_LAYOUTS.studio, index);
     return (
       <div className="relative overflow-hidden" style={{ aspectRatio: '1' }}>
-        <img
-          src={tileSrc}
-          alt={`Pieza ${index + 1} de ${totalTiles}`}
-          className="absolute"
-          style={{ left: area.left, top: area.top, width: area.width, height: area.height }}
-          draggable={false}
-        />
+        {inset && (
+          <img
+            src={tileSrc}
+            alt={`Pieza ${index + 1} de ${totalTiles}`}
+            className="absolute"
+            style={{
+              left: `${inset.left}%`,
+              top: `${inset.top}%`,
+              width: `${inset.width}%`,
+              height: `${inset.height}%`,
+            }}
+            draggable={false}
+          />
+        )}
         <img
           src={`/templates/studio/${tileNumber}.png`}
           alt=""
