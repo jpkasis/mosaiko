@@ -191,6 +191,7 @@
     "remove": "Eliminar",
     "pieces": "{count} piezas",
     "customDesign": "Diseño personalizado",
+    "imageMissing": "Vista previa no disponible",
     "intensity": "Intensidad: {level}",
     "tonosIntensity_mild": "suave",
     "tonosIntensity_medium": "media",

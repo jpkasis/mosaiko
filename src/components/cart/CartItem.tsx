@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { useCartStore, type CartItem as CartItemType } from '@/lib/cart-store';
@@ -16,6 +17,7 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
   const t = useTranslations('cart');
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const [imgFailed, setImgFailed] = useState(false);
 
   const thumbnailSize = size === 'full' ? 'h-24 w-24 sm:h-28 sm:w-28' : 'h-20 w-20';
   const displayName =
@@ -24,6 +26,7 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
         ? CATEGORY_REGISTRY[item.customizations.categoryType].label
         : t('customDesign')
       : item.name;
+  const hasImage = Boolean(item.previewUrl) && !imgFailed;
 
   return (
     <motion.div
@@ -38,14 +41,19 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
       <div
         className={`${thumbnailSize} flex-shrink-0 overflow-hidden rounded-lg bg-cream-dark`}
       >
-        {item.previewUrl ? (
+        {hasImage ? (
           <img
             src={item.previewUrl}
             alt={displayName}
+            onError={() => setImgFailed(true)}
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
+          <div
+            className="flex h-full w-full items-center justify-center"
+            role="img"
+            aria-label={t('imageMissing')}
+          >
             <svg
               width="32"
               height="32"
@@ -53,12 +61,13 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
               fill="none"
               stroke="currentColor"
               strokeWidth="1.5"
-              className="text-warm-gray"
+              className="text-warm-gray/60"
               aria-hidden="true"
             >
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
             </svg>
           </div>
         )}

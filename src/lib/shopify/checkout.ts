@@ -17,32 +17,20 @@ export interface CheckoutError {
 }
 
 /**
- * Creates a Shopify cart from local cart items and returns the checkout URL.
- *
- * Each custom item gets attributes for the webhook to process:
+ * Translates local cart items into Shopify `CartLineInput[]`. Each line gets
+ * the attributes consumed by the order webhook:
  * - preview_image_url: visible in Shopify order details
  * - grid_type: e.g. "3x3"
  * - category: customization category
- * - _photo_url: R2 URL (underscore = hidden from customer receipt)
+ * - _photo_url(s): R2 URL(s) (underscore = hidden from customer receipt)
  * - _customization: full customization JSON
- * - _crop_area: crop area JSON
+ * - _crop_area(s): crop area JSON
+ *
+ * Returns a CheckoutError if Shopify isn't configured or a variant is missing.
  */
-export async function createCheckout(
+export function buildCartLines(
   items: CartItem[],
-): Promise<CheckoutResult | CheckoutError> {
-  if (items.length === 0) {
-    return { code: 'EMPTY_CART', message: 'El carrito está vacío.' };
-  }
-
-  // Check Shopify config
-  if (!process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN || !process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_TOKEN) {
-    return {
-      code: 'SHOPIFY_NOT_CONFIGURED',
-      message: 'La tienda de Shopify aún no está configurada. Contacta al administrador.',
-    };
-  }
-
-  // Build cart lines
+): CartLineInput[] | CheckoutError {
   const lines: CartLineInput[] = [];
 
   for (const item of items) {
@@ -104,10 +92,36 @@ export async function createCheckout(
     });
   }
 
+  return lines;
+}
+
+/**
+ * Creates a Shopify cart from local cart items and returns the checkout URL.
+ * Fallback path; the primary flow uses /api/cart/save which keeps a cart
+ * synchronised in Shopify on every mutation.
+ */
+export async function createCheckout(
+  items: CartItem[],
+): Promise<CheckoutResult | CheckoutError> {
+  if (items.length === 0) {
+    return { code: 'EMPTY_CART', message: 'El carrito está vacío.' };
+  }
+
+  // Check Shopify config
+  if (!process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN || !process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_TOKEN) {
+    return {
+      code: 'SHOPIFY_NOT_CONFIGURED',
+      message: 'La tienda de Shopify aún no está configurada. Contacta al administrador.',
+    };
+  }
+
+  const linesOrError = buildCartLines(items);
+  if (!Array.isArray(linesOrError)) return linesOrError;
+
   // Create Shopify cart and add lines
   try {
     const cart = await createCart();
-    const updatedCart = await addToCart(cart.id, lines);
+    const updatedCart = await addToCart(cart.id, linesOrError);
     return {
       checkoutUrl: updatedCart.checkoutUrl,
       cartId: updatedCart.id,

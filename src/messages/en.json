@@ -191,6 +191,7 @@
     "remove": "Remove",
     "pieces": "{count} pieces",
     "customDesign": "Custom design",
+    "imageMissing": "Preview unavailable",
     "intensity": "Intensity: {level}",
     "tonosIntensity_mild": "mild",
     "tonosIntensity_medium": "medium",

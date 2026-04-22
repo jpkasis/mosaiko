@@ -195,3 +195,75 @@ export const selectCartTotal = (state: CartState) =>
 
 export const selectCartCount = (state: CartState) =>
   state.items.reduce((sum, item) => sum + item.quantity, 0);
+
+// ─── Shopify-backed durability ──────────────────────────────────────────────
+// Mirrors the Zustand cart to an anonymous Shopify cart on every mutation so
+// the user can close the tab, clear localStorage, or come back within
+// Shopify's ~10-day cart retention and have their custom items restored.
+// Debounced to coalesce rapid edits (quantity stepper, multi-add sequences).
+
+if (typeof window !== 'undefined') {
+  const SYNC_DEBOUNCE_MS = 800;
+  const SAVE_ENDPOINT = '/api/cart/save';
+
+  let pendingSync: ReturnType<typeof setTimeout> | null = null;
+  let lastSyncedItems: CartItem[] | null = null;
+
+  let hasHydrated = useCartStore.persist.hasHydrated();
+  useCartStore.persist.onFinishHydration(() => {
+    hasHydrated = true;
+  });
+
+  function performSync(items: CartItem[]) {
+    // Empty cart: skip the network call. The previous Shopify cart will age
+    // out on its own; spinning up an empty cart just to be empty is waste.
+    if (items.length === 0) {
+      lastSyncedItems = items;
+      return;
+    }
+    lastSyncedItems = items;
+    fetch(SAVE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+      keepalive: true,
+    })
+      .then((r) => {
+        if (!r.ok && r.status !== 204) {
+          console.warn('[cart-store] sync responded', r.status);
+        }
+      })
+      .catch((e) => console.warn('[cart-store] sync failed:', e));
+  }
+
+  function scheduleSync(items: CartItem[]) {
+    if (items === lastSyncedItems) return;
+    if (pendingSync) clearTimeout(pendingSync);
+    pendingSync = setTimeout(() => {
+      pendingSync = null;
+      performSync(items);
+    }, SYNC_DEBOUNCE_MS);
+  }
+
+  useCartStore.subscribe((state, prev) => {
+    if (!hasHydrated) return;
+    if (state.items === prev.items) return;
+    scheduleSync(state.items);
+  });
+
+  // Best-effort flush on tab close — sendBeacon is fire-and-forget and
+  // completes after the page is gone, so the pending debounce still lands.
+  window.addEventListener('pagehide', () => {
+    if (pendingSync) {
+      clearTimeout(pendingSync);
+      pendingSync = null;
+    }
+    const items = useCartStore.getState().items;
+    if (items.length === 0 || items === lastSyncedItems) return;
+    if (typeof navigator === 'undefined' || !navigator.sendBeacon) return;
+    const blob = new Blob([JSON.stringify({ items })], {
+      type: 'application/json',
+    });
+    navigator.sendBeacon(SAVE_ENDPOINT, blob);
+  });
+}

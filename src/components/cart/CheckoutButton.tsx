@@ -20,6 +20,32 @@ export function CheckoutButton() {
     setCheckoutInProgress(true);
     setError(null);
 
+    // Primary path: POST /api/cart/save — this both persists the cart to
+    // Shopify (for session restore) and returns the same hosted checkoutUrl
+    // we'd get from the legacy /api/checkout call. Reusing the synced cart
+    // avoids creating a duplicate one at checkout time.
+    try {
+      const saveRes = await fetch('/api/cart/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+
+      if (saveRes.ok) {
+        const data = (await saveRes.json()) as { checkoutUrl?: string };
+        if (data.checkoutUrl) {
+          clearCart();
+          window.location.href = data.checkoutUrl;
+          return;
+        }
+      }
+      // Fall through to legacy path if save didn't return a usable response.
+    } catch {
+      // Network error on save — try legacy path before surfacing an error.
+    }
+
+    // Fallback: legacy checkout endpoint. Keeps behaviour identical if the
+    // new save route is misconfigured or Shopify changed under us.
     try {
       const response = await fetch('/api/checkout', {
         method: 'POST',
@@ -34,7 +60,6 @@ export function CheckoutButton() {
         return;
       }
 
-      // Clear cart and redirect to Shopify checkout
       clearCart();
       window.location.href = data.checkoutUrl;
     } catch {
