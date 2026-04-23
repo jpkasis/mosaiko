@@ -26,7 +26,9 @@ export function AnnouncementBar() {
       className="relative flex h-[var(--announcement-height)] items-center justify-center overflow-hidden bg-terracotta"
       style={{ zIndex: 'var(--z-header)' }}
     >
-      <div className="announcement-scroll flex items-center whitespace-nowrap px-4 text-sm font-medium text-gold sm:whitespace-normal sm:text-center">
+      {/* Reserve right-space on mobile equal to the close button's 48 px hit
+          area so the scrolling marquee text never passes beneath it. */}
+      <div className="announcement-scroll flex items-center whitespace-nowrap pl-4 pr-14 text-sm font-medium text-gold sm:whitespace-normal sm:px-4 sm:text-center">
         <span>{t('text')}</span>
       </div>
 
