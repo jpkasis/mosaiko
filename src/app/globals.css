@@ -43,16 +43,32 @@
 
   /* Spacing */
   --container-max: 1280px;
-  --header-height-mobile: 64px;
-  --header-height-desktop: 72px;
   --header-height: var(--header-height-desktop);
   --announcement-height: 40px;
 
-  /* Z-index stack (single source of truth; numeric values ordered low → high)
-     Header sits above page content; drawers (cart, mobile menu) above header;
-     modals above drawers so a dialog inside a drawer still works; toast above
-     modals for confirmations; cookie banner above toast to ensure consent
-     remains reachable; grain overlay on top as a pure visual effect. */
+  /* Transitions */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Runtime-critical tokens live in `@theme static` so Tailwind v4's dev
+ * pipeline does NOT tree-shake them. Plain `:root {}` vars that aren't
+ * referenced from `@theme inline` or any utility class get silently
+ * dropped by Turbopack's CSS emission in dev mode (even though they
+ * survive in production builds) — which broke every overlay/drawer/
+ * cookie banner that reads `var(--z-drawer)` et al via inline JS style.
+ *
+ * `@theme static` is the v4 escape-hatch that forces emission on `:root`
+ * regardless of utility usage. Keep color/typography tokens in plain
+ * `:root {}` above — they're already preserved via `@theme inline`
+ * (`--color-* : var(--terracotta)` etc.).
+ */
+@theme static {
+  /* Z-index stack (single source of truth; numeric values ordered low → high).
+   * Header sits above page content; drawers (cart, mobile menu) above header;
+   * modals above drawers so a dialog inside a drawer still works; toast above
+   * modals for confirmations; cookie banner above toast to ensure consent
+   * remains reachable; grain overlay on top as a pure visual effect. */
   --z-header: 40;
   --z-drawer: 50;
   --z-modal: 60;
@@ -60,9 +76,19 @@
   --z-cookie: 80;
   --z-grain: 90;
 
-  /* Transitions */
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Responsive header height. Mobile variant activates at < 640 px via the
+   * media-query override below; desktop default is the base `--header-height`
+   * in `:root`. Both are referenced through `var()` in layout code (e.g.
+   * `pt-[var(--header-height)]`), so they must be preserved. */
+  --header-height-mobile: 64px;
+  --header-height-desktop: 72px;
+
+  /* Builder mobile sticky CTA footer. Used by MagnetBuilder on mobile to
+   * keep a contextual primary action visible at all times. Step content
+   * on mobile pads its bottom by this value so the footer doesn't cover
+   * the last control. Value: 64 px visible button area + 16 px vertical
+   * padding block; safe-area-inset-bottom is added on top via `pb-safe`. */
+  --mobile-footer-height: 80px;
 }
 
 /* Mobile header height — applied below the Tailwind `sm` breakpoint. */
