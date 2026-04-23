@@ -489,16 +489,21 @@ export function MagnetPreview({
             </span>
           </div>
 
-          <Button
-            variant="cta"
-            size="lg"
-            fullWidth
-            onClick={onAddToCart}
-            disabled={isUploading}
-            className="font-serif font-bold"
-          >
-            {isUploading ? 'Preparando tu mosaico...' : priceText}
-          </Button>
+          {/* Inline CTA on desktop only. Mobile uses the sticky footer in
+              MagnetBuilder so the primary action never drifts off-screen as
+              the preview renders / re-renders. */}
+          <div className="hidden lg:block">
+            <Button
+              variant="cta"
+              size="lg"
+              fullWidth
+              onClick={onAddToCart}
+              disabled={isUploading}
+              className="font-serif font-bold"
+            >
+              {isUploading ? 'Preparando tu mosaico...' : priceText}
+            </Button>
+          </div>
 
           <button
             onClick={onReset}

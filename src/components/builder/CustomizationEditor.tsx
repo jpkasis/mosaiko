@@ -92,7 +92,10 @@ export function CustomizationEditor({
           <SaveTheDateFields values={values} onChange={onValueChange} />
         )}
 
-        <motion.div variants={itemVariants}>
+        {/* Inline CTA. Hidden on mobile (< lg) because the sticky footer in
+            MagnetBuilder provides the primary action there; mobile users who
+            see both buttons get confused by the redundancy. */}
+        <motion.div variants={itemVariants} className="hidden lg:block">
           <button
             onClick={onComplete}
             className="min-h-[48px] w-full rounded-xl bg-btn-primary px-6 py-3 text-base font-semibold text-btn-text transition-colors hover:bg-btn-primary-hover cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btn-primary"

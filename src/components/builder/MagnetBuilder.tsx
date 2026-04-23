@@ -305,6 +305,52 @@ export function MagnetBuilder() {
   const showPreviewFab =
     flow.selectedCategory !== null && flow.currentStepId !== 'category';
 
+  // Mobile sticky bottom CTA. Keeps the primary action anchored so it never
+  // drifts out of the thumb zone as step content changes. Only rendered on
+  // steps where the `useBuilderFlow` hook already owns the advance action:
+  //   - customize → flow.handleCustomizeComplete (always eligible to advance)
+  //   - preview   → handleAddToCart (disabled while upload is in flight)
+  // Upload and crop keep their inline CTAs for now — their proceed actions
+  // live inside the respective step components (PhotoUploader / ImageCropper)
+  // and need state lifting or imperative handles, which is scoped to M2/M3.
+  const stickyCta = useMemo<
+    | { visible: false }
+    | {
+        visible: true;
+        label: string;
+        canAdvance: boolean;
+        onAdvance: () => void | Promise<void>;
+      }
+  >(() => {
+    if (flow.currentStepId === 'customize') {
+      return {
+        visible: true,
+        label: tc('next'),
+        canAdvance: true,
+        onAdvance: flow.handleCustomizeComplete,
+      };
+    }
+    if (flow.currentStepId === 'preview' && flow.gridConfig) {
+      return {
+        visible: true,
+        label: flow.isUploading
+          ? 'Preparando tu mosaico...'
+          : t('addToCart', { price: formatPrice(flow.gridConfig.price) }),
+        canAdvance: !flow.isUploading,
+        onAdvance: handleAddToCart,
+      };
+    }
+    return { visible: false };
+  }, [
+    flow.currentStepId,
+    flow.gridConfig,
+    flow.isUploading,
+    flow.handleCustomizeComplete,
+    handleAddToCart,
+    t,
+    tc,
+  ]);
+
   // Cropper overlay guide is layout-defined: each category publishes its
   // overlay rows / cols / row-splits via the contract.
   const cropperOverlay = useMemo(() => {
@@ -339,8 +385,15 @@ export function MagnetBuilder() {
     return { imageSrcs, cropAreas: merged, intensity, rotations };
   }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.liveCropAreas, flow.tonos.intensity, flow.tonos.slots]);
 
+  // On mobile, pad the bottom of the page content by the footer height plus a
+  // breathing gap so the sticky footer never covers the last interactive
+  // element. Desktop (lg+) is unpadded — sticky footer is hidden there.
+  const mobileBottomPadClass = stickyCta.visible
+    ? 'pb-[calc(var(--mobile-footer-height)+1rem)] lg:pb-0'
+    : '';
+
   return (
-    <div className="container-mosaiko py-6 md:py-10">
+    <div className={`container-mosaiko py-6 md:py-10 ${mobileBottomPadClass}`.trim()}>
       <div className="mb-6 text-center md:mb-8">
         <h1 className="font-serif text-3xl font-bold text-charcoal md:text-4xl">
           {t('title')}
@@ -524,13 +577,20 @@ export function MagnetBuilder() {
 
       {/* Mobile live-preview FAB: on <lg viewports the sidebar is hidden,
           so the preview moves into a bottom-drawer the user opens on
-          demand. Desktop sidebar above stays untouched. */}
+          demand. Desktop sidebar above stays untouched. When the sticky
+          CTA footer is visible the FAB lifts above it so the two don't
+          stack on top of each other. */}
       {showPreviewFab && (
         <>
           <button
             type="button"
             onClick={() => setPreviewDrawerOpen(true)}
-            className="fixed bottom-4 right-4 flex h-14 w-14 items-center justify-center rounded-full bg-terracotta text-white shadow-lg transition-transform hover:scale-105 active:scale-[0.98] lg:hidden pb-safe"
+            className={[
+              'fixed right-4 flex h-14 w-14 items-center justify-center rounded-full bg-terracotta text-white shadow-lg transition-transform hover:scale-105 active:scale-[0.98] lg:hidden pb-safe',
+              stickyCta.visible
+                ? 'bottom-[calc(var(--mobile-footer-height)+1rem)]'
+                : 'bottom-4',
+            ].join(' ')}
             style={{ ['--safe-min' as string]: '0.5rem', zIndex: 'var(--z-toast)' }}
             aria-label="Ver vista previa"
           >
@@ -566,6 +626,25 @@ export function MagnetBuilder() {
             </div>
           </Overlay>
         </>
+      )}
+
+      {/* Mobile sticky CTA footer. Single primary action anchored to the
+          bottom of the viewport so the buyer never has to scroll to find
+          the next step. Desktop keeps the inline per-step buttons. */}
+      {stickyCta.visible && (
+        <div
+          className="fixed inset-x-0 bottom-0 border-t border-light-gray bg-cream/95 px-4 py-3 pb-safe backdrop-blur-sm lg:hidden"
+          style={{ zIndex: 'var(--z-drawer)', ['--safe-min' as string]: '0.75rem' }}
+        >
+          <button
+            type="button"
+            onClick={() => stickyCta.onAdvance()}
+            disabled={!stickyCta.canAdvance}
+            className="flex min-h-[52px] w-full cursor-pointer items-center justify-center rounded-xl bg-cta px-6 text-base font-semibold text-[var(--cta-text)] shadow-lg shadow-cta/20 transition-colors hover:bg-[var(--cta-hover)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+          >
+            {stickyCta.label}
+          </button>
+        </div>
       )}
     </div>
   );
