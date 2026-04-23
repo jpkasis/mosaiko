@@ -243,6 +243,7 @@ export function MagnetBuilder() {
       const customization = buildPrintCustomization({
         categoryType: flow.selectedCategory,
         gridSize: flow.gridConfig.size,
+        layoutRotated: flow.layoutRotated,
         textFields:
           Object.keys(flow.customizationValues).length > 0
             ? flow.customizationValues

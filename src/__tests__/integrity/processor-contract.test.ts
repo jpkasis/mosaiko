@@ -28,7 +28,11 @@ import type {
   TonosPrintJob,
   TileOutput,
 } from '@/lib/print-pipeline/types';
-import { processPrintJob } from '@/lib/print-pipeline';
+import {
+  processPrintJob,
+  assembleTilesToComposite,
+  getCompositeLayout,
+} from '@/lib/print-pipeline';
 
 // ─── Fixture: a valid, decodable input image ────────────────────────────────
 
@@ -258,7 +262,7 @@ describe('processor contract — mosaicos layoutRotated', () => {
       .toBuffer();
   }, 15_000);
 
-  test('rotated Mosaicos 6 → 6 tiles; tile output differs from unrotated (swap took effect)', async () => {
+  test('rotated Mosaicos 6 → 6 tiles; composite reassembles to 3-cols × 2-rows (landscape 2481×1654)', async () => {
     const unrotated = await processPrintJob({
       imageBuffer: ASYMMETRIC_SOURCE,
       customization: { categoryType: 'mosaicos', gridSize: 6 },
@@ -281,19 +285,45 @@ describe('processor contract — mosaicos layoutRotated', () => {
       jobId: 'test-m6-rot',
     });
 
-    // Buffer-level inequality: if the processor ignored `layoutRotated`
-    // the tile buffers would be identical because the same source
-    // image went through the same crop-and-split math. At least one
-    // tile MUST differ when rotation actually changes the grid
-    // partitioning.
+    // Buffer-level inequality: a wrong implementation could still pass
+    // by accident, so we chain this with the stronger composite-shape
+    // assertion below.
     const anyTileDiffers = rotated.tiles.some((rt) => {
       const match = unrotated.tiles.find((ut) => ut.index === rt.index);
       return !match || !rt.buffer.equals(match.buffer);
     });
     expect(anyTileDiffers).toBe(true);
-  }, 45_000);
 
-  test('rotated Mosaicos 3 → 3 tiles; output differs from unrotated', async () => {
+    // Composite-dimension oracle: the rotated composite layout must
+    // place the 6 tiles in a 3-wide × 2-tall arrangement → 2481×1654.
+    // Unrotated is 2-wide × 3-tall → 1654×2481. This is a directional
+    // check — a wrong permutation can't accidentally produce matching
+    // dimensions.
+    const rotatedLayout = getCompositeLayout({
+      categoryType: 'mosaicos',
+      gridSize: 6,
+      layoutRotated: true,
+    });
+    const unrotatedLayout = getCompositeLayout({
+      categoryType: 'mosaicos',
+      gridSize: 6,
+    });
+    expect(rotatedLayout.width).toBe(3 * 827); // 2481
+    expect(rotatedLayout.height).toBe(2 * 827); // 1654
+    expect(unrotatedLayout.width).toBe(2 * 827); // 1654
+    expect(unrotatedLayout.height).toBe(3 * 827); // 2481
+
+    // And the reassembled PNG really is 2481×1654:
+    const rotatedComposite = await assembleTilesToComposite(
+      rotated.tiles,
+      rotatedLayout,
+    );
+    const meta = await sharp(rotatedComposite).metadata();
+    expect(meta.width).toBe(2481);
+    expect(meta.height).toBe(1654);
+  }, 60_000);
+
+  test('rotated Mosaicos 3 → 3 tiles; composite is vertical (1×3 → 3×1)', async () => {
     const unrotated = await processPrintJob({
       imageBuffer: ASYMMETRIC_SOURCE,
       customization: { categoryType: 'mosaicos', gridSize: 3 },
@@ -320,6 +350,22 @@ describe('processor contract — mosaicos layoutRotated', () => {
       return !match || !rt.buffer.equals(match.buffer);
     });
     expect(anyTileDiffers).toBe(true);
+
+    // Unrotated: 1 row × 3 cols (3*827 × 1*827 = 2481×827).
+    // Rotated: 3 rows × 1 col (1*827 × 3*827 = 827×2481).
+    const rotatedLayout = getCompositeLayout({
+      categoryType: 'mosaicos',
+      gridSize: 3,
+      layoutRotated: true,
+    });
+    const unrotatedLayout = getCompositeLayout({
+      categoryType: 'mosaicos',
+      gridSize: 3,
+    });
+    expect(rotatedLayout.width).toBe(827);
+    expect(rotatedLayout.height).toBe(3 * 827);
+    expect(unrotatedLayout.width).toBe(3 * 827);
+    expect(unrotatedLayout.height).toBe(827);
   }, 45_000);
 
   test('rotated Mosaicos 9 is a no-op — tile buffers match unrotated (square grid)', async () => {

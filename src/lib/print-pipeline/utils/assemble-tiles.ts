@@ -45,7 +45,15 @@ export function getCompositeLayout(
   switch (customization.categoryType) {
     case 'mosaicos': {
       const size = customization.gridSize;
-      const { rows, cols } = gridRowsCols(size);
+      const base = gridRowsCols(size);
+      // Honor the builder's layout rotation: when true the cart/print
+      // composite lays out landscape ↔ portrait to match the swapped
+      // cropper. Without this swap, the cart thumbnail draws the size-6
+      // grid as 3×2 even though the rotated print pipeline produces
+      // tiles for a 2×3 arrangement — preview / cart / print diverge.
+      const rotated = customization.layoutRotated === true;
+      const rows = rotated ? base.cols : base.rows;
+      const cols = rotated ? base.rows : base.cols;
       return rowMajorLayout(rows, cols, TILE, size);
     }
 
