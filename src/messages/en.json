@@ -175,7 +175,15 @@
     "intensityIntense": "Intense",
     "continue": "Continue",
     "categoryGridBadge": "{cols}×{rows} · {count} pieces",
-    "selectCategory": "Choose the style for your magnets"
+    "selectCategory": "Choose the style for your magnets",
+    "uploadFormatsHint": "Any image format · max 20 MB",
+    "uploadFormatsHintMulti": "Any image format · max 20 MB each",
+    "uploadProcessing": "Preparing your photo…",
+    "uploadErrorFormat": "Unsupported format. Please select an image.",
+    "uploadErrorSize": "Image too large ({size}). Max 20 MB.",
+    "uploadErrorRead": "We couldn't read this image. Try another one.",
+    "replacePhoto": "Change photo",
+    "cropReset": "Reset"
   },
   "cart": {
     "title": "Your cart",
@@ -196,7 +204,10 @@
     "tonosIntensity_mild": "mild",
     "tonosIntensity_medium": "medium",
     "tonosIntensity_strong": "strong",
-    "noCustomText": "No custom text"
+    "noCustomText": "No custom text",
+    "shippingEta": "Standard · 3–5 business days",
+    "checkoutPayNow": "Pay {price} · Secure checkout",
+    "processorAttribution": "Secure checkout by Shopify"
   },
   "cookies": {
     "title": "Your privacy matters",

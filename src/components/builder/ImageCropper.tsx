@@ -295,7 +295,7 @@ export function ImageCropper({
             <path d="M3 12a9 9 0 1 0 3-6.7" />
             <polyline points="3 4 3 10 9 10" />
           </svg>
-          Restablecer
+          {t('cropReset')}
         </button>
         {onReplacePhoto && (
           <button
@@ -308,7 +308,7 @@ export function ImageCropper({
               <circle cx="8.5" cy="8.5" r="1.5" />
               <polyline points="21 15 16 10 5 21" />
             </svg>
-            Cambiar foto
+            {t('replacePhoto')}
           </button>
         )}
       </div>

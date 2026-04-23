@@ -109,7 +109,9 @@ export function CheckoutButton() {
              processor name); the Shopify attribution lives as a small
              support line below the button so it still reassures without
              dominating the primary action label. */
-          total > 0 ? `Pagar ${formatPrice(total)} · Pago seguro` : t('checkout')
+          total > 0
+            ? t('checkoutPayNow', { price: formatPrice(total) })
+            : t('checkout')
         )}
       </motion.button>
 
@@ -118,7 +120,7 @@ export function CheckoutButton() {
           trust, but don't let it crowd the CTA label. */}
       {items.length > 0 && (
         <p className="mt-2 text-center text-xs text-warm-gray/80">
-          Checkout seguro por Shopify
+          {t('processorAttribution')}
         </p>
       )}
 

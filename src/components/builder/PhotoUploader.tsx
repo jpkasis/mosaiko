@@ -22,12 +22,9 @@ type ImageQuality = 'good' | 'medium' | 'low' | null;
 type UploadPhase = 'idle' | 'processing' | 'ready' | 'failed';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
-// Match the caption to what the picker + validator actually accept. The
-// `<input accept="image/*">` lets the OS picker show every image mime-type
-// the device can decode; we don't constrain to JPG/PNG/HEIC specifically,
-// so the caption shouldn't either. Keeps the promise honest if someone
-// picks e.g. a WEBP and the browser decodes it fine.
-const ACCEPTED_FORMATS = 'Cualquier formato de imagen';
+// Accepted-format caption is locale-resolved (builder.uploadFormatsHint)
+// so both /es and /en surface matches what `<input accept="image/*">`
+// actually accepts — any image mime-type the device can decode.
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -55,14 +52,14 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
 
       // Validate file type
       if (!file.type.startsWith('image/')) {
-        setError('Formato no compatible. Selecciona una imagen.');
+        setError(t('uploadErrorFormat'));
         setPhase('failed');
         return;
       }
 
       // Validate file size
       if (file.size > MAX_FILE_SIZE) {
-        setError(`Imagen muy grande (${formatFileSize(file.size)}). Máximo 20 MB.`);
+        setError(t('uploadErrorSize', { size: formatFileSize(file.size) }));
         setPhase('failed');
         return;
       }
@@ -85,7 +82,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
         setPhase('ready');
       };
       img.onerror = () => {
-        setError('No pudimos leer esta imagen. Prueba con otra.');
+        setError(t('uploadErrorRead'));
         setPhase('failed');
       };
       img.src = url;
@@ -301,9 +298,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
             {phase === 'idle' && (
               <p className="flex flex-col items-center gap-1 text-center text-sm text-warm-gray">
                 <span>{t('dragDrop')}</span>
-                <span className="text-xs">
-                  {ACCEPTED_FORMATS} · máx. 20 MB
-                </span>
+                <span className="text-xs">{t('uploadFormatsHint')}</span>
               </p>
             )}
 
@@ -341,7 +336,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
               </svg>
             </div>
             <p className="text-sm font-medium text-charcoal">
-              Preparando tu foto…
+              {t('uploadProcessing')}
             </p>
             <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-light-gray">
               <motion.div
@@ -380,7 +375,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
               <button
                 onClick={handleReset}
                 className="absolute right-2 top-2 flex h-12 w-12 items-center justify-center rounded-full bg-charcoal/60 text-white transition-colors hover:bg-charcoal/80 cursor-pointer"
-                aria-label="Cambiar foto"
+                aria-label={t('replacePhoto')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -397,7 +392,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
               onClick={handleReset}
               className="min-h-[44px] text-sm font-medium text-terracotta underline underline-offset-4 transition-colors hover:text-terracotta-dark cursor-pointer lg:hidden"
             >
-              Cambiar foto
+              {t('replacePhoto')}
             </button>
 
             {/* File info */}

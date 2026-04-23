@@ -175,7 +175,15 @@
     "intensityIntense": "Intensa",
     "continue": "Continuar",
     "categoryGridBadge": "{cols}×{rows} · {count} piezas",
-    "selectCategory": "Elige el estilo de tus imanes"
+    "selectCategory": "Elige el estilo de tus imanes",
+    "uploadFormatsHint": "Cualquier formato de imagen · máx. 20 MB",
+    "uploadFormatsHintMulti": "Cualquier formato de imagen · máx. 20 MB por foto",
+    "uploadProcessing": "Preparando tu foto…",
+    "uploadErrorFormat": "Formato no compatible. Selecciona una imagen.",
+    "uploadErrorSize": "Imagen muy grande ({size}). Máximo 20 MB.",
+    "uploadErrorRead": "No pudimos leer esta imagen. Prueba con otra.",
+    "replacePhoto": "Cambiar foto",
+    "cropReset": "Restablecer"
   },
   "cart": {
     "title": "Tu carrito",
@@ -196,7 +204,10 @@
     "tonosIntensity_mild": "suave",
     "tonosIntensity_medium": "media",
     "tonosIntensity_strong": "intensa",
-    "noCustomText": "Sin texto personalizado"
+    "noCustomText": "Sin texto personalizado",
+    "shippingEta": "Estándar · 3–5 días hábiles",
+    "checkoutPayNow": "Pagar {price} · Pago seguro",
+    "processorAttribution": "Checkout seguro por Shopify"
   },
   "cookies": {
     "title": "Tu privacidad nos importa",

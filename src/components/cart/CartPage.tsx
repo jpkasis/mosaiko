@@ -129,7 +129,7 @@ export function CartPage() {
               <div className="flex items-start justify-between text-sm">
                 <span className="flex flex-col">
                   <span className="text-warm-gray">{t('shipping')}</span>
-                  <span className="text-xs text-warm-gray/80">Estándar · 3–5 días hábiles</span>
+                  <span className="text-xs text-warm-gray/80">{t('shippingEta')}</span>
                 </span>
                 <span className="font-medium text-success">{t('free')}</span>
               </div>
