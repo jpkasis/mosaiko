@@ -14,7 +14,15 @@ interface PhotoUploaderProps {
 
 type ImageQuality = 'good' | 'medium' | 'low' | null;
 
+/**
+ * Explicit upload phases. Having them named makes the flow auditable —
+ * Codex's anti-pattern #1 was "upload black boxes: no progress, no
+ * compression feedback, no retry, no explanation after failure."
+ */
+type UploadPhase = 'idle' | 'processing' | 'ready' | 'failed';
+
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+const ACCEPTED_FORMATS = 'JPG · PNG · HEIC';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -26,6 +34,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
   const t = useTranslations('builder');
   const tc = useTranslations('common');
 
+  const [phase, setPhase] = useState<UploadPhase>('idle');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [quality, setQuality] = useState<ImageQuality>(null);
@@ -41,19 +50,26 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
 
       // Validate file type
       if (!file.type.startsWith('image/')) {
-        setError('Por favor selecciona un archivo de imagen.');
+        setError('Formato no compatible. Usa JPG, PNG o HEIC.');
+        setPhase('failed');
         return;
       }
 
       // Validate file size
       if (file.size > MAX_FILE_SIZE) {
-        setError('La imagen es demasiado grande. Maximo 20MB.');
+        setError(`Imagen muy grande (${formatFileSize(file.size)}). Máximo 20 MB.`);
+        setPhase('failed');
         return;
       }
 
       setSelectedFile(file);
+      setPhase('processing');
 
-      // Create preview URL and assess quality
+      // Create preview URL and assess quality.
+      // Reading dimensions requires image decode (img.onload) which for a
+      // phone-camera JPG is usually 50–300 ms — fast, but long enough that
+      // a blank jump from upload button → ready feels uncertain. The
+      // Framer progress-bar animation fills during this window.
       const url = URL.createObjectURL(file);
       setPreviewUrl(url);
 
@@ -61,6 +77,11 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
       img.onload = () => {
         const q = assessImageQuality(img.width, img.height, gridConfig);
         setQuality(q);
+        setPhase('ready');
+      };
+      img.onerror = () => {
+        setError('No pudimos leer esta imagen. Prueba con otra.');
+        setPhase('failed');
       };
       img.src = url;
     },
@@ -98,7 +119,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
   }, []);
 
   function handleProceed() {
-    if (selectedFile) {
+    if (selectedFile && phase === 'ready') {
       onImageSelected(selectedFile);
     }
   }
@@ -109,6 +130,13 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
     setPreviewUrl(null);
     setQuality(null);
     setError(null);
+    setPhase('idle');
+  }
+
+  function handleRetry() {
+    // From the failed state, just go back to idle — the user re-picks.
+    setError(null);
+    setPhase('idle');
   }
 
   const qualityConfig = {
@@ -160,7 +188,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
       />
 
       <AnimatePresence mode="wait">
-        {!selectedFile ? (
+        {(phase === 'idle' || phase === 'failed') && (
           /* ── Upload Zone ── */
           <motion.div
             key="upload-zone"
@@ -173,9 +201,11 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
             onDragLeave={handleDragLeave}
             className={[
               'relative flex flex-col items-center gap-6 rounded-2xl border-2 border-dashed p-8 md:p-12 transition-colors duration-200',
-              isDragging
-                ? 'border-terracotta bg-terracotta/5'
-                : 'border-light-gray bg-white',
+              phase === 'failed'
+                ? 'border-error/60 bg-error/5'
+                : isDragging
+                  ? 'border-terracotta bg-terracotta/5'
+                  : 'border-light-gray bg-white',
             ].join(' ')}
           >
             {/* Camera icon decoration */}
@@ -200,7 +230,10 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
             {/* Action buttons */}
             <div className="flex w-full flex-col gap-3 sm:flex-row sm:justify-center">
               <button
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => {
+                  if (phase === 'failed') handleRetry();
+                  cameraInputRef.current?.click();
+                }}
                 className={[
                   'flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-6 py-3',
                   'bg-btn-primary text-btn-text font-medium text-base',
@@ -227,7 +260,10 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
               </button>
 
               <button
-                onClick={() => galleryInputRef.current?.click()}
+                onClick={() => {
+                  if (phase === 'failed') handleRetry();
+                  galleryInputRef.current?.click();
+                }}
                 className={[
                   'flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-6 py-3',
                   'border-2 border-terracotta text-terracotta font-medium text-base',
@@ -255,7 +291,16 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
               </button>
             </div>
 
-            <p className="text-sm text-warm-gray">{t('dragDrop')}</p>
+            {/* Accepted-format caption (only when idle; failed state replaces
+                this area with the error line below so we don't double up) */}
+            {phase === 'idle' && (
+              <p className="flex flex-col items-center gap-1 text-center text-sm text-warm-gray">
+                <span>{t('dragDrop')}</span>
+                <span className="text-xs">
+                  {ACCEPTED_FORMATS} · máx. 20 MB
+                </span>
+              </p>
+            )}
 
             {/* Drag overlay */}
             {isDragging && (
@@ -266,7 +311,45 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
               </div>
             )}
           </motion.div>
-        ) : (
+        )}
+
+        {phase === 'processing' && (
+          /* ── Processing: perception cue while the browser decodes the
+               image to pull dimensions + computes print-quality verdict.
+               Typical path is 50–300 ms; the progress bar just keeps the
+               hand-off feeling active. ── */
+          <motion.div
+            key="processing"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.2 }}
+            className="flex flex-col items-center gap-4 rounded-2xl border-2 border-terracotta/30 bg-terracotta/5 p-8"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-terracotta/10">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-pulse text-terracotta" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-charcoal">
+              Preparando tu foto…
+            </p>
+            <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-light-gray">
+              <motion.div
+                initial={{ width: '0%' }}
+                animate={{ width: '100%' }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+                className="h-full rounded-full bg-terracotta"
+              />
+            </div>
+          </motion.div>
+        )}
+
+        {phase === 'ready' && selectedFile && (
           /* ── Preview & Quality Assessment ── */
           <motion.div
             key="preview"
@@ -285,18 +368,32 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
                   className="h-48 w-full object-contain sm:h-64"
                 />
               )}
-              {/* Change photo button */}
+              {/* Change photo — 48 px hit-target; always visible on photo.
+                  Adds the full-width "Cambiar foto" link below for mobile
+                  thumb reach, since the corner icon can be awkward to hit
+                  one-handed on a large phone. */}
               <button
                 onClick={handleReset}
-                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-charcoal/60 text-white transition-colors hover:bg-charcoal/80 cursor-pointer"
+                className="absolute right-2 top-2 flex h-12 w-12 items-center justify-center rounded-full bg-charcoal/60 text-white transition-colors hover:bg-charcoal/80 cursor-pointer"
                 aria-label="Cambiar foto"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
               </button>
             </div>
+
+            {/* Mobile-only "Cambiar foto" link. Desktop has the corner icon;
+                mobile benefits from a large-surface secondary action below
+                the preview to avoid reaching the top-right of the image. */}
+            <button
+              type="button"
+              onClick={handleReset}
+              className="min-h-[44px] text-sm font-medium text-terracotta underline underline-offset-4 transition-colors hover:text-terracotta-dark cursor-pointer lg:hidden"
+            >
+              Cambiar foto
+            </button>
 
             {/* File info */}
             <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
