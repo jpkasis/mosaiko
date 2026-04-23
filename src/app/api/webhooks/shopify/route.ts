@@ -3,6 +3,12 @@ import crypto from 'node:crypto';
 import { uploadPrintTiles } from '@/lib/storage';
 import type { CategoryCustomization } from '@/lib/customization-types';
 import { sendOrderConfirmation, sendAdminNotification } from '@/lib/email/resend-client';
+import {
+  extractCustomizedLineItems,
+  whitelistTonosRotations,
+  safeJsonParse,
+  type ShopifyOrderWebhook,
+} from '@/lib/shopify/webhook-parser';
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
@@ -12,29 +18,6 @@ const SHOPIFY_STORE_DOMAIN =
   process.env.SHOPIFY_STORE_DOMAIN ??
   process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN ??
   '';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface ShopifyLineItemProperty {
-  name: string;
-  value: string;
-}
-
-interface ShopifyLineItem {
-  id: number;
-  title: string;
-  quantity: number;
-  variant_id: number;
-  properties: ShopifyLineItemProperty[];
-}
-
-interface ShopifyOrderWebhook {
-  id: number;
-  order_number: number;
-  name: string;
-  email: string;
-  line_items: ShopifyLineItem[];
-}
 
 // ─── HMAC verification ──────────────────────────────────────────────────────
 
@@ -61,31 +44,6 @@ function verifyShopifyHmac(rawBody: string, hmacHeader: string): boolean {
 }
 
 // ─── Extract custom attributes from line items ─────────────────────────────
-
-/**
- * Extracts line items that have custom photo attributes.
- * Convention: custom attributes have keys prefixed with "_".
- */
-function extractCustomizedLineItems(order: ShopifyOrderWebhook) {
-  return order.line_items
-    .filter((item) =>
-      item.properties.some((prop) => prop.name.startsWith('_')),
-    )
-    .map((item) => {
-      const attrs: Record<string, string> = {};
-      for (const prop of item.properties) {
-        if (prop.name.startsWith('_')) {
-          attrs[prop.name] = prop.value;
-        }
-      }
-      return {
-        lineItemId: item.id,
-        title: item.title,
-        quantity: item.quantity,
-        attrs,
-      };
-    });
-}
 
 // ─── Update order metafields via Shopify Admin API ──────────────────────────
 
@@ -186,13 +144,10 @@ async function processLineItem(
     return [];
   }
 
-  let customization: CategoryCustomization;
-  try {
-    customization = JSON.parse(customizationRaw);
-  } catch (error) {
+  const customization = safeJsonParse<CategoryCustomization>(customizationRaw);
+  if (!customization) {
     console.error(
-      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse _customization:`,
-      error,
+      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse _customization`,
     );
     return [];
   }
@@ -210,15 +165,13 @@ async function processLineItem(
       return [];
     }
 
-    let urls: string[];
-    let crops: Array<{ x: number; y: number; width: number; height: number }>;
-    try {
-      urls = JSON.parse(urlsRaw);
-      crops = JSON.parse(cropsRaw);
-    } catch (error) {
+    const urls = safeJsonParse<string[]>(urlsRaw);
+    const crops = safeJsonParse<
+      Array<{ x: number; y: number; width: number; height: number }>
+    >(cropsRaw);
+    if (!urls || !crops) {
       console.error(
         `[webhook/shopify] Tonos line item ${lineItem.lineItemId}: invalid JSON`,
-        error,
       );
       return [];
     }
@@ -240,16 +193,9 @@ async function processLineItem(
 
     // Pull per-slot rotations out of the customization JSON if present.
     const slotsRaw = (customization as unknown as {
-      tonosSlots?: Array<{ rotation?: number }>;
+      tonosSlots?: unknown;
     }).tonosSlots;
-    let rotations: [number, number, number] | undefined;
-    if (Array.isArray(slotsRaw) && slotsRaw.length === 3) {
-      const rs = slotsRaw.map((s) => {
-        const r = typeof s?.rotation === 'number' ? s.rotation : 0;
-        return [0, 90, 180, 270].includes(r) ? r : 0;
-      });
-      rotations = [rs[0], rs[1], rs[2]];
-    }
+    const rotations = whitelistTonosRotations(slotsRaw);
 
     const result = await processPrintJob({
       imageBuffers: [buffers[0]!, buffers[1]!, buffers[2]!],
@@ -277,13 +223,15 @@ async function processLineItem(
     return [];
   }
 
-  let cropArea: { x: number; y: number; width: number; height: number };
-  try {
-    cropArea = JSON.parse(cropAreaRaw);
-  } catch (error) {
+  const cropArea = safeJsonParse<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>(cropAreaRaw);
+  if (!cropArea) {
     console.error(
-      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse _crop_area:`,
-      error,
+      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse _crop_area`,
     );
     return [];
   }
