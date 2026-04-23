@@ -22,7 +22,12 @@ type ImageQuality = 'good' | 'medium' | 'low' | null;
 type UploadPhase = 'idle' | 'processing' | 'ready' | 'failed';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
-const ACCEPTED_FORMATS = 'JPG · PNG · HEIC';
+// Match the caption to what the picker + validator actually accept. The
+// `<input accept="image/*">` lets the OS picker show every image mime-type
+// the device can decode; we don't constrain to JPG/PNG/HEIC specifically,
+// so the caption shouldn't either. Keeps the promise honest if someone
+// picks e.g. a WEBP and the browser decodes it fine.
+const ACCEPTED_FORMATS = 'Cualquier formato de imagen';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -50,7 +55,7 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
 
       // Validate file type
       if (!file.type.startsWith('image/')) {
-        setError('Formato no compatible. Usa JPG, PNG o HEIC.');
+        setError('Formato no compatible. Selecciona una imagen.');
         setPhase('failed');
         return;
       }

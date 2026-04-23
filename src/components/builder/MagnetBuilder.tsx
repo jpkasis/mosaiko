@@ -682,8 +682,11 @@ export function MagnetBuilder() {
           the next step. Desktop keeps the inline per-step buttons. */}
       {stickyCta.visible && (
         <div
+          // Sticky CTA sits above base page content but below drawers/modals
+          // — if the cart drawer or mobile menu opens on top of the builder,
+          // it should cover this CTA rather than the other way around.
           className="fixed inset-x-0 bottom-0 border-t border-light-gray bg-cream/95 px-4 py-3 pb-safe backdrop-blur-sm lg:hidden"
-          style={{ zIndex: 'var(--z-drawer)', ['--safe-min' as string]: '0.75rem' }}
+          style={{ zIndex: 'var(--z-header)', ['--safe-min' as string]: '0.75rem' }}
         >
           <button
             type="button"

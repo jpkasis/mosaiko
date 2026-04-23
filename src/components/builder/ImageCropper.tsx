@@ -221,9 +221,16 @@ export function ImageCropper({
   // deliberately, reset shouldn't second-guess it. Works for fill/fit;
   // in stretch mode there's no meaningful reset since the whole image is
   // used, so we also fall back to fill so Reset has a visible effect.
+  //
+  // Also clears finalCropArea/finalCropAreaPixels so the Proceed button
+  // disables until react-easy-crop emits a fresh onCropComplete — a user
+  // who taps Restablecer then Continuar in quick succession should NOT
+  // advance with the old crop coordinates.
   const handleReset = useCallback(() => {
     setCrop({ x: 0, y: 0 });
     setZoom(1);
+    setFinalCropArea(null);
+    setFinalCropAreaPixels(null);
     if (fitMode === 'stretch') {
       setFitMode('fill');
     }

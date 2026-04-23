@@ -58,7 +58,7 @@ export function PhotoUploaderMulti({
           {t('tonosUploadHint')}
         </p>
         <p className="mt-1 text-xs text-warm-gray/80">
-          JPG · PNG · HEIC · máx. 20 MB por foto
+          Cualquier formato de imagen · máx. 20 MB por foto
         </p>
       </div>
 
