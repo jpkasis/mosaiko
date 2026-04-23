@@ -10,6 +10,7 @@ import {
   processWebhookOrder,
   type ProcessingDeps,
   type WebhookOrderResult,
+  type PriorLineResult,
 } from '@/lib/shopify/webhook-processor';
 
 // ─── Environment ─────────────────────────────────────────────────────────────
@@ -100,6 +101,32 @@ async function updateOrderMetafields(
     });
   }
 
+  // Per-line results — authoritative source for retry idempotency.
+  // Includes both successes (reuseable URLs) and failures (retryable
+  // reason codes). Separate from `print_files` (flat URLs) and
+  // `print_pipeline_errors` (failure summary) so each metafield has a
+  // single consumer contract.
+  writes.push({
+    key: 'print_pipeline_results',
+    value: JSON.stringify(
+      result.results.map((r) =>
+        r.kind === 'ok'
+          ? {
+              lineItemId: r.lineItemId,
+              kind: 'ok' as const,
+              urls: r.urls,
+            }
+          : {
+              lineItemId: r.lineItemId,
+              kind: 'failed' as const,
+              reason: r.reason,
+              detail: r.detail,
+            },
+      ),
+    ),
+    type: 'json',
+  });
+
   for (const mf of writes) {
     const response = await fetch(base, {
       method: 'POST',
@@ -152,6 +179,41 @@ async function isOrderAlreadyComplete(orderId: number): Promise<boolean> {
     // an order that may still need tiles.
     console.warn('[webhook/shopify] Idempotency check failed, proceeding:', error);
     return false;
+  }
+}
+
+/**
+ * Read the `print_pipeline_results` metafield written by a prior run.
+ * Returns only the successful prior results — the orchestrator's
+ * `priors` parameter is how we avoid re-doing already-completed line
+ * items. Failed priors are discarded (we want them retried).
+ *
+ * Returns `undefined` on any error, which makes the orchestrator
+ * behave as a fresh run (safe fallback).
+ */
+async function readPriorSuccesses(
+  orderId: number,
+): Promise<PriorLineResult[] | undefined> {
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) return undefined;
+  try {
+    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json?namespace=mosaiko&key=print_pipeline_results`;
+    const res = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
+    });
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as {
+      metafields?: Array<{ value?: string }>;
+    };
+    const raw = data.metafields?.[0]?.value;
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as PriorLineResult[];
+    return parsed.filter((p) => p.kind === 'ok');
+  } catch (error) {
+    console.warn(
+      '[webhook/shopify] Prior-results read failed, running as fresh:',
+      error,
+    );
+    return undefined;
   }
 }
 
@@ -267,7 +329,11 @@ export async function POST(request: NextRequest) {
       processPrintJob: processPrintJob as ProcessingDeps['processPrintJob'],
     };
 
-    const result = await processWebhookOrder(order, deps);
+    // Per-line idempotency: on a retry, reuse URLs from lines that
+    // already completed successfully in a prior run.
+    const priors = await readPriorSuccesses(order.id);
+
+    const result = await processWebhookOrder(order, deps, { priors });
 
     // Persist pipeline result to Shopify metafields. Always writes
     // `print_pipeline_status`, even on 'failed' runs, so the next retry

@@ -231,6 +231,20 @@ export async function processLineItem(
 // ─── Order-level orchestration ──────────────────────────────────────────────
 
 /**
+ * Priors the orchestrator reads before running any line. Lets the
+ * caller (the Shopify webhook handler) carry forward successful line
+ * results from a prior run so a retry doesn't redo work that already
+ * landed in R2.
+ */
+export interface PriorLineResult {
+  lineItemId: number;
+  kind: 'ok' | 'failed';
+  urls?: string[];
+  reason?: LineItemFailureReason;
+  detail?: string;
+}
+
+/**
  * Process every customized line item in an order. Isolates errors
  * per line so one failure never kills downstream items, and computes
  * an overall `OrderPipelineStatus` the caller uses to drive:
@@ -238,18 +252,44 @@ export async function processLineItem(
  *   - admin notification email body ("N of M items failed — ...")
  *   - idempotency gate (only 'complete' should mark the order done;
  *     'partial' + 'failed' should permit retry)
+ *
+ * If `priors` is provided, any line with a prior result of kind 'ok'
+ * is **reused** — its URLs flow straight into `allUrls` without
+ * re-fetching, re-processing, or re-uploading. Prior failures are
+ * always retried. This is how BLOCKER #2 Phase 4 per-line
+ * idempotency is implemented: a retry only re-does the missing
+ * tiles, not the whole order.
  */
 export async function processWebhookOrder(
   order: ShopifyOrderWebhook,
   deps: ProcessingDeps,
+  options: { priors?: PriorLineResult[] } = {},
 ): Promise<WebhookOrderResult> {
   const items = extractCustomizedLineItems(order);
   if (items.length === 0) {
     return { status: 'empty', results: [], allUrls: [], failures: [] };
   }
 
+  // Index priors by lineItemId so lookup is O(1) per item.
+  const priorByLine = new Map<number, PriorLineResult>();
+  for (const p of options.priors ?? []) priorByLine.set(p.lineItemId, p);
+
   const results: LineItemResult[] = [];
   for (const item of items) {
+    // Short-circuit: if a prior run successfully processed this line,
+    // reuse its URLs. No photo fetch, no Sharp work, no R2 write.
+    const prior = priorByLine.get(item.lineItemId);
+    if (prior && prior.kind === 'ok' && prior.urls && prior.urls.length > 0) {
+      results.push({
+        kind: 'ok',
+        lineItemId: item.lineItemId,
+        title: item.title,
+        quantity: item.quantity,
+        urls: prior.urls,
+      });
+      continue;
+    }
+
     let result: LineItemResult;
     try {
       result = await processLineItem(order.id, item, deps);

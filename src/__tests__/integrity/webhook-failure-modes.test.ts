@@ -73,69 +73,16 @@ function mockS3Client(sendImpl: (command: unknown) => Promise<unknown>): {
   return { S3Client: FakeS3Client, sendSpy };
 }
 
-// ─── BLOCKER #2 — R2 partial state on Promise.all rejection ─────────────────
+// ─── BLOCKER #2 — R2 partial state (FIXED in Phase 4) ──────────────────────
 
 describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => {
-  /**
-   * Today's behaviour: `Promise.all` on per-tile PutObjectCommand calls.
-   * First rejection aborts; already-resolved tiles have written to R2.
-   * The caller sees a throw — no signal about *which* tiles orphaned.
-   */
-  test('current behaviour — first rejection throws; upstream sees no partial info', async () => {
-    // Simulate: tile 0 succeeds, tile 1 fails, tile 2 would succeed but
-    // the caller's throw is thrown before it matters.
-    const { S3Client, sendSpy } = mockS3Client(async (command) => {
-      // Grab the key so we can distinguish which tile is sending.
-      const cmd = command as { input?: { Key?: string } };
-      const key = cmd.input?.Key ?? '';
-      if (key.includes('tile-1')) {
-        throw new Error('R2 timeout on tile-1');
-      }
-      // simulate latency so tile 0 wins the race before tile 2 runs
-      return new Promise((resolve) => setTimeout(resolve, 0));
-    });
+  // Phase 4 replaced the Promise.all first-rejection semantics with
+  // Promise.allSettled + a structured UploadFailure throw. The pre-fix
+  // "orphan risk" pin tests are no longer reachable (they relied on
+  // early rejection). The Phase 4 assertions further below prove the
+  // new contract.
 
-    vi.doMock('@aws-sdk/client-s3', () => ({
-      S3Client,
-      PutObjectCommand: class {
-        input: unknown;
-        constructor(input: unknown) {
-          this.input = input;
-        }
-      },
-      GetObjectCommand: class {},
-      DeleteObjectCommand: class {},
-      ListObjectsV2Command: class {},
-      CopyObjectCommand: class {},
-    }));
-
-    const { uploadPrintTiles } = await import('@/lib/storage');
-
-    const tiles = [
-      { index: 0, buffer: Buffer.from('zero') },
-      { index: 1, buffer: Buffer.from('one') },
-      { index: 2, buffer: Buffer.from('two') },
-    ];
-
-    // Promise.all rejects on first failure — caller gets a generic Error
-    // with no structured UploadFailure surface.
-    await expect(
-      uploadPrintTiles('order-X-item-123', tiles),
-    ).rejects.toThrow(/R2 timeout/);
-
-    // The orphan risk: at least tile-0 had its PutObjectCommand dispatched.
-    // Inspect the send calls to confirm it.
-    const dispatchedKeys = sendSpy.mock.calls
-      .map((call) => (call[0] as { input?: { Key?: string } }).input?.Key)
-      .filter((k): k is string => typeof k === 'string');
-    expect(dispatchedKeys).toContain('print-files/order-X-item-123/tile-0.png');
-    expect(dispatchedKeys).toContain('print-files/order-X-item-123/tile-1.png');
-    // tile-0's write has "left the building" before tile-1's rejection
-    // aborts the gather — this is the orphan. Production sees this as
-    // garbage R2 objects that are never referenced by any metafield.
-  });
-
-  test('current behaviour — successful path returns URLs keyed by tile index', async () => {
+  test('successful path still returns URLs keyed by tile index', async () => {
     const { S3Client } = mockS3Client(async () => ({}));
 
     vi.doMock('@aws-sdk/client-s3', () => ({
@@ -174,29 +121,14 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
     ]);
   });
 
-  test('current behaviour — orphan risk is real: a late-resolving tile DOES write after the reject', async () => {
-    // Proves durable partial success, not just dispatch.
-    //
-    // Setup: tile-1 rejects immediately. tile-0 and tile-2 use deferred
-    // promises whose resolvers we hold — we release them AFTER the
-    // Promise.all has rejected. Each resolver call is tracked so we
-    // can assert it actually executed, meaning in production the R2
-    // PUT completed but no URL reached the caller. That's the orphan.
-    const resolvedKeys: string[] = [];
-    const deferred: Record<string, (value: unknown) => void> = {};
+  // ─── Phase 4: uploadPrintTiles surfaces structured UploadFailure ────────
 
-    const { S3Client, sendSpy } = mockS3Client(async (command) => {
+  test('Phase 4 fix — uploadPrintTiles throws UploadFailure with succeeded + failed arrays', async () => {
+    const { S3Client } = mockS3Client(async (command) => {
       const cmd = command as { input?: { Key?: string } };
       const key = cmd.input?.Key ?? '';
-      if (key.includes('tile-1')) {
-        throw new Error('R2 write failed on tile-1');
-      }
-      return new Promise((resolve) => {
-        deferred[key] = (v) => {
-          resolvedKeys.push(key);
-          resolve(v);
-        };
-      });
+      if (key.includes('tile-1')) throw new Error('R2 write failed on tile-1');
+      return {};
     });
 
     vi.doMock('@aws-sdk/client-s3', () => ({
@@ -213,69 +145,240 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
       CopyObjectCommand: class {},
     }));
 
-    const { uploadPrintTiles } = await import('@/lib/storage');
+    const { uploadPrintTiles, UploadFailure } = await import('@/lib/storage');
 
-    const uploadPromise = uploadPrintTiles('order-Z-item-789', [
-      { index: 0, buffer: Buffer.from('a') },
-      { index: 1, buffer: Buffer.from('b') },
-      { index: 2, buffer: Buffer.from('c') },
-    ]);
-
-    let caughtError: unknown = null;
     try {
-      await uploadPromise;
-    } catch (e) {
-      caughtError = e;
+      await uploadPrintTiles('order-F-item-1', [
+        { index: 0, buffer: Buffer.from('a') },
+        { index: 1, buffer: Buffer.from('b') },
+        { index: 2, buffer: Buffer.from('c') },
+      ]);
+      throw new Error('should have thrown UploadFailure');
+    } catch (err) {
+      expect(err).toBeInstanceOf(UploadFailure);
+      if (err instanceof UploadFailure) {
+        // 2 of 3 wrote successfully; 1 failed.
+        expect(err.succeeded).toHaveLength(2);
+        expect(err.succeeded.map((s) => s.index).sort()).toEqual([0, 2]);
+        expect(err.failed).toHaveLength(1);
+        expect(err.failed[0].index).toBe(1);
+        expect(err.failed[0].reason).toMatch(/R2 write failed/);
+      }
     }
-
-    expect(caughtError).toBeInstanceOf(Error);
-    expect((caughtError as Error).message).toMatch(/tile-1/);
-    // No structured failure information:
-    expect(
-      (caughtError as { failedIndexes?: number[] }).failedIndexes,
-    ).toBeUndefined();
-    expect(
-      (caughtError as { succeeded?: unknown[] }).succeeded,
-    ).toBeUndefined();
-
-    // Now release the pending uploads: in production these are in-flight
-    // S3 PUTs that complete server-side regardless of whether the caller
-    // is still waiting. Simulate that by resolving them.
-    const pendingKeys = Object.keys(deferred);
-    expect(pendingKeys.length).toBeGreaterThanOrEqual(1);
-    for (const k of pendingKeys) deferred[k]({});
-
-    // Yield to the microtask queue so resolvedKeys fills.
-    await new Promise((r) => setImmediate(r));
-
-    // At least one tile actually wrote to R2 AFTER the caller had
-    // already seen the reject — it's orphaned. No URL set in the
-    // metafield, no cleanup signal, no retry affordance.
-    expect(resolvedKeys.length).toBeGreaterThanOrEqual(1);
-    // Dispatch was broad enough to produce the orphan:
-    expect(sendSpy).toHaveBeenCalled();
   });
 
-  // ─── AFTER Phase 4 fix — flip these todos to real tests ─────────────────
+  test('Phase 4 fix — uploadPrintTiles full-success path still returns {key,publicUrl}[]', async () => {
+    const { S3Client } = mockS3Client(async () => ({}));
 
-  test.todo(
-    'BLOCKER-fix-TODO (Phase 4): uploadPrintTiles throws UploadFailure ' +
-      'with { succeeded: {index,key}[]; failed: {index,reason}[] } so ' +
-      'the caller can clean up orphans and retry just the failed tiles',
-  );
+    vi.doMock('@aws-sdk/client-s3', () => ({
+      S3Client,
+      PutObjectCommand: class {
+        input: unknown;
+        constructor(input: unknown) {
+          this.input = input;
+        }
+      },
+      GetObjectCommand: class {},
+      DeleteObjectCommand: class {},
+      ListObjectsV2Command: class {},
+      CopyObjectCommand: class {},
+    }));
 
-  test.todo(
-    'BLOCKER-fix-TODO (Phase 4): no partial URL set is written to the ' +
-      'order metafield — the metafield is either complete or absent, ' +
-      'never half-populated',
-  );
+    const { uploadPrintTiles } = await import('@/lib/storage');
+    const result = await uploadPrintTiles('order-G-item-1', [
+      { index: 0, buffer: Buffer.from('a') },
+      { index: 1, buffer: Buffer.from('b') },
+    ]);
+    expect(result).toHaveLength(2);
+    expect(result[0].key).toBe('print-files/order-G-item-1/tile-0.png');
+  });
 
-  test.todo(
-    'BLOCKER-fix-TODO (Phase 4): per-line-item idempotency key ' +
-      '`${orderId}:${lineItemId}:v1` — completed lines are skipped on ' +
-      'retry, failed lines are retried. Not one-bit-per-order.',
-  );
+  // ─── Phase 4: per-line idempotency via `priors` ─────────────────────────
+
+  test('Phase 4 fix — processWebhookOrder reuses prior successes without re-invoking deps', async () => {
+    const { processWebhookOrder } = await import(
+      '@/lib/shopify/webhook-processor'
+    );
+
+    let fetchCount = 0;
+    let uploadCount = 0;
+
+    const order = {
+      id: 99,
+      order_number: 303,
+      name: '#303',
+      email: 'c@x.com',
+      line_items: [
+        {
+          id: 1,
+          title: 'Already-done Mosaico',
+          quantity: 1,
+          variant_id: 11,
+          properties: [
+            {
+              name: '_customization',
+              value: JSON.stringify({
+                categoryType: 'mosaicos',
+                gridSize: 9,
+              }),
+            },
+            {
+              name: '_photo_url',
+              value: 'https://r2.mosaiko.mx/uploads/done.jpg',
+            },
+            {
+              name: '_crop_area',
+              value: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+            },
+          ],
+        },
+        {
+          id: 2,
+          title: 'Needs retry Mosaico',
+          quantity: 1,
+          variant_id: 12,
+          properties: [
+            {
+              name: '_customization',
+              value: JSON.stringify({
+                categoryType: 'mosaicos',
+                gridSize: 9,
+              }),
+            },
+            {
+              name: '_photo_url',
+              value: 'https://r2.mosaiko.mx/uploads/retry.jpg',
+            },
+            {
+              name: '_crop_area',
+              value: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+            },
+          ],
+        },
+      ],
+    };
+
+    const priors: PriorLineResult[] = [
+      {
+        lineItemId: 1,
+        kind: 'ok',
+        urls: [
+          'https://r2.mosaiko.mx/print-files/order-99-item-1/tile-0.png',
+          'https://r2.mosaiko.mx/print-files/order-99-item-1/tile-1.png',
+        ],
+      },
+    ];
+
+    const result = await processWebhookOrder(
+      order,
+      {
+        fetchPhoto: async () => {
+          fetchCount++;
+          return Buffer.from('ok');
+        },
+        uploadPrintTiles: async (jobId, tiles) => {
+          uploadCount++;
+          return tiles.map((t) => ({
+            key: `print-files/${jobId}/tile-${t.index}.png`,
+            publicUrl: `https://r2.mosaiko.mx/print-files/${jobId}/tile-${t.index}.png`,
+          }));
+        },
+        processPrintJob: async () => ({
+          tiles: [{ index: 0, buffer: Buffer.from('t'), filename: 't.png' }],
+        }),
+      },
+      { priors },
+    );
+
+    expect(result.status).toBe('complete');
+    // Line 1 was skipped entirely — no fetch, no upload happened for it.
+    expect(fetchCount).toBe(1);
+    expect(uploadCount).toBe(1);
+    // But the reused URLs still appear in allUrls:
+    expect(result.allUrls).toContain(
+      'https://r2.mosaiko.mx/print-files/order-99-item-1/tile-0.png',
+    );
+    expect(result.allUrls).toContain(
+      'https://r2.mosaiko.mx/print-files/order-99-item-1/tile-1.png',
+    );
+  });
+
+  test('Phase 4 fix — prior failures are NOT reused; the line retries fresh', async () => {
+    const { processWebhookOrder } = await import(
+      '@/lib/shopify/webhook-processor'
+    );
+
+    let fetchCount = 0;
+
+    const order = {
+      id: 100,
+      order_number: 404,
+      name: '#404',
+      email: 'c@x.com',
+      line_items: [
+        {
+          id: 1,
+          title: 'Previously failed',
+          quantity: 1,
+          variant_id: 1,
+          properties: [
+            {
+              name: '_customization',
+              value: JSON.stringify({
+                categoryType: 'mosaicos',
+                gridSize: 9,
+              }),
+            },
+            {
+              name: '_photo_url',
+              value: 'https://r2.mosaiko.mx/uploads/once-broken.jpg',
+            },
+            {
+              name: '_crop_area',
+              value: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+            },
+          ],
+        },
+      ],
+    };
+
+    const priors: PriorLineResult[] = [
+      // A previous run marked this line failed; on retry the orchestrator
+      // MUST re-process it, not reuse anything.
+      {
+        lineItemId: 1,
+        kind: 'failed',
+        reason: 'photo_fetch_failed',
+      },
+    ];
+
+    const result = await processWebhookOrder(
+      order,
+      {
+        fetchPhoto: async () => {
+          fetchCount++;
+          return Buffer.from('retry-succeeded');
+        },
+        uploadPrintTiles: async (jobId, tiles) =>
+          tiles.map((t) => ({
+            key: `${jobId}/tile-${t.index}.png`,
+            publicUrl: `https://r2/${jobId}/tile-${t.index}.png`,
+          })),
+        processPrintJob: async () => ({
+          tiles: [{ index: 0, buffer: Buffer.from('x'), filename: 'x.png' }],
+        }),
+      },
+      { priors },
+    );
+
+    expect(fetchCount).toBe(1);
+    expect(result.status).toBe('complete');
+  });
 });
+
+// `PriorLineResult` type — imported for the test bodies above.
+type PriorLineResult =
+  import('@/lib/shopify/webhook-processor').PriorLineResult;
 
 // ─── BLOCKER #1 — photo-fetch silent drop in webhook (FIXED in Phase 3) ─────
 
