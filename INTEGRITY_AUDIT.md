@@ -125,4 +125,5 @@ Items that require a live Shopify store + R2 bucket + Vercel runtime. None are a
 - `a105861` fix(webhook,storage): structured R2 failures + per-line retry (BLOCKER #2)
 - `482769c` fix(webhook,tonos): Codex Phase-4 findings — atomic metafieldsSet, tile-count invariant, tonos hue rounding (BLOCKERs #3–6)
 - `041e375` fix(webhook): Codex final-pass patches — always-overwrite empty metafield keys, retry endpoint surfaces 500 on metafield-write failure
-- (pending) fix(mosaicos): layoutRotated threaded end-to-end (BLOCKER #7)
+- `ade90a0` fix(mosaicos): thread layoutRotated end-to-end (BLOCKER #7)
+- `936be78` fix(mosaicos): Codex audit — preview/cart/print parity (assemble-tiles + cart-composite request + composite-dimension oracle tests)
