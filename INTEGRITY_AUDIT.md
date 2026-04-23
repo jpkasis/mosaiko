@@ -25,7 +25,7 @@
 | 4 | **BLOCKER** | Metafield write is CREATE not UPSERT (`POST /metafields.json`) — repeated retries accumulate duplicate rows; `metafields[0]` lookup can read a stale status | **FIXED — Phase 4b** | `metafieldsSet` GraphQL mutation atomic upsert via `src/lib/shopify/mutations/orders.ts#setOrderMetafields` |
 | 5 | **BLOCKER** | Non-atomic metafield write order — status='complete' could commit before `print_files` / `print_pipeline_results` lands, making the idempotency gate lie | **FIXED — Phase 4b** | All four pipeline metafields now written in one `metafieldsSet` call — atomic or nothing |
 | 6 | **BLOCKER** | `processLineItem` could produce `kind: 'ok'` with empty `urls[]` if `processPrintJob` or `uploadPrintTiles` returned zero tiles → order marked 'complete' with no files, idempotency gate freezes | **FIXED — Phase 4b** | `webhook-failure-modes.test.ts` §"processPrintJob returns 0 tiles → no_tiles_generated" |
-| 7 | MAJOR → BLOCKER (per Codex) | `layoutRotated` captured in builder but dropped by serializer → rotated Mosaicos 3/6 ships unrotated. BLOCKER if rotated Mosaicos are purchasable (they are). | **DEFERRED** | `serializer.test.ts` §"known integrity gaps" todo #1 + `processor-contract.test.ts` §known-gaps todo #2 |
+| 7 | **BLOCKER** | `layoutRotated` captured in builder but dropped by serializer → rotated Mosaicos 3/6 ships unrotated | **FIXED — Phase 4c** | `serializer.test.ts` §"mosaicos — layoutRotated round-trip" (4 tests) + `processor-contract.test.ts` §"mosaicos layoutRotated" (3 tests, incl. buffer-inequality proof for 3/6 and identity proof for 9) |
 | 8 | MAJOR | Tonos `fitMode` serialized via `as unknown as` cast, webhook reads only `rotation`, `TonosPrintJob` has no fit-mode field → processor always crops-to-fill | **DEFERRED** | `serializer.test.ts` §"known integrity gaps" todo #2 + `processor-contract.test.ts` §known-gaps todo #1 |
 | 9 | MAJOR | Composite-reuse metadata stored in cart but not sent to Shopify → webhook regenerates from original photo, abandoned composites accumulate in R2 | **DEFERRED** | `processor-contract.test.ts` §known-gaps todo #3 |
 | 10 | MAJOR | Font fidelity gap (STD/Arte/Studio/Spotify) — SVG text uses system fonts, preview diverges from print | **DEFERRED** (tracked separately) | `memory/server_font_fidelity_gap.md` |
@@ -84,12 +84,12 @@ During the post-fix audit Codex flagged four additional must-fix issues within t
 
 | File | Tests | Finding pinned |
 |---|---|---|
-| `src/__tests__/integrity/serializer.test.ts` | 20 passing + 2 todo | `buildPrintCustomization` round-trip per category × grid; JSON cart-attribute survival; Tonos rotation + fitMode in cart; findings #7 + #8 via todo |
+| `src/__tests__/integrity/serializer.test.ts` | 24 passing + 1 todo | `buildPrintCustomization` round-trip per category × grid; JSON cart-attribute survival; Tonos rotation + fitMode in cart; BLOCKER #7 layoutRotated round-trip (4 tests); finding #8 via todo |
 | `src/__tests__/integrity/webhook-parser.test.ts` | 19 passing | `extractCustomizedLineItems` `_`-prefix filter; `whitelistTonosRotations` quarter-turn clamp; `safeJsonParse` malformed-input safety; captured-fixture payload integration |
 | `src/__tests__/integrity/webhook-failure-modes.test.ts` | 13 passing + 0 todo | BLOCKERs #1 + #6 (8 tests on typed `LineItemResult` + `no_tiles_generated` invariant); BLOCKER #2 `UploadFailure` shape + per-line idempotency reuse/retry (5 tests) |
-| `src/__tests__/integrity/processor-contract.test.ts` | 12 passing + 5 todo | Every processor produces N 827×827 PNG tiles with stable indexes; Tonos `intensity='strong'` regression test; findings #7 #8 #9 #10 #12 #13 captured as todos |
+| `src/__tests__/integrity/processor-contract.test.ts` | 15 passing + 4 todo | Every processor produces N 827×827 PNG tiles with stable indexes; Tonos `intensity='strong'` regression test; BLOCKER #7 mosaicos layoutRotated — buffer-inequality for 3/6 and byte-identity for 9 (3 tests); findings #8 #9 #10 #12 #13 captured as todos |
 
-Totals: **64 passing, 7 todo (71 tests total), 4 test files, `tsc --noEmit` clean.**
+Totals: **71 passing, 5 todo (76 tests total), 4 test files, `tsc --noEmit` clean.**
 
 Run: `npm test`.
 
@@ -124,4 +124,5 @@ Items that require a live Shopify store + R2 bucket + Vercel runtime. None are a
 - `c9b842d` fix(webhook): surface per-line-item failures (BLOCKER #1)
 - `a105861` fix(webhook,storage): structured R2 failures + per-line retry (BLOCKER #2)
 - `482769c` fix(webhook,tonos): Codex Phase-4 findings — atomic metafieldsSet, tile-count invariant, tonos hue rounding (BLOCKERs #3–6)
-- (pending) fix(webhook): Codex final-pass patches — always-overwrite empty metafield keys, retry endpoint surfaces 500 on metafield-write failure
+- `041e375` fix(webhook): Codex final-pass patches — always-overwrite empty metafield keys, retry endpoint surfaces 500 on metafield-write failure
+- (pending) fix(mosaicos): layoutRotated threaded end-to-end (BLOCKER #7)

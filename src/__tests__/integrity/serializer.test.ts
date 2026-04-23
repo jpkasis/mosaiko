@@ -250,13 +250,75 @@ describe('toPrintCustomization — CartItem → CategoryCustomization', () => {
   });
 });
 
-describe('known integrity gaps (documented in DEFERRED.md)', () => {
-  test.todo(
-    'MAJOR-fix-TODO: layoutRotated is stored in the builder but never reaches the serializer — ' +
-      'serializer has no layoutRotated field, so rotated Mosaicos ships unrotated. ' +
-      'Unstub this when the serializer learns about layoutRotated.',
-  );
+describe('mosaicos — layoutRotated round-trip (FIXED, was BLOCKER)', () => {
+  test('buildPrintCustomization forwards layoutRotated: true into the mosaicos variant', () => {
+    const result = buildPrintCustomization({
+      categoryType: 'mosaicos',
+      gridSize: 6,
+      layoutRotated: true,
+    });
+    expect(result).toEqual({
+      categoryType: 'mosaicos',
+      gridSize: 6,
+      layoutRotated: true,
+    });
+  });
 
+  test('absent / false layoutRotated → field omitted (keeps JSON payload minimal)', () => {
+    const r1 = buildPrintCustomization({ categoryType: 'mosaicos', gridSize: 9 });
+    const r2 = buildPrintCustomization({
+      categoryType: 'mosaicos',
+      gridSize: 9,
+      layoutRotated: false,
+    });
+    expect(r1).toEqual({ categoryType: 'mosaicos', gridSize: 9 });
+    expect(r2).toEqual({ categoryType: 'mosaicos', gridSize: 9 });
+    expect('layoutRotated' in r1).toBe(false);
+    expect('layoutRotated' in r2).toBe(false);
+  });
+
+  test('toPrintCustomization lifts layoutRotated from CartItem customizations', () => {
+    const item: CartItem = {
+      id: 'x',
+      type: 'custom',
+      gridSize: 6,
+      gridLayout: { rows: 2, cols: 3 },
+      name: 'test',
+      price: 480,
+      quantity: 1,
+      previewUrl: '',
+      tileUrls: [],
+      customizations: {
+        categoryType: 'mosaicos',
+        layoutRotated: true,
+      },
+    };
+    const out = toPrintCustomization(item) as {
+      categoryType: string;
+      gridSize: number;
+      layoutRotated?: boolean;
+    };
+    expect(out.categoryType).toBe('mosaicos');
+    expect(out.gridSize).toBe(6);
+    expect(out.layoutRotated).toBe(true);
+  });
+
+  test('layoutRotated survives JSON round-trip through the Shopify cart attribute', () => {
+    const built = buildPrintCustomization({
+      categoryType: 'mosaicos',
+      gridSize: 3,
+      layoutRotated: true,
+    });
+    const round = roundTripJson(built);
+    expect(round).toEqual({
+      categoryType: 'mosaicos',
+      gridSize: 3,
+      layoutRotated: true,
+    });
+  });
+});
+
+describe('known integrity gaps (documented in DEFERRED.md)', () => {
   test.todo(
     'MAJOR-fix-TODO: Tonos fitMode serialized but print pipeline does not honor it — ' +
       'TonosPrintJob lacks fitMode; processor always crops-to-fill. ' +

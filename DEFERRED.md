@@ -5,21 +5,7 @@ that were intentionally scoped out of the two-BLOCKER fix. Each entry has
 enough context to pick up cold.
 
 **Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
-**Last updated:** 2026-04-23.
-
----
-
-## BLOCKERs deferred (reclassified per Codex second-pass)
-
-### `layoutRotated` never reaches the serializer → rotated Mosaicos ship unrotated
-- **Where:** `src/components/builder/MagnetBuilder.tsx:~228` sets `customizations.layoutRotated`; `src/lib/shopify/customization-serializer.ts:67` (mosaicos branch of `buildPrintCustomization`) doesn't reference it.
-- **Symptom:** A user who toggles layout rotation on Mosaicos 3/6 sees a rotated preview in the builder, but the serialized `_customization` JSON has no rotation flag. The webhook's `processMosaicos` uses the unrotated grid — printed tiles come out with the wrong orientation.
-- **Severity:** BLOCKER-if-purchasable. Feature IS exposed today.
-- **Fix direction:**
-  1. Add `layoutRotated?: boolean` to the mosaicos branch of `CategoryCustomization` (src/lib/customization-types.ts).
-  2. Thread it through `buildPrintCustomization` (serializer).
-  3. In `processMosaicos`, when `layoutRotated === true` for gridSize 3 or 6, swap rows/cols on the crop-output size.
-- **Test:** `serializer.test.ts` §"known integrity gaps" todo #1 — unstub when the serializer learns about `layoutRotated`.
+**Last updated:** 2026-04-23 (post Phase 4c — layoutRotated BLOCKER resolved).
 
 ---
 

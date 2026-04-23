@@ -219,6 +219,139 @@ describe('processor contract — single-image categories', () => {
 
 // ─── Tonos (multi-image) ────────────────────────────────────────────────────
 
+// ─── Mosaicos layoutRotated (FIXED, was BLOCKER finding #7) ─────────────────
+
+describe('processor contract — mosaicos layoutRotated', () => {
+  /**
+   * Feed an intentionally-asymmetric (non-uniform) source image so
+   * `splitIntoTiles` produces different buffers per tile position. A
+   * solid-color source would split into identical tiles regardless of
+   * rows/cols order, defeating the buffer-inequality assertion below.
+   */
+  let ASYMMETRIC_SOURCE: Buffer;
+
+  beforeAll(async () => {
+    ASYMMETRIC_SOURCE = await sharp({
+      create: {
+        width: 2000,
+        height: 2000,
+        channels: 3,
+        background: { r: 220, g: 60, b: 90 },
+      },
+    })
+      // Draw a gradient-like overlay via composite to break rotational
+      // symmetry of the output. The specific shape doesn't matter —
+      // only that tile(row=a,col=b) differs from tile(row=b,col=a).
+      .composite([
+        {
+          input: Buffer.from(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="2000">
+              <rect x="0" y="0" width="2000" height="400" fill="black"/>
+              <rect x="0" y="0" width="400" height="2000" fill="white"/>
+            </svg>`,
+          ),
+          top: 0,
+          left: 0,
+        },
+      ])
+      .jpeg({ quality: 90 })
+      .toBuffer();
+  }, 15_000);
+
+  test('rotated Mosaicos 6 → 6 tiles; tile output differs from unrotated (swap took effect)', async () => {
+    const unrotated = await processPrintJob({
+      imageBuffer: ASYMMETRIC_SOURCE,
+      customization: { categoryType: 'mosaicos', gridSize: 6 },
+      cropArea: FULL_CROP,
+      jobId: 'test-m6-unrot',
+    });
+    const rotated = await processPrintJob({
+      imageBuffer: ASYMMETRIC_SOURCE,
+      customization: {
+        categoryType: 'mosaicos',
+        gridSize: 6,
+        layoutRotated: true,
+      },
+      cropArea: FULL_CROP,
+      jobId: 'test-m6-rot',
+    });
+
+    await assertTileContract(rotated.tiles, {
+      count: 6,
+      jobId: 'test-m6-rot',
+    });
+
+    // Buffer-level inequality: if the processor ignored `layoutRotated`
+    // the tile buffers would be identical because the same source
+    // image went through the same crop-and-split math. At least one
+    // tile MUST differ when rotation actually changes the grid
+    // partitioning.
+    const anyTileDiffers = rotated.tiles.some((rt) => {
+      const match = unrotated.tiles.find((ut) => ut.index === rt.index);
+      return !match || !rt.buffer.equals(match.buffer);
+    });
+    expect(anyTileDiffers).toBe(true);
+  }, 45_000);
+
+  test('rotated Mosaicos 3 → 3 tiles; output differs from unrotated', async () => {
+    const unrotated = await processPrintJob({
+      imageBuffer: ASYMMETRIC_SOURCE,
+      customization: { categoryType: 'mosaicos', gridSize: 3 },
+      cropArea: FULL_CROP,
+      jobId: 'test-m3-unrot',
+    });
+    const rotated = await processPrintJob({
+      imageBuffer: ASYMMETRIC_SOURCE,
+      customization: {
+        categoryType: 'mosaicos',
+        gridSize: 3,
+        layoutRotated: true,
+      },
+      cropArea: FULL_CROP,
+      jobId: 'test-m3-rot',
+    });
+
+    await assertTileContract(rotated.tiles, {
+      count: 3,
+      jobId: 'test-m3-rot',
+    });
+    const anyTileDiffers = rotated.tiles.some((rt) => {
+      const match = unrotated.tiles.find((ut) => ut.index === rt.index);
+      return !match || !rt.buffer.equals(match.buffer);
+    });
+    expect(anyTileDiffers).toBe(true);
+  }, 45_000);
+
+  test('rotated Mosaicos 9 is a no-op — tile buffers match unrotated (square grid)', async () => {
+    // Symmetric swap: 3×3 → 3×3. Bit-for-bit equivalence is the
+    // strongest regression pin against accidentally permuting tiles
+    // in the square-grid case.
+    const unrotated = await processPrintJob({
+      imageBuffer: ASYMMETRIC_SOURCE,
+      customization: { categoryType: 'mosaicos', gridSize: 9 },
+      cropArea: FULL_CROP,
+      jobId: 'test-m9-unrot',
+    });
+    const rotated = await processPrintJob({
+      imageBuffer: ASYMMETRIC_SOURCE,
+      customization: {
+        categoryType: 'mosaicos',
+        gridSize: 9,
+        layoutRotated: true,
+      },
+      cropArea: FULL_CROP,
+      jobId: 'test-m9-rot',
+    });
+
+    expect(rotated.tiles).toHaveLength(9);
+    for (const rt of rotated.tiles) {
+      const match = unrotated.tiles.find((ut) => ut.index === rt.index);
+      expect(match).toBeDefined();
+      expect(rt.buffer.equals(match!.buffer)).toBe(true);
+    }
+  }, 60_000);
+});
+
 describe('processor contract — tonos (multi-image)', () => {
   test('tonos 9 (3 images → 9 tonal tiles) @ 827×827 PNG', async () => {
     const job: TonosPrintJob = {
@@ -299,16 +432,6 @@ describe('processor contract — known gaps (see DEFERRED.md)', () => {
       'thread it through cropAndResize, and assert that fitMode="fit" ' +
       'produces a letterboxed tile (detectable via background pixel ' +
       'sampling at the tile corners).',
-  );
-
-  test.todo(
-    'MAJOR-fix-TODO: layoutRotated never reaches serializer — builder ' +
-      'captures portrait/landscape orientation in `layoutRotated` but ' +
-      'buildPrintCustomization drops it. For rotated Mosaicos 3/6 this ' +
-      'means the print processor uses the unrotated grid and ships the ' +
-      'wrong tile arrangement. Add `layoutRotated?: boolean` to the ' +
-      'mosaicos union variant, serialize it, and have processMosaicos ' +
-      'swap rows/cols when true.',
   );
 
   test.todo(
