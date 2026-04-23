@@ -422,12 +422,25 @@ export function MagnetBuilder() {
   // On mobile, pad the bottom of the page content by the footer height plus a
   // breathing gap so the sticky footer never covers the last interactive
   // element. Desktop (lg+) is unpadded — sticky footer is hidden there.
-  const mobileBottomPadClass = stickyCta.visible
-    ? 'pb-[calc(var(--mobile-footer-height)+1rem)] lg:pb-0'
-    : '';
+  //
+  // Additionally, add the cookie-banner offset (when the banner is visible)
+  // so first-session users on short builder steps (upload, category picker)
+  // see the primary controls above the banner instead of behind it. The var
+  // resolves to `0px` when the banner is dismissed (fallback).
+  const mobileBottomPadStyle: React.CSSProperties = stickyCta.visible
+    ? {
+        paddingBottom:
+          'calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem)',
+      }
+    : {
+        paddingBottom: 'var(--cookie-banner-offset, 0px)',
+      };
 
   return (
-    <div className={`container-mosaiko py-6 md:py-10 ${mobileBottomPadClass}`.trim()}>
+    <div
+      className="container-mosaiko py-6 md:py-10"
+      style={mobileBottomPadStyle}
+    >
       <div className="mb-6 text-center md:mb-8">
         <h1 className="font-serif text-3xl font-bold text-charcoal md:text-4xl">
           {t('title')}

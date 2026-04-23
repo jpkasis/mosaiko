@@ -16,8 +16,19 @@ export function CartPage() {
   const isEmpty = items.length === 0;
 
   if (isEmpty) {
+    // min-height tracks the vertical space between header and cookie
+    // banner (when visible) so the flex-center pushes CTAs into the
+    // visible region on fresh-session iOS Safari. Without the cookie
+    // subtraction, the centered "Personalizar" / "Seguir comprando"
+    // buttons land behind the banner on narrow viewports.
     return (
-      <div className="container-mosaiko flex min-h-[60vh] flex-col items-center justify-center py-20 text-center">
+      <div
+        className="container-mosaiko flex flex-col items-center justify-center py-20 text-center"
+        style={{
+          minHeight:
+            'calc(100dvh - var(--header-height) - var(--announcement-height, 0px) - var(--cookie-banner-offset, 0px) - 4rem)',
+        }}
+      >
         <div className="mb-6 flex h-32 w-32 items-center justify-center rounded-full bg-cream-dark">
           <svg
             width="56"
