@@ -634,13 +634,17 @@ export function MagnetBuilder() {
           <button
             type="button"
             onClick={() => setPreviewDrawerOpen(true)}
-            className={[
-              'fixed right-4 flex h-14 w-14 items-center justify-center rounded-full bg-terracotta text-white shadow-lg transition-transform hover:scale-105 active:scale-[0.98] lg:hidden pb-safe',
-              stickyCta.visible
-                ? 'bottom-[calc(var(--mobile-footer-height)+1rem)]'
-                : 'bottom-4',
-            ].join(' ')}
-            style={{ ['--safe-min' as string]: '0.5rem', zIndex: 'var(--z-toast)' }}
+            className="fixed right-4 flex h-14 w-14 items-center justify-center rounded-full bg-terracotta text-white shadow-lg transition-transform hover:scale-105 active:scale-[0.98] lg:hidden pb-safe"
+            style={{
+              ['--safe-min' as string]: '0.5rem',
+              zIndex: 'var(--z-toast)',
+              // Lift above sticky CTA (if shown) AND above the cookie banner
+              // (if visible). `--cookie-banner-offset` is set by CookieBanner
+              // on :root via ResizeObserver while the banner is onscreen.
+              bottom: stickyCta.visible
+                ? 'calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem)'
+                : 'calc(var(--cookie-banner-offset, 0px) + 1rem)',
+            }}
             aria-label="Ver vista previa"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -685,8 +689,14 @@ export function MagnetBuilder() {
           // Sticky CTA sits above base page content but below drawers/modals
           // — if the cart drawer or mobile menu opens on top of the builder,
           // it should cover this CTA rather than the other way around.
-          className="fixed inset-x-0 bottom-0 border-t border-light-gray bg-cream/95 px-4 py-3 pb-safe backdrop-blur-sm lg:hidden"
-          style={{ zIndex: 'var(--z-header)', ['--safe-min' as string]: '0.75rem' }}
+          // `bottom` lifts by the cookie-banner offset so the CTA never
+          // hides behind the banner on first visit.
+          className="fixed inset-x-0 border-t border-light-gray bg-cream/95 px-4 py-3 pb-safe backdrop-blur-sm lg:hidden"
+          style={{
+            zIndex: 'var(--z-header)',
+            ['--safe-min' as string]: '0.75rem',
+            bottom: 'var(--cookie-banner-offset, 0px)',
+          }}
         >
           <button
             type="button"
