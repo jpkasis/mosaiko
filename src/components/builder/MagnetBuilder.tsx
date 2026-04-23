@@ -301,9 +301,43 @@ export function MagnetBuilder() {
   // Mobile-only live-preview drawer. Desktop keeps the sticky sidebar.
   const [previewDrawerOpen, setPreviewDrawerOpen] = useState(false);
   // Only show the FAB once the user is past the category pick — the preview
-  // has nothing to render before a category + image exist.
-  const showPreviewFab =
-    flow.selectedCategory !== null && flow.currentStepId !== 'category';
+  // has nothing to render before a category + image exist. Hide on the
+  // preview step since that page *is* the preview (FAB would be redundant)
+  // and hide while the drawer is open (the FAB would stack on top of it —
+  // the drawer has its own close affordance).
+  //
+  // Per Codex: `showPreviewFab` must gate on whether the preview
+  // drawer would actually have content to render. For single-image
+  // categories that means `imageSrc` + a crop area; for Tonos it means
+  // all 3 slots have images AND crop areas. Without this gate, the FAB
+  // shows on the upload step and clicking it opens an empty drawer or
+  // (worse) dismisses silently.
+  const canPreview = useMemo(() => {
+    if (flow.selectedCategory === null) return false;
+    const step = flow.currentStepId;
+    // The preview drawer only makes sense once the user has real
+    // content to see — crop and customize steps, nothing before.
+    if (step !== 'crop' && step !== 'customize') return false;
+    if (isTonos) {
+      return (
+        flow.tonos.imageSrcs.every((s) => Boolean(s)) &&
+        flow.tonos.cropAreas.every((c) => Boolean(c))
+      );
+    }
+    return Boolean(flow.imageSrc) &&
+      Boolean(flow.liveCropArea ?? flow.cropAreaPixels);
+  }, [
+    flow.selectedCategory,
+    flow.currentStepId,
+    isTonos,
+    flow.imageSrc,
+    flow.liveCropArea,
+    flow.cropAreaPixels,
+    flow.tonos.imageSrcs,
+    flow.tonos.cropAreas,
+  ]);
+
+  const showPreviewFab = canPreview && !previewDrawerOpen;
 
   // Mobile sticky bottom CTA. Keeps the primary action anchored so it never
   // drifts out of the thumb zone as step content changes. Only rendered on
