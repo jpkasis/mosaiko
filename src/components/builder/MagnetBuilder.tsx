@@ -499,6 +499,7 @@ export function MagnetBuilder() {
                     onLayoutRotate={flow.handleLayoutRotate}
                     canRotateLayout={flow.canRotateLayout}
                     layoutRotated={flow.layoutRotated}
+                    onReplacePhoto={flow.handleReplaceSingleImage}
                   />
                 )}
                 {flow.currentStepId === 'crop' && isTonos && flow.gridConfig && (

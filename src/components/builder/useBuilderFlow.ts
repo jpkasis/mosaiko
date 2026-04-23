@@ -117,6 +117,10 @@ export interface BuilderFlowState {
   addToCartError: string | null;
   setAddToCartError: (v: string | null) => void;
 
+  // Replace the currently-uploaded single image: clears photo + crop state
+  // and navigates back to the upload step so the user can re-pick.
+  handleReplaceSingleImage: () => void;
+
   // Reset
   handleReset: () => void;
 }
@@ -468,6 +472,16 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setCurrentStepId('preview');
   }, []);
 
+  // ─── Replace single image ───
+  // Clears photo + crop state and navigates back to upload. Users invoke
+  // this from the crop step's "Cambiar foto" toolbar button when they want
+  // a different photo without unwinding the whole builder.
+  const handleReplaceSingleImage = useCallback(() => {
+    clearSingleImage();
+    setDirection(-1);
+    setCurrentStepId('upload');
+  }, [clearSingleImage]);
+
   // ─── Reset ───
   const handleReset = useCallback(() => {
     clearSingleImage();
@@ -528,6 +542,8 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setIsUploading,
     addToCartError,
     setAddToCartError,
+
+    handleReplaceSingleImage,
 
     handleReset,
   };
