@@ -121,7 +121,7 @@ export function TrustBadges() {
   return (
     <section
       ref={sectionRef}
-      className="relative bg-cream-dark py-16 sm:py-20 lg:py-24"
+      className="relative bg-cream-dark py-12 sm:py-20 lg:py-24"
     >
       {/* Subtle top border */}
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-light-gray to-transparent" />

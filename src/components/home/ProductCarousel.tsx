@@ -175,22 +175,40 @@ export function ProductCarousel() {
   const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
   const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
 
-  // Respect prefers-reduced-motion
+  // Respect prefers-reduced-motion AND disable AutoScroll on mobile
+  // (< sm / 640 px). Mobile users arrive on touch devices where a
+  // constantly-scrolling carousel hijacks the swipe gesture for page
+  // scroll and creates dead-zone interactions. Desktop can keep the
+  // editorial motion.
   useEffect(() => {
     if (!emblaApi) return;
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (mq.matches) {
-      const autoScroll = emblaApi.plugins()?.autoScroll;
-      if (autoScroll && 'stop' in autoScroll) {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const isMobile = window.matchMedia('(max-width: 639px)');
+
+    const autoScroll = emblaApi.plugins()?.autoScroll;
+    if (!autoScroll || !('stop' in autoScroll) || !('play' in autoScroll)) return;
+
+    const apply = () => {
+      if (reducedMotion.matches || isMobile.matches) {
         (autoScroll as { stop: () => void }).stop();
+      } else {
+        (autoScroll as { play: () => void }).play();
       }
-    }
+    };
+
+    apply();
+    reducedMotion.addEventListener('change', apply);
+    isMobile.addEventListener('change', apply);
+    return () => {
+      reducedMotion.removeEventListener('change', apply);
+      isMobile.removeEventListener('change', apply);
+    };
   }, [emblaApi]);
 
   return (
     <section
       ref={sectionRef}
-      className="carousel-section relative overflow-hidden py-20 sm:py-24 lg:py-32"
+      className="carousel-section relative overflow-hidden py-12 sm:py-20 lg:py-28"
       aria-roledescription="carousel"
       aria-label={t('title')}
     >

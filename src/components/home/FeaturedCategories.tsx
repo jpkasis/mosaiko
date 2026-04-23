@@ -72,7 +72,7 @@ export function FeaturedCategories() {
   return (
     <section
       ref={sectionRef}
-      className="relative bg-warm-white py-20 sm:py-24 lg:py-32"
+      className="relative bg-warm-white py-12 sm:py-20 lg:py-28"
     >
       <div className="container-mosaiko">
         <motion.div
