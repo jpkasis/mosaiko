@@ -123,4 +123,5 @@ Items that require a live Shopify store + R2 bucket + Vercel runtime. None are a
 - `1547c49` test(integrity): apply Codex Phase-2 review — labels, CJK minor, orphan proof
 - `c9b842d` fix(webhook): surface per-line-item failures (BLOCKER #1)
 - `a105861` fix(webhook,storage): structured R2 failures + per-line retry (BLOCKER #2)
-- (WIP) fix(webhook,tonos): Codex Phase-4 findings — atomic metafieldsSet, tile-count invariant, tonos hue rounding (BLOCKERs #3–6)
+- `482769c` fix(webhook,tonos): Codex Phase-4 findings — atomic metafieldsSet, tile-count invariant, tonos hue rounding (BLOCKERs #3–6)
+- (pending) fix(webhook): Codex final-pass patches — always-overwrite empty metafield keys, retry endpoint surfaces 500 on metafield-write failure

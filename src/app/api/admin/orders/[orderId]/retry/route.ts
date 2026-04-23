@@ -147,9 +147,23 @@ export async function POST(
   try {
     await writePipelineMetafields(orderId, result);
   } catch (error) {
+    // Do NOT return 200 on metafield-write failure — the client sees
+    // the new tile URLs but Shopify's source of truth is still stale,
+    // and a follow-up retry would wrongly reuse the prior state.
+    // Bubble the failure to the admin so they can intervene.
     console.error(
       `[api/admin/orders/retry] Metafield write failed for ${orderId}:`,
       error,
+    );
+    return NextResponse.json(
+      {
+        orderId,
+        error: 'metafield_write_failed',
+        detail: error instanceof Error ? error.message : String(error),
+        pipelineStatus: result.status,
+        tilesProduced: result.allUrls.length,
+      },
+      { status: 500 },
     );
   }
 

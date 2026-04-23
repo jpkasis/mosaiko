@@ -16,7 +16,13 @@ import type { OrderMetafieldWrite } from './mutations/orders';
 export function buildPipelineMetafields(
   result: WebhookOrderResult,
 ): OrderMetafieldWrite[] {
-  const writes: OrderMetafieldWrite[] = [
+  // Always write every key on every run — including empty arrays for
+  // print_files and print_pipeline_errors. Past versions omitted empty
+  // keys, which left stale state from prior runs (a partial→complete
+  // retry could leave the old errors metafield populated; an ok→failed
+  // retry could leave prior URLs visible as print_files). Emitting []
+  // explicitly means the upsert fully overwrites the prior state.
+  return [
     // Per-line results — authoritative source for retry idempotency.
     {
       namespace: 'mosaiko',
@@ -35,17 +41,13 @@ export function buildPipelineMetafields(
         ),
       ),
     },
-  ];
-  if (result.allUrls.length > 0) {
-    writes.push({
+    {
       namespace: 'mosaiko',
       key: 'print_files',
       type: 'json',
       value: JSON.stringify(result.allUrls),
-    });
-  }
-  if (result.failures.length > 0) {
-    writes.push({
+    },
+    {
       namespace: 'mosaiko',
       key: 'print_pipeline_errors',
       type: 'json',
@@ -57,17 +59,16 @@ export function buildPipelineMetafields(
           detail: f.detail,
         })),
       ),
-    });
-  }
-  // STATUS LAST in the array. metafieldsSet applies the whole batch as
-  // one transaction — ordering doesn't affect atomicity — but keeping
-  // status last makes the intent ("this is the commit marker for the
-  // other metafields") explicit for future readers.
-  writes.push({
-    namespace: 'mosaiko',
-    key: 'print_pipeline_status',
-    type: 'single_line_text_field',
-    value: result.status,
-  });
-  return writes;
+    },
+    // STATUS LAST in the array. metafieldsSet applies the whole batch
+    // as one transaction — ordering doesn't affect atomicity — but
+    // keeping status last makes the intent ("this is the commit
+    // marker for the other metafields") explicit to future readers.
+    {
+      namespace: 'mosaiko',
+      key: 'print_pipeline_status',
+      type: 'single_line_text_field',
+      value: result.status,
+    },
+  ];
 }

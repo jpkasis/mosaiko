@@ -79,6 +79,22 @@ enough context to pick up cold.
 
 ---
 
+## One-off cleanup tasks (manual, low-effort)
+
+### Clean up stale historical metafields from pre-PR REST create loop
+- **Where:** Shopify admin (UI or REST API).
+- **Symptom:** Orders processed before this branch wrote metafields via `POST /admin/api/.../metafields.json`, which always CREATES. Those orders may have 2+ rows with the same `(mosaiko, print_files)` or `(mosaiko, print_pipeline_status)` tuple. Any future code that reads `metafields[0]` can pick an arbitrary historical row.
+- **Fix:** One-time script or manual pass: for each order with pipeline-related metafields, keep only the most-recent row per `(namespace, key)` pair. Only needed if any consumer still reads metafields by prefix listing instead of by exact (namespace, key) lookup.
+- **Urgency:** Low — every subsequent webhook retry upserts via `metafieldsSet` (by `(ownerId, namespace, key)`), so new runs overwrite correctly. Existing duplicates accumulate only until first upsert.
+
+### Orphaned R2 tile objects from pre-fix partial uploads
+- **Where:** R2 `mosaiko-print-files` bucket.
+- **Symptom:** Before BLOCKER #2 was fixed, a partial `Promise.all` failure left tiles with deterministic keys `print-files/order-{N}-item-{M}/tile-{k}.png` in R2 with no reference from any metafield. Storage is cheap; admin cannot see them; deterministic-key retries overwrite them eventually.
+- **Fix:** Either leave them (they'll get overwritten on next retry, and untouched objects are free-ish to keep) or run a one-shot list-and-prune script comparing R2 keys against metafield URLs per order.
+- **Urgency:** Very low. `UploadFailure.succeeded` is now surfaced at the storage layer so a future admin cleanup endpoint could use it; not in scope for this branch.
+
+---
+
 ## Related docs
 
 - `INTEGRITY_AUDIT.md` — full audit report, findings table, test coverage map.
