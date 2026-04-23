@@ -19,7 +19,11 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
   const updateQuantity = useCartStore((s) => s.updateQuantity);
   const [imgFailed, setImgFailed] = useState(false);
 
-  const thumbnailSize = size === 'full' ? 'h-24 w-24 sm:h-28 sm:w-28' : 'h-20 w-20';
+  // Bigger thumbnail on mobile for the drawer variant (compact) so the
+  // buyer gets a clearer visual confirmation of what's in the cart —
+  // Codex flagged "product preview + quantity + price clarity" as the
+  // cart's job, not decoration.
+  const thumbnailSize = size === 'full' ? 'h-24 w-24 sm:h-28 sm:w-28' : 'h-24 w-24';
   const displayName =
     item.type === 'custom'
       ? item.customizations
@@ -89,10 +93,10 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
             )}
           </div>
 
-          {/* Remove button */}
+          {/* Remove button — 48 px touch target (WCAG / CLAUDE.md). */}
           <button
             onClick={() => removeItem(item.id)}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-warm-gray transition-colors hover:bg-error/10 hover:text-error cursor-pointer"
+            className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md text-warm-gray transition-colors hover:bg-error/10 hover:text-error cursor-pointer"
             aria-label={t('remove')}
           >
             <svg
@@ -116,12 +120,14 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
 
         {/* Bottom row: Quantity + Price */}
         <div className="flex items-center justify-between">
-          {/* Quantity controls */}
+          {/* Quantity controls — 44 px minimum per WCAG; cells are 44×44 so
+              the three-part pill fits in the compact cart-drawer row
+              without wrapping the name/price column. */}
           <div className="flex items-center gap-0">
             <button
               onClick={() => updateQuantity(item.id, item.quantity - 1)}
               disabled={item.quantity <= 1}
-              className="flex h-8 w-8 items-center justify-center rounded-l-lg border border-light-gray text-charcoal transition-colors hover:bg-cream-dark disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="flex h-11 w-11 items-center justify-center rounded-l-lg border border-light-gray text-charcoal transition-colors hover:bg-cream-dark disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               aria-label="Reducir cantidad"
             >
               <svg
@@ -136,12 +142,12 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <span className="flex h-8 w-10 items-center justify-center border-y border-light-gray bg-white text-sm font-medium text-charcoal">
+            <span className="flex h-11 w-11 items-center justify-center border-y border-light-gray bg-white text-sm font-medium text-charcoal">
               {item.quantity}
             </span>
             <button
               onClick={() => updateQuantity(item.id, item.quantity + 1)}
-              className="flex h-8 w-8 items-center justify-center rounded-r-lg border border-light-gray text-charcoal transition-colors hover:bg-cream-dark cursor-pointer"
+              className="flex h-11 w-11 items-center justify-center rounded-r-lg border border-light-gray text-charcoal transition-colors hover:bg-cream-dark cursor-pointer"
               aria-label="Aumentar cantidad"
             >
               <svg

@@ -116,8 +116,14 @@ export function CartDrawer() {
               <span>{formatPrice(total)}</span>
             </div>
 
-            <div className="mt-1.5 flex items-center justify-between text-sm">
-              <span className="text-warm-gray">{t('shipping')}</span>
+            {/* Shipping line with ETA — Codex: "remove anxiety, don't
+                decorate." Naming the transit window up-front is more
+                reassuring than just "gratis" on its own. */}
+            <div className="mt-1.5 flex items-start justify-between text-sm">
+              <span className="flex flex-col">
+                <span className="text-warm-gray">{t('shipping')}</span>
+                <span className="text-xs text-warm-gray/80">3–5 días hábiles · México</span>
+              </span>
               <span className="font-medium text-success">{t('free')}</span>
             </div>
 

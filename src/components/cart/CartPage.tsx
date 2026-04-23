@@ -126,8 +126,11 @@ export function CartPage() {
                 <span className="text-warm-gray">{t('subtotal')}</span>
                 <span className="text-charcoal">{formatPrice(total)}</span>
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-warm-gray">{t('shipping')}</span>
+              <div className="flex items-start justify-between text-sm">
+                <span className="flex flex-col">
+                  <span className="text-warm-gray">{t('shipping')}</span>
+                  <span className="text-xs text-warm-gray/80">3–5 días hábiles · México</span>
+                </span>
                 <span className="font-medium text-success">{t('free')}</span>
               </div>
               <div className="border-t border-light-gray" />

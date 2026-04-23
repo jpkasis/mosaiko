@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
-import { useCartStore } from '@/lib/cart-store';
+import { useCartStore, selectCartTotal } from '@/lib/cart-store';
+import { formatPrice } from '@/lib/grid-config';
 
 export function CheckoutButton() {
   const t = useTranslations('cart');
   const items = useCartStore((s) => s.items);
+  const total = useCartStore(selectCartTotal);
   const clearCart = useCartStore((s) => s.clearCart);
   const setCheckoutInProgress = useCartStore((s) => s.setCheckoutInProgress);
   const [isLoading, setIsLoading] = useState(false);
@@ -100,7 +102,12 @@ export function CheckoutButton() {
             Procesando...
           </>
         ) : (
-          t('checkout')
+          /* Explicit handoff language: price + Shopify.
+             Codex's cart priority was reducing "wait, what happens when I
+             click" anxiety before the redirect. The hosted Shopify page
+             is a trust-heavy step for MX buyers; naming it up-front plus
+             the total makes the button a promise, not a mystery. */
+          total > 0 ? `Pagar ${formatPrice(total)} · Shopify seguro` : t('checkout')
         )}
       </motion.button>
 

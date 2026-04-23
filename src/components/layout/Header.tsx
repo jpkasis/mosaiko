@@ -112,10 +112,10 @@ export function Header() {
             {locale === 'es' ? 'EN' : 'ES'}
           </button>
 
-          {/* Cart */}
+          {/* Cart — 48 px touch target. */}
           <Link
             href="/carrito"
-            className="relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-charcoal/5"
+            className="relative flex h-12 w-12 items-center justify-center rounded-lg transition-colors hover:bg-charcoal/5"
             aria-label={t('cart')}
           >
             <svg
@@ -141,10 +141,10 @@ export function Header() {
             )}
           </Link>
 
-          {/* Mobile Hamburger */}
+          {/* Mobile Hamburger — 48 px touch target. */}
           <button
             onClick={() => setMobileMenuOpen((prev) => !prev)}
-            className="relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-charcoal/5 md:hidden cursor-pointer"
+            className="relative flex h-12 w-12 items-center justify-center rounded-lg transition-colors hover:bg-charcoal/5 md:hidden cursor-pointer"
             aria-label={mobileMenuOpen ? 'Cerrar menu' : 'Abrir menu'}
             aria-expanded={mobileMenuOpen}
           >
