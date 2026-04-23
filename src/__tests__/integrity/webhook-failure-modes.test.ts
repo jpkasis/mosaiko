@@ -652,6 +652,40 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
     }
   });
 
+  test('processPrintJob returns 0 tiles → no_tiles_generated (not a silent "ok" with empty urls)', async () => {
+    // Codex-identified bug: before adding the tile-count invariant,
+    // any processor that produced zero tiles would result in
+    // `kind: 'ok', urls: []`, the order would be marked 'complete',
+    // and the admin email would happily confirm success with no
+    // download link. Now we explicitly fail with no_tiles_generated.
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+    const result = await processLineItem(
+      1,
+      {
+        lineItemId: 1,
+        title: 'X',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 9,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+        },
+      },
+      {
+        fetchPhoto: async () => Buffer.from('ok'),
+        uploadPrintTiles: async () => [],
+        processPrintJob: async () => ({ tiles: [] }),
+      },
+    );
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.reason).toBe('no_tiles_generated');
+    }
+  });
+
   test('tonos partial photo-fetch → photo_fetch_failed with which slots', async () => {
     const { processLineItem } = await import('@/lib/shopify/webhook-processor');
     const result = await processLineItem(

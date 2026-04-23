@@ -38,7 +38,8 @@ export type LineItemFailureReason =
   | 'photo_fetch_failed'
   | 'crop_parse_error'
   | 'print_pipeline_error'
-  | 'tile_upload_error';
+  | 'tile_upload_error'
+  | 'no_tiles_generated';
 
 export interface LineItemOk {
   kind: 'ok';
@@ -179,6 +180,10 @@ export async function processLineItem(
       return fail('print_pipeline_error', String(error));
     }
 
+    if (!printResult.tiles || printResult.tiles.length === 0) {
+      return fail('no_tiles_generated');
+    }
+
     let stored;
     try {
       stored = await deps.uploadPrintTiles(
@@ -187,6 +192,10 @@ export async function processLineItem(
       );
     } catch (error) {
       return fail('tile_upload_error', String(error));
+    }
+
+    if (stored.length === 0) {
+      return fail('no_tiles_generated');
     }
 
     return { kind: 'ok', ...base, urls: stored.map((s) => s.publicUrl) };
@@ -215,6 +224,10 @@ export async function processLineItem(
     return fail('print_pipeline_error', String(error));
   }
 
+  if (!printResult.tiles || printResult.tiles.length === 0) {
+    return fail('no_tiles_generated');
+  }
+
   let stored;
   try {
     stored = await deps.uploadPrintTiles(
@@ -223,6 +236,10 @@ export async function processLineItem(
     );
   } catch (error) {
     return fail('tile_upload_error', String(error));
+  }
+
+  if (stored.length === 0) {
+    return fail('no_tiles_generated');
   }
 
   return { kind: 'ok', ...base, urls: stored.map((s) => s.publicUrl) };

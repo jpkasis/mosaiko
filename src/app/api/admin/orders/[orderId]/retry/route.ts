@@ -7,6 +7,8 @@ import {
   type PriorLineResult,
 } from '@/lib/shopify/webhook-processor';
 import type { ShopifyOrderWebhook } from '@/lib/shopify/webhook-parser';
+import { setOrderMetafields } from '@/lib/shopify/mutations/orders';
+import { buildPipelineMetafields } from '@/lib/shopify/pipeline-metafields';
 
 // ─── Env ────────────────────────────────────────────────────────────────────
 
@@ -93,75 +95,8 @@ async function writePipelineMetafields(
   orderId: string,
   result: Awaited<ReturnType<typeof processWebhookOrder>>,
 ): Promise<void> {
-  const base = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json`;
-
-  const writes: Array<{
-    key: string;
-    value: string;
-    type: 'json' | 'single_line_text_field';
-  }> = [
-    {
-      key: 'print_pipeline_status',
-      value: result.status,
-      type: 'single_line_text_field',
-    },
-    {
-      key: 'print_pipeline_results',
-      value: JSON.stringify(
-        result.results.map((r) =>
-          r.kind === 'ok'
-            ? { lineItemId: r.lineItemId, kind: 'ok' as const, urls: r.urls }
-            : {
-                lineItemId: r.lineItemId,
-                kind: 'failed' as const,
-                reason: r.reason,
-                detail: r.detail,
-              },
-        ),
-      ),
-      type: 'json',
-    },
-  ];
-
-  if (result.allUrls.length > 0) {
-    writes.push({
-      key: 'print_files',
-      value: JSON.stringify(result.allUrls),
-      type: 'json',
-    });
-  }
-  if (result.failures.length > 0) {
-    writes.push({
-      key: 'print_pipeline_errors',
-      value: JSON.stringify(
-        result.failures.map((f) => ({
-          lineItemId: f.lineItemId,
-          title: f.title,
-          reason: f.reason,
-          detail: f.detail,
-        })),
-      ),
-      type: 'json',
-    });
-  }
-
-  for (const mf of writes) {
-    await fetch(base, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN,
-      },
-      body: JSON.stringify({
-        metafield: {
-          namespace: 'mosaiko',
-          key: mf.key,
-          value: mf.value,
-          type: mf.type,
-        },
-      }),
-    });
-  }
+  const orderGid = `gid://shopify/Order/${orderId}`;
+  await setOrderMetafields(orderGid, buildPipelineMetafields(result));
 }
 
 // ─── POST /api/admin/orders/[orderId]/retry ─────────────────────────────────

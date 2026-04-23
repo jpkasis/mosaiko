@@ -236,11 +236,6 @@ describe('processor contract — tonos (multi-image)', () => {
   }, 45_000);
 
   test('tonos 3 (3 images → 3 tonal tiles) @ 827×827 PNG', async () => {
-    // NOTE: intensity='medium' (not 'strong') is deliberate here. With
-    // `strong` the filter preset multiplies the base hue rotation by
-    // 1.5, producing `hue: 22.5`, which Sharp's `modulate()` rejects
-    // because it requires an integer. That's a shipped-today crash
-    // path captured as a new BLOCKER in the todo list below.
     const job: TonosPrintJob = {
       imageBuffers: [SOURCE_IMAGE, SOURCE_IMAGE, SOURCE_IMAGE],
       customization: {
@@ -253,6 +248,27 @@ describe('processor contract — tonos (multi-image)', () => {
     };
     const result = await processPrintJob(job);
     await assertTileContract(result.tiles, { count: 3, jobId: job.jobId });
+  }, 45_000);
+
+  test('tonos intensity="strong" no longer crashes — hue is rounded before Sharp', async () => {
+    // Prior to the Math.round(config.hueRotation) fix in
+    // processors/tonos.ts, the 'strong' preset scaled the base hue
+    // 15° × 1.5 → 22.5°, and Sharp's modulate rejected the fractional
+    // input with "Expected number for hue but received 22.5". The
+    // processor now rounds at the pipeline boundary so the same user-
+    // facing setting produces a valid tile set.
+    const job: TonosPrintJob = {
+      imageBuffers: [SOURCE_IMAGE, SOURCE_IMAGE, SOURCE_IMAGE],
+      customization: {
+        categoryType: 'tonos',
+        gridSize: 9,
+        intensity: 'strong',
+      },
+      cropAreas: [FULL_CROP, FULL_CROP, FULL_CROP],
+      jobId: 'test-tonos-strong',
+    };
+    const result = await processPrintJob(job);
+    await assertTileContract(result.tiles, { count: 9, jobId: job.jobId });
   }, 45_000);
 
   test('tonos honors whitelisted rotations without corrupting output', async () => {
@@ -275,16 +291,6 @@ describe('processor contract — tonos (multi-image)', () => {
 // ─── Known contract gaps (MAJOR findings from the audit) ────────────────────
 
 describe('processor contract — known gaps (see DEFERRED.md)', () => {
-  test.todo(
-    'NEW-BLOCKER-from-test-suite: processTonos crashes when intensity="strong" ' +
-      '— filter-presets scaleTone multiplies base hue 15° by 1.5 → 22.5°, ' +
-      'and sharp.modulate({ hue }) rejects non-integer values with ' +
-      '"Expected number for hue but received 22.5". Any user-facing Tonos ' +
-      'render with intensity="strong" will throw at order time. Fix by ' +
-      'rounding the hue in applySharpFilter (tonos.ts:96) before calling ' +
-      'modulate, or by producing integer base hues in filter-presets.ts.',
-  );
-
   test.todo(
     'MAJOR-fix-TODO: Tonos fitMode not honored — TonosPrintJob lacks a ' +
       'fitMode field; processTonos always crops-to-fill. Serializer ' +

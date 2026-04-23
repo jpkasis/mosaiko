@@ -94,7 +94,14 @@ async function applySharpFilter(
     config.brightness !== undefined
   ) {
     pipeline = pipeline.modulate({
-      ...(config.hueRotation !== undefined && { hue: config.hueRotation }),
+      // Sharp's modulate() rejects non-integer `hue`. filter-presets
+      // scales the base rotation by the intensity factor, which
+      // produces fractional degrees for the 'strong' preset — round
+      // at this boundary so the scaling is faithful but the value
+      // libvips sees is valid.
+      ...(config.hueRotation !== undefined && {
+        hue: Math.round(config.hueRotation),
+      }),
       ...(config.saturation !== undefined && { saturation: config.saturation }),
       ...(config.brightness !== undefined && { brightness: config.brightness }),
     });
