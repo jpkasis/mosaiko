@@ -553,12 +553,26 @@ export function MagnetBuilder() {
                 )}
 
                 {flow.currentStepId === 'customize' && flow.selectedCategory && (
-                  <CustomizationEditor
-                    category={flow.selectedCategory}
-                    values={flow.customizationValues}
-                    onValueChange={flow.setCustomizationValue}
-                    onComplete={flow.handleCustomizeComplete}
-                  />
+                  /* Auto-close the mobile live-preview drawer when any text
+                     input gains focus inside the customize editor. On
+                     narrow screens the soft keyboard already eats half the
+                     viewport — keeping the preview open on top of that is
+                     noise the user can't dismiss without blur. */
+                  <div
+                    onFocusCapture={(e) => {
+                      const tag = (e.target as HTMLElement).tagName;
+                      if (tag === 'INPUT' || tag === 'TEXTAREA') {
+                        setPreviewDrawerOpen(false);
+                      }
+                    }}
+                  >
+                    <CustomizationEditor
+                      category={flow.selectedCategory}
+                      values={flow.customizationValues}
+                      onValueChange={flow.setCustomizationValue}
+                      onComplete={flow.handleCustomizeComplete}
+                    />
+                  </div>
                 )}
                 {flow.currentStepId === 'preview' && flow.gridConfig && (
                   <div className="flex flex-col gap-3">
