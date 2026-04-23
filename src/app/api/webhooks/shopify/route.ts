@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import crypto from 'node:crypto';
 import { uploadPrintTiles } from '@/lib/storage';
-import type { CategoryCustomization } from '@/lib/customization-types';
 import { sendOrderConfirmation, sendAdminNotification } from '@/lib/email/resend-client';
 import {
   extractCustomizedLineItems,
-  whitelistTonosRotations,
-  safeJsonParse,
   type ShopifyOrderWebhook,
 } from '@/lib/shopify/webhook-parser';
+import {
+  processWebhookOrder,
+  type ProcessingDeps,
+  type WebhookOrderResult,
+} from '@/lib/shopify/webhook-processor';
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
@@ -43,16 +45,18 @@ function verifyShopifyHmac(rawBody: string, hmacHeader: string): boolean {
   return crypto.timingSafeEqual(computedBuffer, receivedBuffer);
 }
 
-// ─── Extract custom attributes from line items ─────────────────────────────
-
-// ─── Update order metafields via Shopify Admin API ──────────────────────────
+// ─── Shopify Admin API — metafield writes ──────────────────────────────────
 
 /**
- * Updates an order's metafields with print file URLs after generation.
+ * Write the pipeline-result metafields in a single Admin-API call per
+ * metafield. Status is always written (even when status === 'empty' for
+ * orders with no customized items) so the idempotency gate has
+ * authoritative state to read. `print_files` and `print_pipeline_errors`
+ * are only written when non-empty.
  */
 async function updateOrderMetafields(
   orderId: number,
-  printFileUrls: string[],
+  result: WebhookOrderResult,
 ): Promise<void> {
   if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) {
     console.warn(
@@ -61,34 +65,95 @@ async function updateOrderMetafields(
     return;
   }
 
-  const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json`;
+  const base = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json`;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN,
+  const writes: Array<{
+    key: string;
+    value: string;
+    type: 'json' | 'single_line_text_field';
+  }> = [
+    {
+      key: 'print_pipeline_status',
+      value: result.status,
+      type: 'single_line_text_field',
     },
-    body: JSON.stringify({
-      metafield: {
-        namespace: 'mosaiko',
-        key: 'print_files',
-        value: JSON.stringify(printFileUrls),
-        type: 'json',
-      },
-    }),
-  });
+  ];
+  if (result.allUrls.length > 0) {
+    writes.push({
+      key: 'print_files',
+      value: JSON.stringify(result.allUrls),
+      type: 'json',
+    });
+  }
+  if (result.failures.length > 0) {
+    writes.push({
+      key: 'print_pipeline_errors',
+      value: JSON.stringify(
+        result.failures.map((f) => ({
+          lineItemId: f.lineItemId,
+          title: f.title,
+          reason: f.reason,
+          detail: f.detail,
+        })),
+      ),
+      type: 'json',
+    });
+  }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(
-      `[webhook/shopify] Failed to update metafields for order ${orderId}:`,
-      errorText,
-    );
+  for (const mf of writes) {
+    const response = await fetch(base, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN,
+      },
+      body: JSON.stringify({
+        metafield: {
+          namespace: 'mosaiko',
+          key: mf.key,
+          value: mf.value,
+          type: mf.type,
+        },
+      }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(
+        `[webhook/shopify] Failed to write metafield '${mf.key}' for order ${orderId}:`,
+        errorText,
+      );
+    }
   }
 }
 
-// ─── Process a single customized line item ──────────────────────────────────
+/**
+ * Idempotency gate. Previous implementation skipped any order whose
+ * `print_files` metafield existed — silently consuming retries of
+ * partial or failed runs. New behaviour: only skip when
+ * `print_pipeline_status === 'complete'`. Any other status (including
+ * 'partial' and 'failed') permits the retry to proceed, which is the
+ * whole point of the pipeline-status metafield existing.
+ */
+async function isOrderAlreadyComplete(orderId: number): Promise<boolean> {
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) return false;
+  try {
+    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json?namespace=mosaiko&key=print_pipeline_status`;
+    const res = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as {
+      metafields?: Array<{ value?: string }>;
+    };
+    const status = data.metafields?.[0]?.value;
+    return status === 'complete';
+  } catch (error) {
+    // Fail open on the idempotency check: safer to retry than to skip
+    // an order that may still need tiles.
+    console.warn('[webhook/shopify] Idempotency check failed, proceeding:', error);
+    return false;
+  }
+}
 
 // ─── SSRF prevention: only fetch from trusted origins ───────────────────────
 
@@ -124,143 +189,6 @@ async function fetchPhotoBuffer(url: string): Promise<Buffer | null> {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-async function processLineItem(
-  orderId: number,
-  lineItem: {
-    lineItemId: number;
-    title: string;
-    quantity: number;
-    attrs: Record<string, string>;
-  },
-): Promise<string[]> {
-  const customizationRaw = lineItem.attrs['_customization'];
-
-  if (!customizationRaw) {
-    console.warn(
-      `[webhook/shopify] Line item ${lineItem.lineItemId} missing _customization, skipping`,
-    );
-    return [];
-  }
-
-  const customization = safeJsonParse<CategoryCustomization>(customizationRaw);
-  if (!customization) {
-    console.error(
-      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse _customization`,
-    );
-    return [];
-  }
-
-  const { processPrintJob } = await import('@/lib/print-pipeline');
-  const jobId = `order-${orderId}-item-${lineItem.lineItemId}`;
-
-  if (customization.categoryType === 'tonos') {
-    const urlsRaw = lineItem.attrs['_photo_urls'];
-    const cropsRaw = lineItem.attrs['_crop_areas'];
-    if (!urlsRaw || !cropsRaw) {
-      console.warn(
-        `[webhook/shopify] Tonos line item ${lineItem.lineItemId} missing _photo_urls / _crop_areas`,
-      );
-      return [];
-    }
-
-    const urls = safeJsonParse<string[]>(urlsRaw);
-    const crops = safeJsonParse<
-      Array<{ x: number; y: number; width: number; height: number }>
-    >(cropsRaw);
-    if (!urls || !crops) {
-      console.error(
-        `[webhook/shopify] Tonos line item ${lineItem.lineItemId}: invalid JSON`,
-      );
-      return [];
-    }
-
-    if (urls.length !== 3 || crops.length !== 3) {
-      console.error(
-        `[webhook/shopify] Tonos line item ${lineItem.lineItemId}: expected 3 urls and 3 crops`,
-      );
-      return [];
-    }
-
-    const buffers = await Promise.all(urls.map(fetchPhotoBuffer));
-    if (buffers.some((b) => !b)) {
-      console.error(
-        `[webhook/shopify] Tonos line item ${lineItem.lineItemId}: photo fetch failed`,
-      );
-      return [];
-    }
-
-    // Pull per-slot rotations out of the customization JSON if present.
-    const slotsRaw = (customization as unknown as {
-      tonosSlots?: unknown;
-    }).tonosSlots;
-    const rotations = whitelistTonosRotations(slotsRaw);
-
-    const result = await processPrintJob({
-      imageBuffers: [buffers[0]!, buffers[1]!, buffers[2]!],
-      customization,
-      cropAreas: [crops[0], crops[1], crops[2]],
-      rotations,
-      jobId,
-    });
-
-    const storedTiles = await uploadPrintTiles(
-      jobId,
-      result.tiles.map((tile) => ({ index: tile.index, buffer: tile.buffer })),
-    );
-    return storedTiles.map((t) => t.publicUrl);
-  }
-
-  // Single-image categories
-  const photoUrl = lineItem.attrs['_photo_url'];
-  const cropAreaRaw = lineItem.attrs['_crop_area'];
-
-  if (!photoUrl || !cropAreaRaw) {
-    console.warn(
-      `[webhook/shopify] Line item ${lineItem.lineItemId} missing _photo_url / _crop_area, skipping`,
-    );
-    return [];
-  }
-
-  const cropArea = safeJsonParse<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }>(cropAreaRaw);
-  if (!cropArea) {
-    console.error(
-      `[webhook/shopify] Line item ${lineItem.lineItemId}: failed to parse _crop_area`,
-    );
-    return [];
-  }
-
-  const imageBuffer = await fetchPhotoBuffer(photoUrl);
-  if (!imageBuffer) {
-    console.error(
-      `[webhook/shopify] Line item ${lineItem.lineItemId}: photo fetch failed`,
-    );
-    return [];
-  }
-
-  const result = await processPrintJob({
-    imageBuffer,
-    customization,
-    cropArea,
-    jobId,
-  });
-
-  // Upload tiles to R2
-  const storedTiles = await uploadPrintTiles(
-    jobId,
-    result.tiles.map((tile) => ({
-      index: tile.index,
-      buffer: tile.buffer,
-    })),
-  );
-
-  return storedTiles.map((t) => t.publicUrl);
 }
 
 // ─── POST /api/webhooks/shopify ─────────────────────────────────────────────
@@ -322,57 +250,41 @@ export async function POST(request: NextRequest) {
 
   // Process in the background — after() guarantees completion even after response
   after(async () => {
-    // ── Idempotency: skip if order already has print files ───────────
-    if (SHOPIFY_STORE_DOMAIN && SHOPIFY_ADMIN_API_TOKEN) {
-      try {
-        const metafieldCheckUrl = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${order.id}/metafields.json?namespace=mosaiko&key=print_files`;
-        const metafieldRes = await fetch(metafieldCheckUrl, {
-          headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
-        });
-        if (metafieldRes.ok) {
-          const data = await metafieldRes.json();
-          if (data.metafields?.length > 0) {
-            console.log(
-              `[webhook/shopify] Order ${order.order_number}: already processed (idempotency check), skipping`,
-            );
-            return;
-          }
-        }
-      } catch (error) {
-        // If idempotency check fails, proceed with processing (safe fallback)
-        console.warn('[webhook/shopify] Idempotency check failed, proceeding:', error);
-      }
+    // Idempotency: skip only if a prior run completed all items
+    if (await isOrderAlreadyComplete(order.id)) {
+      console.log(
+        `[webhook/shopify] Order ${order.order_number}: already complete (idempotency), skipping`,
+      );
+      return;
     }
 
-    const allPrintUrls: string[] = [];
+    // Lazy-load the Sharp pipeline — keeps cold-start cost off the
+    // HMAC-rejection path.
+    const { processPrintJob } = await import('@/lib/print-pipeline');
+    const deps: ProcessingDeps = {
+      fetchPhoto: fetchPhotoBuffer,
+      uploadPrintTiles,
+      processPrintJob: processPrintJob as ProcessingDeps['processPrintJob'],
+    };
 
-    for (const item of customizedItems) {
-      try {
-        const urls = await processLineItem(order.id, item);
-        allPrintUrls.push(...urls);
-      } catch (error) {
-        // Isolate errors per line item — continue processing remaining items
-        console.error(
-          `[webhook/shopify] Failed to process line item ${item.lineItemId} ` +
-          `in order ${order.order_number}:`,
-          error,
-        );
-      }
+    const result = await processWebhookOrder(order, deps);
+
+    // Persist pipeline result to Shopify metafields. Always writes
+    // `print_pipeline_status`, even on 'failed' runs, so the next retry
+    // knows where it stands.
+    try {
+      await updateOrderMetafields(order.id, result);
+    } catch (error) {
+      console.error(
+        `[webhook/shopify] Failed to write metafields for order ${order.order_number}:`,
+        error,
+      );
     }
 
-    // Update order metafields with whatever tiles we successfully generated
-    if (allPrintUrls.length > 0) {
-      try {
-        await updateOrderMetafields(order.id, allPrintUrls);
-      } catch (error) {
-        console.error(
-          `[webhook/shopify] Failed to update metafields for order ${order.order_number}:`,
-          error,
-        );
-      }
-    }
-
-    // Send email notifications
+    // Email notifications — admin gets an explicit failure banner when
+    // status is 'partial' or 'failed'; customer always gets the order
+    // confirmation (their email shouldn't change based on pipeline
+    // internals).
     const emailData = {
       orderNumber: String(order.order_number),
       customerEmail: order.email,
@@ -382,9 +294,18 @@ export async function POST(request: NextRequest) {
         quantity: item.quantity,
         previewImageUrl: item.attrs['preview_image_url'],
       })),
-      printFileDownloadUrl: allPrintUrls.length > 0
-        ? `${process.env.NEXT_PUBLIC_SITE_URL || ''}/admin/pedidos/${order.order_number}`
-        : undefined,
+      printFileDownloadUrl:
+        result.allUrls.length > 0
+          ? `${process.env.NEXT_PUBLIC_SITE_URL || ''}/admin/pedidos/${order.order_number}`
+          : undefined,
+      pipelineStatus: result.status,
+      failedItems: result.failures.map((f) => ({
+        lineItemId: f.lineItemId,
+        title: f.title,
+        quantity: f.quantity,
+        reason: f.reason,
+        detail: f.detail,
+      })),
     };
 
     try {
@@ -400,7 +321,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(
-      `[webhook/shopify] Order ${order.order_number}: processed ${allPrintUrls.length} print tiles, emails sent`,
+      `[webhook/shopify] Order ${order.order_number}: status=${result.status} tiles=${result.allUrls.length} failures=${result.failures.length}`,
     );
   });
 

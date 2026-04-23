@@ -277,35 +277,316 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
   );
 });
 
-// ─── BLOCKER #1 — photo-fetch silent drop in webhook ────────────────────────
+// ─── BLOCKER #1 — photo-fetch silent drop in webhook (FIXED in Phase 3) ─────
 
-describe('BLOCKER #1 — webhook photo-fetch silent drop', () => {
-  // `processLineItem` is module-local to route.ts today. Extracting it
-  // into a testable module is Phase 3's first step. Until that refactor
-  // happens, the finding is captured here as executable todo entries so
-  // the suite surfaces the work-remaining count without going red.
+describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', () => {
+  // Phase 3 extracted the per-line-item processor into
+  // `src/lib/shopify/webhook-processor.ts` with dependency injection
+  // and a typed result. These tests assert the new contract directly
+  // against that module — no env-var setup, no Next.js boot, no real
+  // network calls.
 
-  test.todo(
-    'BLOCKER-fix-TODO (Phase 3): on photo-fetch failure, processLineItem ' +
-      "returns a typed `{ kind: 'failed', reason, lineItemId }` rather " +
-      'than the current overloaded-empty-array',
-  );
+  test('photo-fetch failure returns a typed LineItemFailed, not empty-array', async () => {
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
 
-  test.todo(
-    'BLOCKER-fix-TODO (Phase 3): admin notification email enumerates ' +
-      "failed line items ('N of M items failed — <list>') instead of " +
-      'sending a confirmation with no download link',
-  );
+    const result = await processLineItem(
+      42,
+      {
+        lineItemId: 100,
+        title: 'Mosaico 9',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 9,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/missing.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+        },
+      },
+      {
+        fetchPhoto: async () => null, // simulate: all fetches fail
+        uploadPrintTiles: async () => {
+          throw new Error('should not be reached');
+        },
+        processPrintJob: async () => {
+          throw new Error('should not be reached');
+        },
+      },
+    );
 
-  test.todo(
-    'BLOCKER-fix-TODO (Phase 3): order-level `print_pipeline_status` ' +
-      "metafield set to 'partial' or 'failed' when any line item fails, " +
-      'so /admin/pedidos flags the order visibly',
-  );
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.reason).toBe('photo_fetch_failed');
+      expect(result.lineItemId).toBe(100);
+      expect(result.title).toBe('Mosaico 9');
+    }
+  });
 
-  test.todo(
-    'BLOCKER-fix-TODO (Phase 3): order-level idempotency does not claim ' +
-      '"processed" for a partially-failed order — next Shopify webhook ' +
-      'retry actually retries the failed lines',
-  );
+  test('mixed order: one photo-fetch fails, another succeeds → status=partial, failures enumerated', async () => {
+    const { processWebhookOrder } = await import(
+      '@/lib/shopify/webhook-processor'
+    );
+
+    const result = await processWebhookOrder(
+      {
+        id: 77,
+        order_number: 101,
+        name: '#101',
+        email: 'c@x.com',
+        line_items: [
+          {
+            id: 1,
+            title: 'Mosaico A',
+            quantity: 1,
+            variant_id: 11,
+            properties: [
+              {
+                name: '_customization',
+                value: JSON.stringify({
+                  categoryType: 'mosaicos',
+                  gridSize: 9,
+                }),
+              },
+              {
+                name: '_photo_url',
+                value: 'https://r2.mosaiko.mx/uploads/ok.jpg',
+              },
+              {
+                name: '_crop_area',
+                value: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+              },
+            ],
+          },
+          {
+            id: 2,
+            title: 'Mosaico B',
+            quantity: 1,
+            variant_id: 12,
+            properties: [
+              {
+                name: '_customization',
+                value: JSON.stringify({
+                  categoryType: 'mosaicos',
+                  gridSize: 9,
+                }),
+              },
+              {
+                name: '_photo_url',
+                value: 'https://r2.mosaiko.mx/uploads/broken.jpg',
+              },
+              {
+                name: '_crop_area',
+                value: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+              },
+            ],
+          },
+        ],
+      },
+      {
+        fetchPhoto: async (url) =>
+          url.includes('broken') ? null : Buffer.from('ok'),
+        uploadPrintTiles: async (jobId, tiles) =>
+          tiles.map((t) => ({
+            key: `print-files/${jobId}/tile-${t.index}.png`,
+            publicUrl: `https://r2.mosaiko.mx/print-files/${jobId}/tile-${t.index}.png`,
+          })),
+        processPrintJob: async () => ({
+          tiles: [
+            { index: 0, buffer: Buffer.from('t'), filename: 't0.png' },
+            { index: 1, buffer: Buffer.from('t'), filename: 't1.png' },
+          ],
+        }),
+      },
+    );
+
+    expect(result.status).toBe('partial');
+    expect(result.results).toHaveLength(2);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0].lineItemId).toBe(2);
+    expect(result.failures[0].reason).toBe('photo_fetch_failed');
+    // Successful line still contributes URLs — admin can retry just
+    // the failed one.
+    expect(result.allUrls.length).toBeGreaterThan(0);
+    expect(result.allUrls.every((u) => u.includes('order-77-item-1'))).toBe(
+      true,
+    );
+  });
+
+  test('all-items-fail order → status=failed, no URLs, all failures enumerated', async () => {
+    const { processWebhookOrder } = await import(
+      '@/lib/shopify/webhook-processor'
+    );
+
+    const result = await processWebhookOrder(
+      {
+        id: 88,
+        order_number: 102,
+        name: '#102',
+        email: 'c@x.com',
+        line_items: [
+          {
+            id: 1,
+            title: 'A',
+            quantity: 1,
+            variant_id: 1,
+            properties: [
+              {
+                name: '_customization',
+                value: JSON.stringify({
+                  categoryType: 'mosaicos',
+                  gridSize: 9,
+                }),
+              },
+              {
+                name: '_photo_url',
+                value: 'https://r2.mosaiko.mx/uploads/x.jpg',
+              },
+              {
+                name: '_crop_area',
+                value: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+              },
+            ],
+          },
+        ],
+      },
+      {
+        fetchPhoto: async () => null,
+        uploadPrintTiles: async () => [],
+        processPrintJob: async () => ({ tiles: [] }),
+      },
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.allUrls).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+  });
+
+  test('malformed _customization JSON → customization_parse_error (not a crash)', async () => {
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+    const result = await processLineItem(
+      1,
+      {
+        lineItemId: 1,
+        title: 'X',
+        quantity: 1,
+        attrs: { _customization: '{not-json' },
+      },
+      {
+        fetchPhoto: async () => null,
+        uploadPrintTiles: async () => [],
+        processPrintJob: async () => ({ tiles: [] }),
+      },
+    );
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.reason).toBe('customization_parse_error');
+    }
+  });
+
+  test('print-pipeline throw → print_pipeline_error (error isolated to the line)', async () => {
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+    const result = await processLineItem(
+      1,
+      {
+        lineItemId: 1,
+        title: 'X',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 9,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+        },
+      },
+      {
+        fetchPhoto: async () => Buffer.from('ok'),
+        uploadPrintTiles: async () => [],
+        processPrintJob: async () => {
+          throw new Error('hue=22.5 rejected by Sharp');
+        },
+      },
+    );
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.reason).toBe('print_pipeline_error');
+      expect(result.detail).toMatch(/22\.5/);
+    }
+  });
+
+  test('tile-upload throw → tile_upload_error (kept distinct from pipeline errors)', async () => {
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+    const result = await processLineItem(
+      1,
+      {
+        lineItemId: 1,
+        title: 'X',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 9,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+        },
+      },
+      {
+        fetchPhoto: async () => Buffer.from('ok'),
+        uploadPrintTiles: async () => {
+          throw new Error('R2 quota exceeded');
+        },
+        processPrintJob: async () => ({
+          tiles: [{ index: 0, buffer: Buffer.from('t'), filename: 't0.png' }],
+        }),
+      },
+    );
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.reason).toBe('tile_upload_error');
+    }
+  });
+
+  test('tonos partial photo-fetch → photo_fetch_failed with which slots', async () => {
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+    const result = await processLineItem(
+      1,
+      {
+        lineItemId: 1,
+        title: 'Tonos 9',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'tonos',
+            gridSize: 9,
+            intensity: 'medium',
+          }),
+          _photo_urls: JSON.stringify([
+            'https://r2.mosaiko.mx/uploads/a.jpg',
+            'https://r2.mosaiko.mx/uploads/b.jpg',
+            'https://r2.mosaiko.mx/uploads/c.jpg',
+          ]),
+          _crop_areas: JSON.stringify([
+            { x: 0, y: 0, width: 1, height: 1 },
+            { x: 0, y: 0, width: 1, height: 1 },
+            { x: 0, y: 0, width: 1, height: 1 },
+          ]),
+        },
+      },
+      {
+        fetchPhoto: async (url) =>
+          url.includes('b.jpg') ? null : Buffer.from('ok'),
+        uploadPrintTiles: async () => [],
+        processPrintJob: async () => ({ tiles: [] }),
+      },
+    );
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.reason).toBe('photo_fetch_failed');
+      // Detail names slot 1 (b.jpg is index 1).
+      expect(result.detail).toBe('slots=1');
+    }
+  });
 });
