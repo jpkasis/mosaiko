@@ -252,13 +252,13 @@ describe('toPrintCustomization — CartItem → CategoryCustomization', () => {
 
 describe('known integrity gaps (documented in DEFERRED.md)', () => {
   test.todo(
-    'BLOCKER-fix-TODO: layoutRotated is stored in the builder but never reaches the serializer — ' +
+    'MAJOR-fix-TODO: layoutRotated is stored in the builder but never reaches the serializer — ' +
       'serializer has no layoutRotated field, so rotated Mosaicos ships unrotated. ' +
       'Unstub this when the serializer learns about layoutRotated.',
   );
 
   test.todo(
-    'BLOCKER-fix-TODO: Tonos fitMode serialized but print pipeline does not honor it — ' +
+    'MAJOR-fix-TODO: Tonos fitMode serialized but print pipeline does not honor it — ' +
       'TonosPrintJob lacks fitMode; processor always crops-to-fill. ' +
       'Unstub this when TonosPrintJob + tonos.ts processor both read fitMode.',
   );

@@ -315,6 +315,15 @@ describe('processor contract — known gaps (see DEFERRED.md)', () => {
   );
 
   test.todo(
+    'MINOR-fix-TODO: Studio Japanese text rendered with generic sans-serif — ' +
+      'studio.ts passes font-family: sans-serif in the SVG and relies on ' +
+      "the Vercel runtime having a CJK fallback installed. Fontconfig's " +
+      'default chain on Vercel Functions does NOT include a CJK font, so ' +
+      'Japanese characters can render as tofu. Bundle Noto Sans JP (or ' +
+      'similar) and pin font-family explicitly for the japaneseText layer.',
+  );
+
+  test.todo(
     'MINOR-fix-TODO: grid_type / preview_image_url line-item attributes ' +
       'are attached without the `_` prefix — the webhook `_`-filter in ' +
       'extractCustomizedLineItems drops them, but the admin email ' +

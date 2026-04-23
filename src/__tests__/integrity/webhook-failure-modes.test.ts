@@ -52,6 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+  vi.doUnmock('@aws-sdk/client-s3');
 });
 
 // ─── S3 Client mock factory ─────────────────────────────────────────────────
@@ -173,23 +174,29 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
     ]);
   });
 
-  test('current behaviour — caller cannot distinguish "never started" from "partial"', async () => {
-    // This test is the crux of why Phase 4 needs a structured failure
-    // return. Today, catching the throw tells you nothing about which
-    // tiles made it to R2 — admin retry has no way to skip the tiles
-    // that already succeeded.
-    let seenKeys: string[] = [];
+  test('current behaviour — orphan risk is real: a late-resolving tile DOES write after the reject', async () => {
+    // Proves durable partial success, not just dispatch.
+    //
+    // Setup: tile-1 rejects immediately. tile-0 and tile-2 use deferred
+    // promises whose resolvers we hold — we release them AFTER the
+    // Promise.all has rejected. Each resolver call is tracked so we
+    // can assert it actually executed, meaning in production the R2
+    // PUT completed but no URL reached the caller. That's the orphan.
+    const resolvedKeys: string[] = [];
+    const deferred: Record<string, (value: unknown) => void> = {};
 
-    const { S3Client } = mockS3Client(async (command) => {
+    const { S3Client, sendSpy } = mockS3Client(async (command) => {
       const cmd = command as { input?: { Key?: string } };
-      const key = cmd.input?.Key;
-      if (key) seenKeys.push(key);
-      // tile-1 fails; tile-0 and tile-2 both succeed (the race lands them
-      // before tile-1's rejection surfaces, because Promise.all waits for
-      // all resolutions before the rejection propagates — not exactly
-      // true of our implementation, but confirms the upstream contract).
-      if (key?.includes('tile-1')) throw new Error('boom');
-      return {};
+      const key = cmd.input?.Key ?? '';
+      if (key.includes('tile-1')) {
+        throw new Error('R2 write failed on tile-1');
+      }
+      return new Promise((resolve) => {
+        deferred[key] = (v) => {
+          resolvedKeys.push(key);
+          resolve(v);
+        };
+      });
     });
 
     vi.doMock('@aws-sdk/client-s3', () => ({
@@ -208,28 +215,45 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
 
     const { uploadPrintTiles } = await import('@/lib/storage');
 
+    const uploadPromise = uploadPrintTiles('order-Z-item-789', [
+      { index: 0, buffer: Buffer.from('a') },
+      { index: 1, buffer: Buffer.from('b') },
+      { index: 2, buffer: Buffer.from('c') },
+    ]);
+
     let caughtError: unknown = null;
     try {
-      await uploadPrintTiles('order-Z-item-789', [
-        { index: 0, buffer: Buffer.from('a') },
-        { index: 1, buffer: Buffer.from('b') },
-        { index: 2, buffer: Buffer.from('c') },
-      ]);
+      await uploadPromise;
     } catch (e) {
       caughtError = e;
     }
 
-    // The caller catches a plain Error — no typed shape announcing
-    // which tile(s) failed vs which succeeded. This is what Phase 4
-    // changes to a structured `UploadFailure` throw.
     expect(caughtError).toBeInstanceOf(Error);
-    expect((caughtError as Error).message).toMatch(/boom/);
-    // no structured field on the error; just a message:
+    expect((caughtError as Error).message).toMatch(/tile-1/);
+    // No structured failure information:
     expect(
       (caughtError as { failedIndexes?: number[] }).failedIndexes,
     ).toBeUndefined();
-    // and at least one tile key was dispatched that we'd want to clean up:
-    expect(seenKeys.length).toBeGreaterThanOrEqual(1);
+    expect(
+      (caughtError as { succeeded?: unknown[] }).succeeded,
+    ).toBeUndefined();
+
+    // Now release the pending uploads: in production these are in-flight
+    // S3 PUTs that complete server-side regardless of whether the caller
+    // is still waiting. Simulate that by resolving them.
+    const pendingKeys = Object.keys(deferred);
+    expect(pendingKeys.length).toBeGreaterThanOrEqual(1);
+    for (const k of pendingKeys) deferred[k]({});
+
+    // Yield to the microtask queue so resolvedKeys fills.
+    await new Promise((r) => setImmediate(r));
+
+    // At least one tile actually wrote to R2 AFTER the caller had
+    // already seen the reject — it's orphaned. No URL set in the
+    // metafield, no cleanup signal, no retry affordance.
+    expect(resolvedKeys.length).toBeGreaterThanOrEqual(1);
+    // Dispatch was broad enough to produce the orphan:
+    expect(sendSpy).toHaveBeenCalled();
   });
 
   // ─── AFTER Phase 4 fix — flip these todos to real tests ─────────────────
