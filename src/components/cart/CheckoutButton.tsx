@@ -102,14 +102,25 @@ export function CheckoutButton() {
             Procesando...
           </>
         ) : (
-          /* Explicit handoff language: price + Shopify.
+          /* Explicit handoff language: price + "secure payment" signal.
              Codex's cart priority was reducing "wait, what happens when I
-             click" anxiety before the redirect. The hosted Shopify page
-             is a trust-heavy step for MX buyers; naming it up-front plus
-             the total makes the button a promise, not a mystery. */
-          total > 0 ? `Pagar ${formatPrice(total)} · Shopify seguro` : t('checkout')
+             click" anxiety before the redirect. Keep the CTA itself
+             product-branded ("Pago seguro" = trust without leaking the
+             processor name); the Shopify attribution lives as a small
+             support line below the button so it still reassures without
+             dominating the primary action label. */
+          total > 0 ? `Pagar ${formatPrice(total)} · Pago seguro` : t('checkout')
         )}
       </motion.button>
+
+      {/* Processor attribution — tiny support line, only when there's
+          something to check out. Codex's note: name the processor for
+          trust, but don't let it crowd the CTA label. */}
+      {items.length > 0 && (
+        <p className="mt-2 text-center text-xs text-warm-gray/80">
+          Checkout seguro por Shopify
+        </p>
+      )}
 
       {error && (
         <motion.p
