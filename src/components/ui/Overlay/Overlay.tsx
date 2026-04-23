@@ -208,6 +208,17 @@ export function Overlay({
                 style={{
                   ...contentStyle,
                   zIndex: `calc(${zIndex} + 1)`,
+                  // Reserve bottom space equal to the cookie banner (when
+                  // visible). Without this, a full-height drawer's last
+                  // actionable item (cart-drawer checkout, mobile-nav
+                  // language toggle) can sit beneath the banner on first
+                  // visit. Cookie banner itself uses `zLayer="cookie"` and
+                  // is excluded (it IS the banner, reserving its own space
+                  // would be nonsensical and the banner's intrinsic height
+                  // is what sets the offset in the first place).
+                  ...(zLayer !== 'cookie'
+                    ? { paddingBottom: 'var(--cookie-banner-offset, 0px)' }
+                    : null),
                 }}
               >
                 {children}
