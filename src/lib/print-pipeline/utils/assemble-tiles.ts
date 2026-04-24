@@ -37,10 +37,46 @@ export interface CompositeLayout {
  * the canonical layout data drives both the DOM preview (PR 1b) and the
  * server-side assembly. The `CompositeLayout` return shape is preserved for
  * existing callers.
+ *
+ * Mosaicos `layoutRotated` handling: the flag is runtime user state — it
+ * lives on the `MosaicosCustomization` variant, not inside the static
+ * `CATEGORY_LAYOUTS` contract. When true, we construct a shallow-copied
+ * layout with rows/cols swapped for the current grid size, then hand it
+ * to `deriveCompositeLayout`. This keeps the contract pure geometry and
+ * confines the rotation to the adapter boundary that already has access
+ * to `customization`.
  */
 export function getCompositeLayout(
   customization: CategoryCustomization,
 ): CompositeLayout {
+  if (
+    customization.categoryType === 'mosaicos' &&
+    customization.layoutRotated === true
+  ) {
+    const base = CATEGORY_LAYOUTS.mosaicos;
+    const dims = base.dimensions[customization.gridSize];
+    if (!dims) {
+      // Should be unreachable: MosaicosCustomization.gridSize is typed
+      // as `3 | 6 | 9` and all three keys are populated in
+      // category-layouts/mosaicos.ts.
+      throw new Error(
+        `[assemble-tiles] Missing mosaicos dimensions for grid ${customization.gridSize}`,
+      );
+    }
+    const rotatedLayout = {
+      ...base,
+      dimensions: {
+        ...base.dimensions,
+        [customization.gridSize]: { rows: dims.cols, cols: dims.rows },
+      },
+    };
+    return deriveCompositeLayout(
+      rotatedLayout,
+      customization.gridSize,
+      TILE_PRINT_SIZE,
+    );
+  }
+
   const layout = CATEGORY_LAYOUTS[customization.categoryType];
   return deriveCompositeLayout(layout, customization.gridSize, TILE_PRINT_SIZE);
 }

@@ -42,6 +42,13 @@ export interface PrintCustomizationInput {
   tonosSlots?: CartItem['customizations'] extends infer T
     ? T extends { tonosSlots?: infer S } ? S : never
     : never;
+  /**
+   * Mosaicos-only. When true, rows/cols swap at the print processor so
+   * the printed tile arrangement matches the rotated builder preview.
+   * Forwarded through `buildPrintCustomization` into the
+   * `MosaicosCustomization` discriminated-union variant.
+   */
+  layoutRotated?: boolean;
 }
 
 export function toPrintCustomization(item: CartItem): CategoryCustomization {
@@ -55,6 +62,7 @@ export function toPrintCustomization(item: CartItem): CategoryCustomization {
     textFields: c.textFields,
     tonosIntensity: c.tonosIntensity,
     tonosSlots: c.tonosSlots,
+    layoutRotated: c.layoutRotated,
   });
 }
 
@@ -75,6 +83,10 @@ export function buildPrintCustomization(
       return {
         categoryType: 'mosaicos',
         gridSize: gridSize as 3 | 6 | 9,
+        // Only emit the field when truthy — keeps JSON diffs small and
+        // matches the "absent === false" reading convention in the
+        // print processor.
+        ...(input.layoutRotated ? { layoutRotated: true } : {}),
       };
 
     case 'spotify':

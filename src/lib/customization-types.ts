@@ -23,6 +23,13 @@ export type TonosToneColumn = 'warm' | 'none' | 'cool';
 export interface MosaicosCustomization {
   categoryType: 'mosaicos';
   gridSize: 3 | 6 | 9;
+  /**
+   * True when the user rotated the grid (portrait ↔ landscape) in the
+   * builder. Captured from `useBuilderFlow.layoutRotated` and threaded
+   * through the cart so the print processor can swap rows/cols before
+   * cropping + splitting. Rotation is a no-op on gridSize 9 (square).
+   */
+  layoutRotated?: boolean;
 }
 
 export interface SpotifyCustomization {
