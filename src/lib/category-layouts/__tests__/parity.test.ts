@@ -6,12 +6,12 @@
  * `getCompositeLayout` match the values the pre-refactor switch statements
  * produced. The goal: prove the refactor is a no-op for every consumer.
  *
- * Written against `node:test` / `node:assert`, but the Mosaiko repo does not
- * yet have a test runner wired up — Next.js' bundler handles directory
- * imports natively (e.g. `./category-layouts` → `./category-layouts/index.ts`)
- * whereas Node's native ESM resolver does not. Wire this up when we add
- * vitest (planned for the post-refactor mobile polish work) or as part of
- * any future test infra.
+ * Phase 6 (Appendix I) — migrated from `node:test` to `vitest`. Phase 1
+ * pinned the assertions in `node:test` because the project didn't have
+ * a test runner; vitest landed in the integrity-audit phase but this
+ * file kept its original imports until now. Rename keeps the same
+ * assertions; vitest exposes `test`/`assert` API-compatible with the
+ * `node:test` helpers so no body changes are needed.
  *
  * Polaroid and Studio per-tile PHOTO_AREAS parity is intentionally *not*
  * re-checked here — the contract ports the canonical photo-region
@@ -19,7 +19,10 @@
  * equivalence is trivial. The deeper client↔server geometry reconciliation
  * (CSS-% preview vs. server PHOTO_AREAS) lives in PR 1c.
  */
-import { test } from 'node:test';
+import { test } from 'vitest';
+// vitest doesn't export node-style `assert` directly; use the std lib
+// `node:assert/strict` (vitest runs in node). All call sites use the
+// `assert` namespace API which is identical across both.
 import assert from 'node:assert/strict';
 import { getTileLayout, type CategoryCustomization } from '../../customization-types';
 import {
