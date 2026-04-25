@@ -5,6 +5,7 @@ import {
   type CategoryCustomization,
   type CategoryType,
   type TonosIntensity,
+  type TonosSlotConfigs,
   type STDFontFamily,
   type STDSize,
   type STDAnchor,
@@ -39,9 +40,7 @@ export interface PrintCustomizationInput {
   gridSize: GridSize;
   textFields?: Record<string, string>;
   tonosIntensity?: TonosIntensity;
-  tonosSlots?: CartItem['customizations'] extends infer T
-    ? T extends { tonosSlots?: infer S } ? S : never
-    : never;
+  tonosSlots?: TonosSlotConfigs;
   /**
    * Mosaicos-only. When true, rows/cols swap at the print processor so
    * the printed tile arrangement matches the rotated builder preview.
@@ -131,21 +130,18 @@ export function buildPrintCustomization(
       };
 
     case 'tonos': {
-      const base = {
+      // `tonosSlots` is now declared on `TonosCustomization` so the
+      // unsafe `as unknown as CategoryCustomization` cast (Phase 2 of
+      // the integrity audit) is gone. Each slot carries both
+      // `fitMode` and `rotation`; the webhook whitelists both via
+      // `whitelistTonosFitModes` / `whitelistTonosRotations` and
+      // forwards them into the print job.
+      return {
         categoryType: 'tonos' as const,
         gridSize: (gridSize === 9 ? 9 : 3) as 3 | 9,
         intensity: input.tonosIntensity ?? 'medium',
+        ...(input.tonosSlots ? { tonosSlots: input.tonosSlots } : {}),
       };
-      // tonosSlots carries per-slot rotations; the webhook reads them to
-      // forward into the Tonos processor. Keep them alongside the union
-      // shape (cast because CategoryCustomization doesn't declare them).
-      if (input.tonosSlots) {
-        return {
-          ...base,
-          tonosSlots: input.tonosSlots,
-        } as unknown as CategoryCustomization;
-      }
-      return base;
     }
 
     case 'polaroid':

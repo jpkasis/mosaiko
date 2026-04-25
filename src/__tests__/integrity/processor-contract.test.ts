@@ -15,11 +15,13 @@
  *      pixel-level test (would couple to libvips font rendering), but
  *      non-empty PNG bytes + dimension sanity is the contract we can pin.
  *
- * Open gaps (Phase 3+ work) are captured as `test.todo`:
- *   - Tonos fitMode is serialized end-to-end but the processor ignores
- *     it → `processTonos` uses fixed crop-to-fill.
- *   - `layoutRotated` never reaches the processor → Mosaicos 3/6 ships
- *     in the wrong orientation for rotated layouts.
+ * Tonos fitMode is now honored end-to-end (Phase 2) — see the
+ * dedicated describe block below for pixel-level proof.
+ *
+ * Remaining open gaps (Phase 3+ work) are captured as `test.todo`:
+ *   - composite-reuse metadata is stored in the cart but not forwarded
+ *     to Shopify; the webhook always re-renders.
+ *   - Studio CJK fallback is missing on Vercel runtime.
  */
 import { describe, test, expect, beforeAll } from 'vitest';
 import sharp from 'sharp';
@@ -467,18 +469,141 @@ describe('processor contract — tonos (multi-image)', () => {
   }, 45_000);
 });
 
+// ─── Tonos fitMode end-to-end (FIXED, was MAJOR) ────────────────────────────
+
+describe('tonos — fitMode honored by the print pipeline', () => {
+  /**
+   * Pixel-level proof that `processTonos` honors the per-slot fitMode
+   * threaded through `TonosPrintJob.fitModes`.
+   *
+   * Source: a 800×2000 tall image with three horizontal stripes — the
+   * top 5% cyan, middle 90% red, bottom 5% yellow. The stripes at the
+   * very edges of the source are the discriminator: Sharp `'cover'`
+   * crops top+bottom (only the middle red survives in the tile),
+   * whereas Sharp `'fill'` (non-uniform stretch) compresses every row
+   * into the tile (cyan top + yellow bottom both visible). Solid-red
+   * sources can't tell `'cover'` from `'fill'` apart — Codex pointed
+   * this out as a NIT — so the structured stripes give the test real
+   * discrimination power.
+   *
+   * The 9-grid layout is row-by-source × column-by-tone
+   * (warm/none/cool); the middle column (`'none'` tone) carries
+   * unfiltered output, so tiles 1 (slot 0), 4 (slot 1), 7 (slot 2)
+   * are pure pre-filter pixels. Tile 8 is logo-stamped — avoided.
+   *
+   * With fitModes = ['fit', 'fill', 'stretch']:
+   *   - `'fit'`     → contain on cream     → side corners = cream.
+   *   - `'fill'`    → cover (crop top+btm) → top + bottom corners = red.
+   *   - `'stretch'` → non-uniform fill     → top corner = cyan,
+   *                                          bottom corner = yellow.
+   *
+   * Sampling at `(5, 5)` and `(5, 822)` (= TILE_PRINT_SIZE − 5)
+   * avoids lanczos boundary blur on every edge; tolerance is ±5 RGB
+   * to absorb resampling + PNG round-tripping.
+   */
+  test('fitMode="fit" letterboxes; "fill" crops; "stretch" stretches non-uniformly', async () => {
+    // Build the striped fixture row-by-row using Sharp's `composite`.
+    const W = 800;
+    const H = 2000;
+    const topH = Math.round(H * 0.05); // 100
+    const botH = Math.round(H * 0.05); // 100
+    const midH = H - topH - botH;       // 1800
+    const stripe = async (
+      width: number,
+      height: number,
+      color: { r: number; g: number; b: number },
+    ): Promise<Buffer> =>
+      sharp({
+        create: { width, height, channels: 3, background: color },
+      })
+        .png()
+        .toBuffer();
+    const cyan = await stripe(W, topH, { r: 30, g: 200, b: 220 });
+    const red = await stripe(W, midH, { r: 220, g: 30, b: 30 });
+    const yellow = await stripe(W, botH, { r: 230, g: 200, b: 40 });
+    const STRIPED = await sharp({
+      create: { width: W, height: H, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    })
+      .composite([
+        { input: cyan, top: 0, left: 0 },
+        { input: red, top: topH, left: 0 },
+        { input: yellow, top: topH + midH, left: 0 },
+      ])
+      .jpeg({ quality: 95 })
+      .toBuffer();
+    const TALL_CROP = { x: 0, y: 0, width: W, height: H };
+
+    const job: TonosPrintJob = {
+      imageBuffers: [STRIPED, STRIPED, STRIPED],
+      customization: {
+        categoryType: 'tonos',
+        gridSize: 9,
+        intensity: 'medium',
+      },
+      cropAreas: [TALL_CROP, TALL_CROP, TALL_CROP],
+      fitModes: ['fit', 'fill', 'stretch'],
+      jobId: 'test-tonos-fitmode',
+    };
+    const result = await processPrintJob(job);
+    await assertTileContract(result.tiles, { count: 9, jobId: job.jobId });
+
+    const byIndex = new Map(result.tiles.map((t) => [t.index, t]));
+    const fitTile = byIndex.get(1);
+    const fillTile = byIndex.get(4);
+    const stretchTile = byIndex.get(7);
+    expect(fitTile).toBeDefined();
+    expect(fillTile).toBeDefined();
+    expect(stretchTile).toBeDefined();
+
+    async function samplePixel(
+      buf: Buffer,
+      x: number,
+      y: number,
+    ): Promise<{ r: number; g: number; b: number }> {
+      const { data, info } = await sharp(buf).raw().toBuffer({ resolveWithObject: true });
+      const idx = (y * info.width + x) * info.channels;
+      return { r: data[idx], g: data[idx + 1], b: data[idx + 2] };
+    }
+
+    // 'fit' → cream letterbox (#efebe0 = 239, 235, 224) on the sides
+    // of the contained striped image. (5,5) is in the left stripe.
+    const fitCorner = await samplePixel(fitTile!.buffer, 5, 5);
+    expect(Math.abs(fitCorner.r - 239)).toBeLessThanOrEqual(5);
+    expect(Math.abs(fitCorner.g - 235)).toBeLessThanOrEqual(5);
+    expect(Math.abs(fitCorner.b - 224)).toBeLessThanOrEqual(5);
+
+    // 'fill' (cover) → top 5% (cyan) + bottom 5% (yellow) cropped off.
+    // Both top corner (5,5) and bottom corner (5, 822) land inside the
+    // middle red band, far from the boundaries.
+    const fillTop = await samplePixel(fillTile!.buffer, 5, 5);
+    const fillBottom = await samplePixel(fillTile!.buffer, 5, 822);
+    expect(fillTop.r).toBeGreaterThan(180);
+    expect(fillTop.g).toBeLessThan(80);
+    expect(fillTop.b).toBeLessThan(80);
+    expect(fillBottom.r).toBeGreaterThan(180);
+    expect(fillBottom.g).toBeLessThan(80);
+    expect(fillBottom.b).toBeLessThan(80);
+
+    // 'stretch' (non-uniform fill) → all 2000 source rows compressed
+    // into 827 tile rows. Top corner samples the cyan stripe (high
+    // green + blue, low red); bottom corner samples the yellow stripe
+    // (high red + green, low blue). This is the assertion that proves
+    // 'stretch' is genuinely different from 'fill' (cover) — solid
+    // red couldn't.
+    const stretchTop = await samplePixel(stretchTile!.buffer, 5, 5);
+    const stretchBottom = await samplePixel(stretchTile!.buffer, 5, 822);
+    expect(stretchTop.r).toBeLessThan(80);
+    expect(stretchTop.g).toBeGreaterThan(150);
+    expect(stretchTop.b).toBeGreaterThan(150);
+    expect(stretchBottom.r).toBeGreaterThan(180);
+    expect(stretchBottom.g).toBeGreaterThan(150);
+    expect(stretchBottom.b).toBeLessThan(80);
+  }, 45_000);
+});
+
 // ─── Known contract gaps (MAJOR findings from the audit) ────────────────────
 
 describe('processor contract — known gaps (see DEFERRED.md)', () => {
-  test.todo(
-    'MAJOR-fix-TODO: Tonos fitMode not honored — TonosPrintJob lacks a ' +
-      'fitMode field; processTonos always crops-to-fill. Serializer ' +
-      'retains fitMode via a cast but it dies at the pipeline boundary. ' +
-      'Add `fitMode?: [FitMode, FitMode, FitMode]` to TonosPrintJob, ' +
-      'thread it through cropAndResize, and assert that fitMode="fit" ' +
-      'produces a letterboxed tile (detectable via background pixel ' +
-      'sampling at the tile corners).',
-  );
 
   test.todo(
     'MAJOR-fix-TODO: composite-reuse metadata stored in cart but not ' +

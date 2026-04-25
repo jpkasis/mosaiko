@@ -134,21 +134,12 @@ Items identified during the pipeline integrity audit (`INTEGRITY_AUDIT.md`)
 that were intentionally scoped out of the two-BLOCKER fix. Each entry has
 enough context to pick up cold.
 
-**Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
-**Last updated:** 2026-04-23 (post Phase 4c — layoutRotated BLOCKER resolved).
+**Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`); Phase 2 Tonos fitMode landed on `fix/tonos-fitmode` (off `qa/integration`).
+**Last updated:** 2026-04-25 (post Phase 2 — Tonos `fitMode` end-to-end resolved).
 
 ---
 
 ## MAJORs deferred
-
-### Tonos `fitMode` serialized via cast but print pipeline ignores it
-- **Where:** `src/lib/shopify/customization-serializer.ts:130` (cast), `src/app/api/webhooks/shopify/route.ts` (reads only `rotation`), `src/lib/print-pipeline/types.ts:28` (`TonosPrintJob` has no `fitMode` field), `src/lib/print-pipeline/processors/tonos.ts` (`cropAndResize` with fixed crop-to-fill).
-- **Symptom:** User picks `fitMode: 'fit'` or `'stretch'` per Tonos slot in the builder; the setting is serialized into the cart JSON (surviving the cart round-trip) but the webhook never reads it and the processor always crops-to-fill.
-- **Fix direction:**
-  1. Add `fitMode?: ['fill' | 'fit' | 'stretch', ...3]` to `TonosPrintJob`.
-  2. In the webhook route, read `tonosSlots[].fitMode` alongside `rotation` (same whitelist pattern) and forward into the print job.
-  3. In `processTonos`, per slot: if `fitMode === 'fit'` letterbox with background; if `'stretch'` skip aspect preservation; if `'fill'` behave as today.
-- **Test:** `serializer.test.ts` §"known integrity gaps" todo #2; add pixel-sampling assertion in `processor-contract.test.ts` once processor supports it.
 
 ### Composite-reuse metadata stored in cart but not sent to Shopify
 - **Where:** `src/components/builder/MagnetBuilder.tsx:~228` sets `customizations.compositeKey` + `compositeUrl`; `src/lib/shopify/checkout.ts#buildCartLines` does not serialize these as line-item attributes.

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
-import { splitImageIntoTiles, getCroppedCanvas, loadImage } from '@/lib/canvas-utils';
+import { splitImageIntoTiles, getCroppedCanvas, getCroppedTileWithFit, loadImage } from '@/lib/canvas-utils';
 import type { CropArea } from '@/lib/canvas-utils';
 import { formatPrice, type GridConfig } from '@/lib/grid-config';
 import {
@@ -34,6 +34,15 @@ interface TonosInputs {
   cropAreas: [CropArea | null, CropArea | null, CropArea | null];
   intensity: TonosIntensity;
   rotations?: [number, number, number];
+  /**
+   * Per-slot fit mode. The preview's per-slot canvas mirrors the
+   * server pipeline's `cropAndResize` semantics so what the user sees
+   * in the live-preview drawer matches the printed magnet:
+   *   - `'fill'`    → cover crop (current default)
+   *   - `'fit'`     → contain on a cream canvas (letterbox)
+   *   - `'stretch'` → non-uniform stretch
+   */
+  fitModes?: ['fill' | 'fit' | 'stretch', 'fill' | 'fit' | 'stretch', 'fill' | 'fit' | 'stretch'];
 }
 
 // Stable default to avoid recreating an empty object on every render
@@ -135,7 +144,8 @@ export function MagnetPreview({
               const image = await loadImage(src);
               if (cancelled) return;
               const rotation = tonos.rotations?.[i] ?? 0;
-              const canvas = getCroppedCanvas(image, area, tileSize, tileSize, rotation);
+              const fitMode = tonos.fitModes?.[i] ?? 'fill';
+              const canvas = getCroppedTileWithFit(image, area, tileSize, fitMode, rotation);
               perSource[i] = canvas.toDataURL('image/jpeg', 0.9);
               canvas.width = 0;
               canvas.height = 0;
@@ -268,6 +278,7 @@ export function MagnetPreview({
     tonos?.imageSrcs[0], tonos?.imageSrcs[1], tonos?.imageSrcs[2],
     tonos?.cropAreas[0], tonos?.cropAreas[1], tonos?.cropAreas[2],
     tonos?.rotations?.[0], tonos?.rotations?.[1], tonos?.rotations?.[2],
+    tonos?.fitModes?.[0], tonos?.fitModes?.[1], tonos?.fitModes?.[2],
     tonos?.intensity,
   ]);
 

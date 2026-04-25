@@ -7,6 +7,7 @@ import type {
   TonosCustomization,
 } from '@/lib/customization-types';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
+import { whitelistTonosFitModes } from '@/lib/shopify/webhook-parser';
 import type {
   PrintJob,
   SingleImagePrintJob,
@@ -255,11 +256,19 @@ export async function POST(request: NextRequest) {
         rotations = [tonosBody.rotations[0], tonosBody.rotations[1], tonosBody.rotations[2]];
       }
 
+      // Forward per-slot fitMode through to the print job. Same
+      // whitelist the order webhook uses — tonosSlots is treated as
+      // untrusted user input (it came over the wire). See Phase 2 fix.
+      const fitModes = whitelistTonosFitModes(
+        (tonosBody.customization as unknown as { tonosSlots?: unknown }).tonosSlots,
+      );
+
       const tonosJob: TonosPrintJob = {
         imageBuffers: [buffers[0], buffers[1], buffers[2]],
         customization: tonosBody.customization,
         cropAreas: [tonosBody.cropAreas[0], tonosBody.cropAreas[1], tonosBody.cropAreas[2]],
         rotations,
+        fitModes,
         jobId,
       };
       job = tonosJob;

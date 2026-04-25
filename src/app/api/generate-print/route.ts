@@ -6,6 +6,7 @@ import type {
   TonosCustomization,
 } from '@/lib/customization-types';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
+import { whitelistTonosFitModes } from '@/lib/shopify/webhook-parser';
 import type {
   ProcessorResult,
   PrintJob,
@@ -221,11 +222,17 @@ export async function POST(request: NextRequest) {
         rotations = [tonosBody.rotations[0], tonosBody.rotations[1], tonosBody.rotations[2]];
       }
 
+      // Per-slot fitMode whitelist — same path as the webhook + cart-composite.
+      const fitModes = whitelistTonosFitModes(
+        (tonosBody.customization as unknown as { tonosSlots?: unknown }).tonosSlots,
+      );
+
       const tonosJob: TonosPrintJob = {
         imageBuffers: [buffers[0], buffers[1], buffers[2]],
         customization: tonosBody.customization,
         cropAreas: [tonosBody.cropAreas[0], tonosBody.cropAreas[1], tonosBody.cropAreas[2]],
         rotations,
+        fitModes,
         jobId: orderId,
       };
       job = tonosJob;

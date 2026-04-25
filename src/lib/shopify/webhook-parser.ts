@@ -88,6 +88,32 @@ export function whitelistTonosRotations(
 }
 
 /**
+ * Whitelist Tonos per-slot fit modes to the three modes the print
+ * pipeline supports: `'fill'`, `'fit'`, `'stretch'`. Anything else
+ * (typo, missing, non-string, null) snaps to the safe default `'fill'`
+ * (the cropAndResize fallback that produces a covered crop given the
+ * pre-aspected cropArea).
+ *
+ * Mirrors `whitelistTonosRotations`'s shape contract: returns
+ * `undefined` when the input isn't a 3-slot array, so callers can
+ * fall back to the processor's default (`['fill', 'fill', 'fill']`).
+ */
+type TonosFitModeLiteral = 'fill' | 'fit' | 'stretch';
+export function whitelistTonosFitModes(
+  slotsRaw: unknown,
+): [TonosFitModeLiteral, TonosFitModeLiteral, TonosFitModeLiteral] | undefined {
+  if (!Array.isArray(slotsRaw) || slotsRaw.length !== 3) return undefined;
+  const allowed: TonosFitModeLiteral[] = ['fill', 'fit', 'stretch'];
+  const fs = slotsRaw.map((s) => {
+    const raw = (s as { fitMode?: unknown } | null | undefined)?.fitMode;
+    return allowed.includes(raw as TonosFitModeLiteral)
+      ? (raw as TonosFitModeLiteral)
+      : 'fill';
+  });
+  return [fs[0], fs[1], fs[2]];
+}
+
+/**
  * Safe JSON parse — returns `null` on malformed input instead of
  * throwing. Matches the current webhook fallback behaviour (log + skip
  * the line item) but surfaces the failure as a typed result the route

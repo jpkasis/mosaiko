@@ -8,11 +8,11 @@
  * Shopify cart attribute JSON both consume.
  *
  * Failures here mean customization fields are being silently dropped at
- * the moment the builder hands off to checkout. Two flagged gaps become
- * explicit TEST.TODO entries below so the suite surfaces them without
- * going red on CI:
- *   - Tonos `fitMode` is stored but not honored by the processor.
- *   - `layoutRotated` is stored but never reaches the serializer.
+ * the moment the builder hands off to checkout.
+ *
+ * Both prior flagged gaps are now closed (Phases 1 + 2):
+ *   - `layoutRotated` round-trips end-to-end (mosaicos rotation).
+ *   - Tonos `fitMode` round-trips and is honored by the print pipeline.
  *
  * Everything else round-trips cleanly.
  */
@@ -23,7 +23,7 @@ import {
   type PrintCustomizationInput,
 } from '@/lib/shopify/customization-serializer';
 import type { CartItem } from '@/lib/cart-store';
-import { STD_DEFAULTS } from '@/lib/customization-types';
+import { STD_DEFAULTS, type TonosCustomization } from '@/lib/customization-types';
 
 function roundTripJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -163,7 +163,7 @@ describe('buildPrintCustomization — per-category field retention', () => {
     });
   });
 
-  test('tonos — tonosSlots with rotation survives JSON round-trip', () => {
+  test('tonos — tonosSlots with rotation + fitMode survives JSON round-trip', () => {
     const slots: NonNullable<CartItem['customizations']>['tonosSlots'] = [
       { fitMode: 'fill', rotation: 0 },
       { fitMode: 'fit', rotation: 90 },
@@ -174,11 +174,11 @@ describe('buildPrintCustomization — per-category field retention', () => {
       gridSize: 9,
       tonosIntensity: 'medium',
       tonosSlots: slots,
-    }) as unknown as { tonosSlots: typeof slots };
+    }) as TonosCustomization;
     expect(result.tonosSlots).toEqual(slots);
-    // JSON must preserve both rotation AND fitMode — even though the
-    // current webhook only reads rotation. If fitMode drops at this
-    // layer, the 'Tonos fitMode unused' defect becomes much worse.
+    // JSON must preserve both rotation AND fitMode — once the print
+    // pipeline reads fitMode (TonosPrintJob.fitModes), this round-trip
+    // is the contract the webhook + cart-composite both depend on.
     const round = roundTripJson(result);
     expect(round.tonosSlots).toEqual(slots);
   });
@@ -233,18 +233,15 @@ describe('toPrintCustomization — CartItem → CategoryCustomization', () => {
   test('tonos cart item → serializer forwards tonosSlots', () => {
     const slots: NonNullable<CartItem['customizations']>['tonosSlots'] = [
       { fitMode: 'fill', rotation: 0 },
-      { fitMode: 'fill', rotation: 90 },
-      { fitMode: 'fill', rotation: 180 },
+      { fitMode: 'fit', rotation: 90 },
+      { fitMode: 'stretch', rotation: 180 },
     ];
     const item = baseItem('custom', 9, {
       categoryType: 'tonos',
       tonosIntensity: 'mild',
       tonosSlots: slots,
     });
-    const out = toPrintCustomization(item) as unknown as {
-      tonosSlots: typeof slots;
-      intensity: string;
-    };
+    const out = toPrintCustomization(item) as TonosCustomization;
     expect(out.intensity).toBe('mild');
     expect(out.tonosSlots).toEqual(slots);
   });
@@ -318,12 +315,56 @@ describe('mosaicos — layoutRotated round-trip (FIXED, was BLOCKER)', () => {
   });
 });
 
-describe('known integrity gaps (documented in DEFERRED.md)', () => {
-  test.todo(
-    'MAJOR-fix-TODO: Tonos fitMode serialized but print pipeline does not honor it — ' +
-      'TonosPrintJob lacks fitMode; processor always crops-to-fill. ' +
-      'Unstub this when TonosPrintJob + tonos.ts processor both read fitMode.',
-  );
+describe('Tonos — fitMode end-to-end (FIXED, was MAJOR)', () => {
+  test('buildPrintCustomization preserves per-slot fitMode on the typed Tonos result', () => {
+    const slots: NonNullable<CartItem['customizations']>['tonosSlots'] = [
+      { fitMode: 'fit', rotation: 0 },
+      { fitMode: 'stretch', rotation: 0 },
+      { fitMode: 'fill', rotation: 0 },
+    ];
+    const out = buildPrintCustomization({
+      categoryType: 'tonos',
+      gridSize: 9,
+      tonosIntensity: 'medium',
+      tonosSlots: slots,
+    });
+    // The serializer no longer casts; the discriminated-union narrow
+    // gives us a typed `tonosSlots` field with the matching shape.
+    expect(out.categoryType).toBe('tonos');
+    if (out.categoryType !== 'tonos') return;
+    expect(out.tonosSlots).toEqual(slots);
+    expect(out.tonosSlots?.[0].fitMode).toBe('fit');
+    expect(out.tonosSlots?.[1].fitMode).toBe('stretch');
+    expect(out.tonosSlots?.[2].fitMode).toBe('fill');
+  });
+
+  test('toPrintCustomization preserves fitMode through the cart→print boundary', () => {
+    const slots: NonNullable<CartItem['customizations']>['tonosSlots'] = [
+      { fitMode: 'fit', rotation: 90 },
+      { fitMode: 'fill', rotation: 180 },
+      { fitMode: 'stretch', rotation: 270 },
+    ];
+    const item: CartItem = {
+      id: 'tonos-fitmode',
+      type: 'custom',
+      gridSize: 9,
+      gridLayout: { rows: 3, cols: 3 },
+      name: 'tonos-test',
+      price: 480,
+      quantity: 1,
+      previewUrl: '',
+      tileUrls: [],
+      customizations: {
+        categoryType: 'tonos',
+        tonosIntensity: 'strong',
+        tonosSlots: slots,
+      },
+    };
+    const out = toPrintCustomization(item);
+    expect(out.categoryType).toBe('tonos');
+    if (out.categoryType !== 'tonos') return;
+    expect(out.tonosSlots).toEqual(slots);
+  });
 });
 
 describe('JSON round-trip (Shopify cart attribute serialization)', () => {

@@ -686,6 +686,118 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
     }
   });
 
+  test('tonos fitMode whitelisted from tonosSlots → forwarded into processPrintJob (Phase 2)', async () => {
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+
+    // Capture the job argument the webhook hands to the print pipeline.
+    let capturedJob: { rotations?: unknown; fitModes?: unknown } | null = null;
+    const result = await processLineItem(
+      1,
+      {
+        lineItemId: 99,
+        title: 'Tonos 9 fitMode',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'tonos',
+            gridSize: 9,
+            intensity: 'medium',
+            tonosSlots: [
+              { fitMode: 'fit', rotation: 0 },
+              { fitMode: 'fill', rotation: 90 },
+              { fitMode: 'stretch', rotation: 270 },
+            ],
+          }),
+          _photo_urls: JSON.stringify([
+            'https://r2.mosaiko.mx/uploads/a.jpg',
+            'https://r2.mosaiko.mx/uploads/b.jpg',
+            'https://r2.mosaiko.mx/uploads/c.jpg',
+          ]),
+          _crop_areas: JSON.stringify([
+            { x: 0, y: 0, width: 1, height: 1 },
+            { x: 0, y: 0, width: 1, height: 1 },
+            { x: 0, y: 0, width: 1, height: 1 },
+          ]),
+        },
+      },
+      {
+        fetchPhoto: async () => Buffer.from('ok'),
+        uploadPrintTiles: async () => [
+          { key: 'k0', publicUrl: 'https://r2.mosaiko.mx/k0' },
+        ],
+        processPrintJob: async (job) => {
+          capturedJob = job as { rotations?: unknown; fitModes?: unknown };
+          return {
+            tiles: [
+              { index: 0, buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]), filename: 'a' },
+            ],
+          };
+        },
+      },
+    );
+    expect(result.kind).toBe('ok');
+
+    expect(capturedJob).not.toBeNull();
+    // Whitelist preserved per-slot rotation AND fitMode in the same order.
+    expect((capturedJob as unknown as { rotations: number[] }).rotations).toEqual([0, 90, 270]);
+    expect((capturedJob as unknown as { fitModes: string[] }).fitModes).toEqual([
+      'fit',
+      'fill',
+      'stretch',
+    ]);
+  });
+
+  test('tonos malformed tonosSlots → fitModes undefined; processor falls back to "fill"', async () => {
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+
+    let capturedJob: { fitModes?: unknown } | null = null;
+    const result = await processLineItem(
+      2,
+      {
+        lineItemId: 100,
+        title: 'Tonos 9 malformed',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'tonos',
+            gridSize: 9,
+            intensity: 'medium',
+            // Wrong shape: only 2 slots — whitelist must reject and pass undefined.
+            tonosSlots: [{ fitMode: 'fit', rotation: 0 }, { fitMode: 'fill', rotation: 0 }],
+          }),
+          _photo_urls: JSON.stringify([
+            'https://r2.mosaiko.mx/uploads/a.jpg',
+            'https://r2.mosaiko.mx/uploads/b.jpg',
+            'https://r2.mosaiko.mx/uploads/c.jpg',
+          ]),
+          _crop_areas: JSON.stringify([
+            { x: 0, y: 0, width: 1, height: 1 },
+            { x: 0, y: 0, width: 1, height: 1 },
+            { x: 0, y: 0, width: 1, height: 1 },
+          ]),
+        },
+      },
+      {
+        fetchPhoto: async () => Buffer.from('ok'),
+        uploadPrintTiles: async () => [
+          { key: 'k0', publicUrl: 'https://r2.mosaiko.mx/k0' },
+        ],
+        processPrintJob: async (job) => {
+          capturedJob = job as { fitModes?: unknown };
+          return {
+            tiles: [
+              { index: 0, buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]), filename: 'a' },
+            ],
+          };
+        },
+      },
+    );
+    expect(result.kind).toBe('ok');
+    expect(capturedJob).not.toBeNull();
+    // Whitelist returns undefined when shape is wrong — processor defaults to 'fill'.
+    expect((capturedJob as unknown as { fitModes: unknown }).fitModes).toBeUndefined();
+  });
+
   test('tonos partial photo-fetch → photo_fetch_failed with which slots', async () => {
     const { processLineItem } = await import('@/lib/shopify/webhook-processor');
     const result = await processLineItem(

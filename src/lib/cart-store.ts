@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import type { GridSize } from './grid-config';
-import type { CategoryType, TonosIntensity } from './customization-types';
+import type {
+  CategoryType,
+  TonosIntensity,
+  TonosSlotConfigs,
+} from './customization-types';
 
 export interface CartItem {
   id: string;
@@ -36,11 +40,7 @@ export interface CartItem {
       { x: number; y: number; width: number; height: number },
     ];
     tonosIntensity?: TonosIntensity;
-    tonosSlots?: [
-      { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
-      { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
-      { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
-    ];
+    tonosSlots?: TonosSlotConfigs;
     layoutRotated?: boolean;
     /**
      * R2 key + URL of the canonical composite image produced at add-to-cart.

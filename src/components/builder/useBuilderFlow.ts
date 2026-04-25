@@ -34,14 +34,22 @@ export const STEP_I18N_MAP: Record<StepId, string> = {
 
 // ─── Tonos state (3 images) ─────────────────────────────────────────────────
 
-export type TonosIndex = 0 | 1 | 2;
-export type TonosFitMode = 'fill' | 'fit' | 'stretch';
-export type TonosRotation = 0 | 90 | 180 | 270;
+// Use the centralized types from customization-types.ts (single source of
+// truth) so cart-store, serializer, webhook, processor, and the builder all
+// agree. Keep re-exports under the legacy names so existing consumers
+// (ImageCropperMulti, MagnetBuilder, MagnetPreview) that import from this
+// module continue to work without path changes. `TonosSlot` is the legacy
+// local name; alias it to the canonical `TonosSlotConfig`.
+import type {
+  TonosFitMode,
+  TonosRotation,
+  TonosSlotConfig,
+  TonosSlotConfigs,
+} from '@/lib/customization-types';
+export type { TonosFitMode, TonosRotation, TonosSlotConfigs };
+export type TonosSlot = TonosSlotConfig;
 
-export interface TonosSlot {
-  fitMode: TonosFitMode;
-  rotation: TonosRotation;
-}
+export type TonosIndex = 0 | 1 | 2;
 
 export interface TonosState {
   fileRefs: React.RefObject<[File | null, File | null, File | null]>;
@@ -49,10 +57,10 @@ export interface TonosState {
   cropAreas: [CropArea | null, CropArea | null, CropArea | null];
   liveCropAreas: [CropArea | null, CropArea | null, CropArea | null];
   intensity: TonosIntensity;
-  slots: [TonosSlot, TonosSlot, TonosSlot];
+  slots: TonosSlotConfigs;
 }
 
-const DEFAULT_TONOS_SLOT: TonosSlot = { fitMode: 'fill', rotation: 0 };
+const DEFAULT_TONOS_SLOT: TonosSlotConfig = { fitMode: 'fill', rotation: 0 };
 
 function nextRotation(r: TonosRotation): TonosRotation {
   return ((r + 90) % 360) as TonosRotation;

@@ -145,11 +145,21 @@ function TonosCropSlot({
     img.src = imageSrc;
   }, [imageSrc]);
 
-  // Stretch mode: emit a synthetic full-image crop area once dimensions are known
+  // Stretch mode: emit a synthetic full-image crop area once dimensions
+  // are known. For 90/270 rotation, `processTonos` rotates the source
+  // image first, so its rotated dimensions are swapped — the cropArea
+  // must match the rotated bounds, not the original. (`cropAndResize`
+  // clamps the crop region against the rotated image and would
+  // otherwise return a top-left square slice instead of the full
+  // rotated image.) Same coordinate convention as `react-easy-crop`,
+  // which produces post-rotation cropAreas for the other fit modes.
   useEffect(() => {
     if (slot.fitMode !== 'stretch' || !imageSize) return;
-    const fullArea: CropArea = { x: 0, y: 0, width: imageSize.width, height: imageSize.height };
-    const key = `${slot.fitMode}|${slot.rotation}|${imageSize.width}x${imageSize.height}`;
+    const isQuarterTurn = slot.rotation === 90 || slot.rotation === 270;
+    const rotatedW = isQuarterTurn ? imageSize.height : imageSize.width;
+    const rotatedH = isQuarterTurn ? imageSize.width : imageSize.height;
+    const fullArea: CropArea = { x: 0, y: 0, width: rotatedW, height: rotatedH };
+    const key = `${slot.fitMode}|${slot.rotation}|${rotatedW}x${rotatedH}`;
     if (lastEmittedRef.current === key) return;
     lastEmittedRef.current = key;
     onCropComplete(index, fullArea);
@@ -168,6 +178,28 @@ function TonosCropSlot({
 
   const meta = COLUMN_LABELS[index];
   const objectFit = slot.fitMode === 'fill' ? 'cover' : 'contain';
+
+  // Cropper aspect must match the EFFECTIVE image aspect for `'fit'`
+  // mode, otherwise the user emits a 1:1 cropArea and Sharp `'contain'`
+  // produces an identity transform — visually identical to `'fill'` and
+  // robbing the user of the letterbox they asked for.
+  // - `'fill'`: keep aspect=1 (square crop fills the square slot).
+  // - `'fit'`:  aspect = source's rotated aspect, so the cropArea
+  //             carries the photo's native shape. Sharp `'contain'`
+  //             then letterboxes onto the 1:1 print slot.
+  // - `'stretch'`: handled by StretchPreview (synthetic full-image
+  //             cropArea). Keep that path; this branch only runs for
+  //             `'fill'` and `'fit'`.
+  // For 90/270 rotation, `react-easy-crop` rotates the displayed image,
+  // so the cropper must also see the rotated aspect to draw a frame
+  // that covers the visible image at zoom=1.
+  const isQuarterTurn = slot.rotation === 90 || slot.rotation === 270;
+  const rotatedSourceAspect = imageSize
+    ? (isQuarterTurn
+        ? imageSize.height / imageSize.width
+        : imageSize.width / imageSize.height)
+    : 1;
+  const cropperAspect = slot.fitMode === 'fit' ? rotatedSourceAspect : 1;
 
   return (
     <div className="flex flex-col gap-2">
@@ -189,20 +221,28 @@ function TonosCropSlot({
       />
 
       <div
-        className="relative w-full overflow-hidden rounded-xl bg-charcoal"
+        className="relative w-full overflow-hidden rounded-xl bg-cream"
         style={{ aspectRatio: '1' }}
       >
         {imageSrc ? (
           slot.fitMode === 'stretch' ? (
             <StretchPreview imageSrc={imageSrc} rotation={slot.rotation} />
+          ) : slot.fitMode === 'fit' && !imageSize ? (
+            // Wait for image dimensions before mounting the Cropper for
+            // `'fit'` mode. Mounting with aspect=1 first then
+            // remounting with the real aspect would emit a stale 1:1
+            // cropArea momentarily.
+            <div className="flex h-full w-full items-center justify-center text-sm text-warm-gray">
+              Cargando…
+            </div>
           ) : (
             <Cropper
-              key={`${slot.fitMode}-${slot.rotation}`}
+              key={`${slot.fitMode}-${slot.rotation}-${cropperAspect.toFixed(4)}`}
               image={imageSrc}
               crop={crop}
               zoom={zoom}
               rotation={slot.rotation}
-              aspect={1}
+              aspect={cropperAspect}
               objectFit={objectFit}
               onCropChange={setCrop}
               onZoomChange={setZoom}

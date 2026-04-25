@@ -11,7 +11,7 @@
 
 **Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
 
-**Last updated:** 2026-04-23.
+**Last updated:** 2026-04-25 (post Phase 2 — Tonos `fitMode` end-to-end).
 
 ---
 
@@ -26,7 +26,7 @@
 | 5 | **BLOCKER** | Non-atomic metafield write order — status='complete' could commit before `print_files` / `print_pipeline_results` lands, making the idempotency gate lie | **FIXED — Phase 4b** | All four pipeline metafields now written in one `metafieldsSet` call — atomic or nothing |
 | 6 | **BLOCKER** | `processLineItem` could produce `kind: 'ok'` with empty `urls[]` if `processPrintJob` or `uploadPrintTiles` returned zero tiles → order marked 'complete' with no files, idempotency gate freezes | **FIXED — Phase 4b** | `webhook-failure-modes.test.ts` §"processPrintJob returns 0 tiles → no_tiles_generated" |
 | 7 | **BLOCKER** | `layoutRotated` captured in builder but dropped by serializer → rotated Mosaicos 3/6 ships unrotated | **FIXED — Phase 4c** | `serializer.test.ts` §"mosaicos — layoutRotated round-trip" (4 tests) + `processor-contract.test.ts` §"mosaicos layoutRotated" (3 tests, incl. buffer-inequality proof for 3/6 and identity proof for 9) |
-| 8 | MAJOR | Tonos `fitMode` serialized via `as unknown as` cast, webhook reads only `rotation`, `TonosPrintJob` has no fit-mode field → processor always crops-to-fill | **DEFERRED** | `serializer.test.ts` §"known integrity gaps" todo #2 + `processor-contract.test.ts` §known-gaps todo #1 |
+| 8 | MAJOR | Tonos `fitMode` serialized via `as unknown as` cast, webhook reads only `rotation`, `TonosPrintJob` has no fit-mode field → processor always crops-to-fill | **FIXED — Phase 2 (post-Phase-4c)** | `serializer.test.ts` §"Tonos — fitMode end-to-end (FIXED, was MAJOR)" (2 tests) + `processor-contract.test.ts` §"tonos — fitMode honored" (pixel-sample test on striped fixture) + `webhook-failure-modes.test.ts` Tonos passthrough + malformed-tonosSlots tests |
 | 9 | MAJOR | Composite-reuse metadata stored in cart but not sent to Shopify → webhook regenerates from original photo, abandoned composites accumulate in R2 | **DEFERRED** | `processor-contract.test.ts` §known-gaps todo #3 |
 | 10 | MAJOR | Font fidelity gap (STD/Arte/Studio/Spotify) — SVG text uses system fonts, preview diverges from print | **DEFERRED** (tracked separately) | `memory/server_font_fidelity_gap.md` |
 | 11 | MAJOR | Admin print-file download still enumerates raw R2 prefixes — partial-upload survivors can appear downloadable even while the line is failed. (Codex flag — not in scope of this audit, needs admin-UI fix.) | **DEFERRED** | See DEFERRED.md |
@@ -69,6 +69,29 @@ Legend:
 - A new metafield `print_pipeline_results` (authoritative `PriorLineResult[]`) is written on every run and read as priors on every subsequent run.
 - New `POST /api/admin/orders/[orderId]/retry` endpoint (admin-session-guarded) fetches the order via Shopify REST, reads priors, re-runs the orchestrator, writes metafields, and returns `{ status, tilesProduced, failures, reusedFromPriors }`. No admin UI in this PR; curl-callable.
 
+### MAJOR #8 — Tonos `fitMode` end-to-end (Phase 2, post-Phase-4c)
+
+**Before:**
+- Per-slot `fitMode: 'fill' | 'fit' | 'stretch'` was captured in the cropper UI and persisted in the cart, but DIED at three boundaries:
+  1. Serializer used `as unknown as CategoryCustomization` to bypass `TonosCustomization` not declaring `tonosSlots` — TypeScript lost the field.
+  2. Webhook only whitelisted `rotation`, never read `fitMode`.
+  3. `TonosPrintJob` had no `fitModes?` field; `processTonos` always called `cropAndResize` with no fit-mode arg → Sharp `fit: 'fill'` (non-uniform stretch) for every slot.
+- Result: real users picking `'fit'` got the stretched output of `'fill'` — preview ↔ print mismatch on a purchasable feature.
+- Codex re-audit caught a second layer: `ImageCropperMulti.tsx` Cropper used `aspect={1}` for both `'fill'` and `'fit'` — even after the pipeline-side fix, the user-emitted cropArea was square, and Sharp `'contain'` on a 1:1 cropArea is identity. `'fit'` would silently degrade to `'fill'` again.
+
+**After:**
+- Centralized types in `customization-types.ts`: `TonosFitMode`, `TonosRotation`, `TonosSlotConfig`, `TonosSlotConfigs`. All consumers (cart-store, useBuilderFlow, MagnetBuilder, serializer, types.ts) re-export from there.
+- Serializer cast removed; `TonosCustomization` now declares `tonosSlots?: TonosSlotConfigs` directly.
+- New `whitelistTonosFitModes(slotsRaw)` mirrors `whitelistTonosRotations` shape; per-slot invalid → `'fill'`, wrong-shape → `undefined`.
+- Webhook + `/api/cart-composite` + `/api/generate-print` all read `slotsRaw` once and forward both `rotations` + `fitModes` into `TonosPrintJob`.
+- `cropAndResize` extended with `{ fitMode, background }` options bag mapping UI mode → Sharp fit (`fill→cover`, `fit→contain`, `stretch→fill`); cream `#efebe0` letterbox.
+- `processTonos` per-slot: `cropAndResize(buf, area, 827, 827, { fitMode: fitModes?.[i] ?? 'fill', background: TONOS_LETTERBOX_BG })`.
+- `ImageCropperMulti.tsx`: `cropperAspect = fitMode === 'fit' ? rotatedSourceAspect : 1`. For `'fit'`, the cropper waits for `imageSize` to load before mounting (avoids emitting a stale 1:1 cropArea). `StretchPreview` now swaps `width`/`height` for 90/270 rotation so the synthetic full-image cropArea matches the rotated source bounds.
+- `MagnetPreview.tsx` uses a new `getCroppedTileWithFit` helper in `canvas-utils.ts` that mirrors Sharp's cover/contain/fill semantics in a JS canvas — preview ↔ print parity holds.
+- Cropper container: `bg-charcoal → bg-cream` so `'fit'` mode preview shows the same letterbox color the printer will emit.
+
+**Tests:** `serializer.test.ts` "Tonos — fitMode end-to-end" (2 tests, casts removed) + `processor-contract.test.ts` "tonos — fitMode honored" (pixel-sample on cyan/red/yellow striped 800×2000, samples top + bottom corners to discriminate `'cover'` from `'fill'`) + `webhook-failure-modes.test.ts` "tonos fitMode whitelisted" + "malformed tonosSlots fallback" (2 tests).
+
 ### BLOCKERS #3–6 — Codex second-pass findings (Phase 4b)
 
 During the post-fix audit Codex flagged four additional must-fix issues within the same surface area:
@@ -84,12 +107,12 @@ During the post-fix audit Codex flagged four additional must-fix issues within t
 
 | File | Tests | Finding pinned |
 |---|---|---|
-| `src/__tests__/integrity/serializer.test.ts` | 24 passing + 1 todo | `buildPrintCustomization` round-trip per category × grid; JSON cart-attribute survival; Tonos rotation + fitMode in cart; BLOCKER #7 layoutRotated round-trip (4 tests); finding #8 via todo |
+| `src/__tests__/integrity/serializer.test.ts` | 26 passing + 0 todo | `buildPrintCustomization` round-trip per category × grid; JSON cart-attribute survival; Tonos rotation + fitMode in cart (now typed, no cast); BLOCKER #7 layoutRotated round-trip (4 tests); finding #8 Tonos fitMode end-to-end (2 tests) |
 | `src/__tests__/integrity/webhook-parser.test.ts` | 19 passing | `extractCustomizedLineItems` `_`-prefix filter; `whitelistTonosRotations` quarter-turn clamp; `safeJsonParse` malformed-input safety; captured-fixture payload integration |
-| `src/__tests__/integrity/webhook-failure-modes.test.ts` | 13 passing + 0 todo | BLOCKERs #1 + #6 (8 tests on typed `LineItemResult` + `no_tiles_generated` invariant); BLOCKER #2 `UploadFailure` shape + per-line idempotency reuse/retry (5 tests) |
-| `src/__tests__/integrity/processor-contract.test.ts` | 15 passing + 4 todo | Every processor produces N 827×827 PNG tiles with stable indexes; Tonos `intensity='strong'` regression test; BLOCKER #7 mosaicos layoutRotated — buffer-inequality for 3/6 and byte-identity for 9 (3 tests); findings #8 #9 #10 #12 #13 captured as todos |
+| `src/__tests__/integrity/webhook-failure-modes.test.ts` | 15 passing + 0 todo | BLOCKERs #1 + #6 (8 tests); BLOCKER #2 `UploadFailure` shape + per-line idempotency reuse/retry (5 tests); finding #8 Tonos fitMode passthrough + malformed-tonosSlots fallback (2 tests) |
+| `src/__tests__/integrity/processor-contract.test.ts` | 16 passing + 3 todo | Every processor produces N 827×827 PNG tiles; Tonos `intensity='strong'` regression test; BLOCKER #7 mosaicos layoutRotated — buffer-inequality for 3/6 and byte-identity for 9 (3 tests); finding #8 Tonos fitMode pixel-sample on striped fixture (1 test); findings #9 #12 #13 captured as todos |
 
-Totals: **71 passing, 5 todo (76 tests total), 4 test files, `tsc --noEmit` clean.**
+Totals: **76 passing, 3 todo (79 tests total), 4 test files, `tsc --noEmit` clean.** (Phase 2 added 5 passing tests + flipped 2 todos.)
 
 Run: `npm test`.
 
@@ -127,3 +150,4 @@ Items that require a live Shopify store + R2 bucket + Vercel runtime. None are a
 - `041e375` fix(webhook): Codex final-pass patches — always-overwrite empty metafield keys, retry endpoint surfaces 500 on metafield-write failure
 - `ade90a0` fix(mosaicos): thread layoutRotated end-to-end (BLOCKER #7)
 - `936be78` fix(mosaicos): Codex audit — preview/cart/print parity (assemble-tiles + cart-composite request + composite-dimension oracle tests)
+- (this commit) fix(tonos): Tonos `fitMode` end-to-end (MAJOR #8) — types centralized, serializer cast removed, webhook + endpoints whitelist + forward, processor honors per-slot fitMode, cropper aspect respects fit mode, preview helper mirrors Sharp semantics

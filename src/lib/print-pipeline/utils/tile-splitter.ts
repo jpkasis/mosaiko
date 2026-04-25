@@ -3,6 +3,35 @@ import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { CropArea } from '../../canvas-utils';
 
 /**
+ * Optional fit-mode + background overrides for `cropAndResize`. Without
+ * an options object, the legacy default (Sharp `fit: 'fill'`) is used —
+ * preserves the existing single-image processor behaviour. Tonos opts
+ * in by passing `{ fitMode, background }` to honour the per-slot
+ * fill/fit/stretch UI control (Phase 2 fix).
+ *
+ * UI-mode → Sharp-fit mapping:
+ *   - `'fill'`    → `fit: 'cover'`   (preserve aspect, crop to fill)
+ *   - `'fit'`     → `fit: 'contain'` (preserve aspect, letterbox)
+ *   - `'stretch'` → `fit: 'fill'`    (non-uniform stretch)
+ */
+export interface CropAndResizeOptions {
+  fitMode?: 'fill' | 'fit' | 'stretch';
+  /** RGBA background colour for `'fit'` letterbox. Ignored otherwise. */
+  background?: { r: number; g: number; b: number; alpha: number };
+}
+
+const FIT_MODE_TO_SHARP: Record<
+  NonNullable<CropAndResizeOptions['fitMode']>,
+  'cover' | 'contain' | 'fill'
+> = {
+  fill: 'cover',
+  fit: 'contain',
+  stretch: 'fill',
+};
+
+const DEFAULT_LETTERBOX_BG = { r: 239, g: 235, b: 224, alpha: 1 }; // --cream
+
+/**
  * Crops the source image to the specified crop area, then resizes to the
  * target dimensions. Server-side equivalent of getCroppedCanvas.
  * Validates crop coordinates against actual image dimensions.
@@ -12,6 +41,7 @@ export async function cropAndResize(
   cropArea: CropArea,
   width: number,
   height: number,
+  options?: CropAndResizeOptions,
 ): Promise<Buffer> {
   // Validate crop coordinates against source image dimensions
   const metadata = await sharp(imageBuffer).metadata();
@@ -34,6 +64,15 @@ export async function cropAndResize(
     );
   }
 
+  // Resolve Sharp `fit` from the optional UI-mode. Legacy callers (no
+  // options object) keep the historic `fit: 'fill'` behaviour, which is
+  // pixel-equivalent to `'cover'` whenever the cropArea aspect already
+  // matches the target — true for the single-image processors today.
+  const sharpFit = options?.fitMode
+    ? FIT_MODE_TO_SHARP[options.fitMode]
+    : 'fill';
+  const background = options?.background ?? DEFAULT_LETTERBOX_BG;
+
   return sharp(imageBuffer)
     .extract({
       left,
@@ -42,7 +81,10 @@ export async function cropAndResize(
       height: cropHeight,
     })
     .resize(width, height, {
-      fit: 'fill',
+      fit: sharpFit,
+      // Sharp ignores `background` for `fill`; only `'contain'` uses it
+      // (letterbox padding around the resized image).
+      background,
       kernel: sharp.kernel.lanczos3,
     })
     .png()

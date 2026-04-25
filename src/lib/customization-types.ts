@@ -18,6 +18,42 @@ export type TonosIntensity = 'mild' | 'medium' | 'strong';
 
 export type TonosToneColumn = 'warm' | 'none' | 'cool';
 
+// ─── Tonos per-slot config (single source of truth) ────────────────────────
+
+/**
+ * How the user's photo fits inside its 827×827 print tile when the
+ * source image's aspect doesn't match. Three modes match the Sharp
+ * `fit` semantics (UI label → Sharp behaviour):
+ *   - `'fill'`  — UI: cropper covers full tile, may crop edges → Sharp `fit: 'cover'`
+ *   - `'fit'`   — UI: shows whole image, letterboxes empty space → Sharp `fit: 'contain'` + cream bg
+ *   - `'stretch'` — UI: distorts to exact dimensions → Sharp `fit: 'fill'`
+ */
+export type TonosFitMode = 'fill' | 'fit' | 'stretch';
+
+/** The four quarter-turns supported by the print pipeline. */
+export type TonosRotation = 0 | 90 | 180 | 270;
+
+/** Per-slot (one of three) fit + rotation user controls in the cropper. */
+export interface TonosSlotConfig {
+  fitMode: TonosFitMode;
+  rotation: TonosRotation;
+}
+
+/**
+ * Tonos always has exactly three uploaded slots (one per source photo),
+ * regardless of grid size. Fixed-length tuple so consumers can reach
+ * into a slot by index without conditional length checks. NOT marked
+ * `readonly` because the builder's `setTonosFitMode` /
+ * `setTonosRotation` setters do `next[index] = { ...prev[index], ... }`
+ * during state updates; consumers that need an immutable view can use
+ * `Readonly<TonosSlotConfigs>` locally.
+ */
+export type TonosSlotConfigs = [
+  TonosSlotConfig,
+  TonosSlotConfig,
+  TonosSlotConfig,
+];
+
 // ─── Per-category customization data (discriminated union) ──────────────────
 
 export interface MosaicosCustomization {
@@ -43,6 +79,14 @@ export interface TonosCustomization {
   categoryType: 'tonos';
   gridSize: 3 | 9;
   intensity: TonosIntensity;
+  /**
+   * Per-slot fit + rotation. Persisted in the cart, serialized into
+   * Shopify line-item attributes, and read back at order time by the
+   * webhook to drive the print processor's per-slot crop semantics.
+   * Optional: pre-fitMode-fix payloads default the processor to
+   * `[{fitMode:'fill', rotation:0}, ...]` for backward compat.
+   */
+  tonosSlots?: TonosSlotConfigs;
 }
 
 export type STDFontFamily =

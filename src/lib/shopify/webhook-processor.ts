@@ -22,6 +22,7 @@ import type { CropArea } from '../canvas-utils';
 import {
   extractCustomizedLineItems,
   whitelistTonosRotations,
+  whitelistTonosFitModes,
   safeJsonParse,
   type CustomizedLineItem,
   type ShopifyOrderWebhook,
@@ -162,10 +163,16 @@ export async function processLineItem(
       return fail('photo_fetch_failed', `slots=${missing.join(',')}`);
     }
 
+    // `tonosSlots` is now declared on `TonosCustomization` itself, but
+    // the webhook still treats the value as untrusted (it came from a
+    // Shopify line-item attribute that any client could in theory
+    // tamper with). Whitelist both `rotation` and `fitMode` per slot
+    // before forwarding into the print job.
     const slotsRaw = (
       customization as unknown as { tonosSlots?: unknown }
     ).tonosSlots;
     const rotations = whitelistTonosRotations(slotsRaw);
+    const fitModes = whitelistTonosFitModes(slotsRaw);
 
     let printResult;
     try {
@@ -174,6 +181,7 @@ export async function processLineItem(
         customization,
         cropAreas: [crops[0], crops[1], crops[2]],
         rotations,
+        fitModes,
         jobId,
       });
     } catch (error) {

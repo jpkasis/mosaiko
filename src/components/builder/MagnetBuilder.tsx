@@ -10,6 +10,7 @@ import {
   CATEGORY_REGISTRY,
   type CategoryType,
   type TonosIntensity,
+  type TonosSlotConfigs,
 } from '@/lib/customization-types';
 import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
 import { deriveCropperOverlay } from '@/lib/category-layouts/derive';
@@ -173,11 +174,7 @@ export function MagnetBuilder() {
           string, string, string,
         ];
 
-        const tonosSlots: [
-          { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
-          { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
-          { fitMode: 'fill' | 'fit' | 'stretch'; rotation: 0 | 90 | 180 | 270 },
-        ] = [
+        const tonosSlots: TonosSlotConfigs = [
           { fitMode: flow.tonos.slots[0].fitMode, rotation: flow.tonos.slots[0].rotation },
           { fitMode: flow.tonos.slots[1].fitMode, rotation: flow.tonos.slots[1].rotation },
           { fitMode: flow.tonos.slots[2].fitMode, rotation: flow.tonos.slots[2].rotation },
@@ -402,11 +399,17 @@ export function MagnetBuilder() {
   const tonosForPreview = useMemo(() => {
     if (!isTonos) return undefined;
     const rotations = flow.tonos.slots.map((s) => s.rotation) as [number, number, number];
+    const fitModes = flow.tonos.slots.map((s) => s.fitMode) as [
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+    ];
     return {
       imageSrcs: flow.tonos.imageSrcs,
       cropAreas: flow.tonos.cropAreas,
       intensity: flow.tonos.intensity,
       rotations,
+      fitModes,
     };
   }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.intensity, flow.tonos.slots]);
 
@@ -417,7 +420,12 @@ export function MagnetBuilder() {
       CropArea | null, CropArea | null, CropArea | null
     ];
     const rotations = slots.map((s) => s.rotation) as [number, number, number];
-    return { imageSrcs, cropAreas: merged, intensity, rotations };
+    const fitModes = slots.map((s) => s.fitMode) as [
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+    ];
+    return { imageSrcs, cropAreas: merged, intensity, rotations, fitModes };
   }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.liveCropAreas, flow.tonos.intensity, flow.tonos.slots]);
 
   // On mobile, pad the bottom of the page content by the footer height plus a
@@ -853,6 +861,11 @@ function LivePreviewSidebar({
     cropAreas: [CropArea | null, CropArea | null, CropArea | null];
     intensity: TonosIntensity;
     rotations: [number, number, number];
+    fitModes: [
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+    ];
   };
 }) {
   const t = useTranslations('builder');
