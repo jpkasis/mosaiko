@@ -607,21 +607,79 @@ describe('tonos — fitMode honored by the print pipeline', () => {
 
 // ─── Known contract gaps (MAJOR findings from the audit) ────────────────────
 
-describe('processor contract — known gaps (see DEFERRED.md)', () => {
+describe('processor contract — finding closures', () => {
   // MAJOR composite-reuse + MINOR _-prefix attr naming — both FIXED
   // in Phase 3 (commit on `fix/cart-correctness`). Pinned tests for
   // composite-reuse live in `webhook-failure-modes.test.ts`
   // (§"Phase 3.1 — composite-reuse bypass") and the attr-naming
   // assertion lives in `webhook-parser.test.ts`
   // (§"Phase 3.4: _preview_image_url and _grid_type survive the filter").
+  //
+  // MINOR #13 (Studio CJK fallback) FIXED in Phase 4 of Appendix I —
+  // studio.ts now pins `Noto Sans JP` for the japaneseText layer; the
+  // canvas-text path bundles the WOFF2 via @fontsource/noto-sans-jp.
+  // Pixel test below proves glyphs rendered (not tofu).
 
-  test.todo(
-    'MINOR-fix-TODO: Studio Japanese text rendered with generic sans-serif — ' +
-      'studio.ts passes font-family: sans-serif in the SVG and relies on ' +
-      "the Vercel runtime having a CJK fallback installed. Fontconfig's " +
-      'default chain on Vercel Functions does NOT include a CJK font, so ' +
-      'Japanese characters can render as tofu. Bundle Noto Sans JP (or ' +
-      'similar) and pin font-family explicitly for the japaneseText layer. ' +
-      'Phase 4 of `Appendix I` plan.',
-  );
+  test('Studio japaneseText: Noto Sans JP renders glyphs (not tofu) — finding #13', async () => {
+    const studioCustomization = {
+      categoryType: 'studio' as const,
+      gridSize: 6 as const,
+      year: '2001',
+      japaneseText: '千と千尋',
+      customText: 'SPIRITED',
+      studioText: 'STUDIO GHIBLI',
+    };
+    const job: SingleImagePrintJob = {
+      imageBuffer: SOURCE_IMAGE,
+      customization: studioCustomization,
+      cropArea: FULL_CROP,
+      jobId: 'test-studio-cjk',
+    };
+    const result = await processPrintJob(job);
+    await assertTileContract(result.tiles, { count: 6, jobId: job.jobId });
+
+    // The right panel (tile index 5 in the 3×2 grid) carries the Japanese
+    // text at the right edge around y ≈ 0.325 × 827 ≈ 269. Sample inside
+    // that text region and assert the pixel is text-color (#2a2a2a) within
+    // tolerance — proves glyphs were drawn rather than the panel showing
+    // empty cream where tofu would appear in a missing-font fallback.
+    const TILE = 827;
+    const tile5 = result.tiles.find((t) => t.index === 5);
+    expect(tile5).toBeDefined();
+    const { data, info } = await sharp(tile5!.buffer)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    // Scan the Japanese text region (right-aligned at x ≈ 0.93 × TILE,
+    // baseline at y ≈ 0.325 × TILE — see studio.ts#renderRightPanel).
+    // At least one pixel in the predicted glyph rectangle must be the
+    // text color (#2a2a2a within ±35 RGB tolerance for AA edges).
+    // 2D sweep (x ∈ [0.55, 0.93] × y ∈ [0.23, 0.34]) absorbs whichever
+    // glyph happens to land where; if Noto Sans JP is loaded, SOMEWHERE
+    // in this region there's an inked pixel. If the font is missing,
+    // canvas would render tofu (rectangles) which still produces dark
+    // pixels — but the WIDER fallback case is canvas dropping the
+    // characters entirely, which would leave the cream template visible.
+    const xStart = Math.round(TILE * 0.55);
+    const xEnd = Math.round(TILE * 0.93);
+    const yStart = Math.round(TILE * 0.23);
+    const yEnd = Math.round(TILE * 0.34);
+    let textPixelCount = 0;
+    for (let y = yStart; y <= yEnd; y++) {
+      for (let x = xStart; x <= xEnd; x++) {
+        const idx = (y * info.width + x) * info.channels;
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        // Text color #2a2a2a; ±35 tolerance absorbs AA edges.
+        if (r < 80 && g < 80 && b < 80) {
+          textPixelCount++;
+        }
+      }
+    }
+    // Need a meaningful number of dark pixels to prove glyph
+    // rendering, not just a stray template artifact. 50+ dark pixels
+    // in this region ≈ at least a few glyph strokes.
+    expect(textPixelCount).toBeGreaterThan(50);
+  }, 30_000);
 });

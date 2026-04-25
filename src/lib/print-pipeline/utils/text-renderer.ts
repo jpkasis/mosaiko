@@ -222,7 +222,13 @@ export async function renderMultiTextToBuffer(
     text: b.text,
     x: b.x,
     y: b.y,
-    fontFamily: b.fontFamily ?? 'Source Sans 3',
+    // Backward-compat default: pre-Phase-4 wrapper used `'sans-serif'`
+    // (passed straight into SVG, librsvg picked whatever it had). For
+    // canvas, `'sans-serif'` is a valid CSS generic family and resolves
+    // to the platform default — preserves the legacy behaviour for any
+    // external caller. New code should pass an explicit family name
+    // registered in font-loader.ts.
+    fontFamily: b.fontFamily ?? 'sans-serif',
     fontSize: b.fontSize,
     fill: b.color ?? '#FFFFFF',
     // Map SVG-style `middle` to canvas-style `center`. Other values

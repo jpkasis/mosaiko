@@ -16,4 +16,4 @@
  * - Anything else that would make a stored composite render differently
  *   than a fresh `processPrintJob` would right now.
  */
-export const PIPELINE_VERSION = '2026.04.25-phase3';
+export const PIPELINE_VERSION = '2026.04.25-phase4';

@@ -27,9 +27,16 @@
  * comfortably under.
  */
 import { GlobalFonts } from '@napi-rs/canvas';
-import { join } from 'node:path';
+import { createRequire } from 'node:module';
 
-const FONTSOURCE_BASE = join(process.cwd(), 'node_modules', '@fontsource');
+// Codex Phase 4 audit MAJOR fix: use `require.resolve` instead of
+// `process.cwd()/node_modules/...` for path resolution. Static
+// require.resolve calls are picked up by Next.js's output file tracing
+// (and Vercel's serverless bundler) so the WOFF2 files actually ship
+// with the function. `process.cwd()` is fragile under serverless
+// runtimes (cwd is not the project root) and `node_modules/...` may not
+// even exist in the deployed bundle.
+const require = createRequire(import.meta.url);
 
 interface FontEntry {
   /** The package name segment under @fontsource. */
@@ -67,11 +74,11 @@ const FONT_REGISTRY: readonly FontEntry[] = [
 function resolveWoff2Path(entry: FontEntry, weight: number): string {
   // @fontsource path convention: `<pkg>/files/<pkg>-<subset>-<weight>-normal.woff2`.
   // Subset segment is `latin` for Latin scripts and `japanese` for Noto Sans JP.
-  return join(
-    FONTSOURCE_BASE,
-    entry.pkg,
-    'files',
-    `${entry.pkg}-${entry.subset}-${weight}-normal.woff2`,
+  // require.resolve walks the proper module resolution algorithm (handles
+  // monorepo hoisting, pnpm flat layouts, Vercel's traced bundle) — much
+  // safer than poking at `process.cwd()/node_modules/...` directly.
+  return require.resolve(
+    `@fontsource/${entry.pkg}/files/${entry.pkg}-${entry.subset}-${weight}-normal.woff2`,
   );
 }
 

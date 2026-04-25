@@ -4,7 +4,30 @@ import createNextIntlPlugin from 'next-intl/plugin';
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['sharp'],
+  // Sharp + napi-rs/canvas are native modules — exclude from server
+  // bundling so Vercel uses the prebuilt binaries instead of trying to
+  // bundle them through Webpack.
+  serverExternalPackages: ['sharp', '@napi-rs/canvas'],
+  // Phase 4 — server-side font fidelity. The print-pipeline functions
+  // need the bundled @fontsource WOFF2 files at runtime so canvas's
+  // GlobalFonts.registerFromPath can load them. Next's tracing finds
+  // package code via `require.resolve`, but assets next to it don't
+  // automatically come along. Explicitly include the WOFF2s for every
+  // print-pipeline-touching route + the lib itself.
+  outputFileTracingIncludes: {
+    '/api/webhooks/shopify': [
+      './node_modules/@fontsource/{cinzel,cormorant-garamond,dancing-script,dm-sans,great-vibes,montserrat,noto-sans-jp,playfair-display,source-sans-3,tenor-sans}/files/*.woff2',
+    ],
+    '/api/cart-composite': [
+      './node_modules/@fontsource/{cinzel,cormorant-garamond,dancing-script,dm-sans,great-vibes,montserrat,noto-sans-jp,playfair-display,source-sans-3,tenor-sans}/files/*.woff2',
+    ],
+    '/api/generate-print': [
+      './node_modules/@fontsource/{cinzel,cormorant-garamond,dancing-script,dm-sans,great-vibes,montserrat,noto-sans-jp,playfair-display,source-sans-3,tenor-sans}/files/*.woff2',
+    ],
+    '/api/admin/orders/[orderId]/retry': [
+      './node_modules/@fontsource/{cinzel,cormorant-garamond,dancing-script,dm-sans,great-vibes,montserrat,noto-sans-jp,playfair-display,source-sans-3,tenor-sans}/files/*.woff2',
+    ],
+  },
   images: {
     qualities: [75, 90],
     formats: ['image/avif', 'image/webp'],

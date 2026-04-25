@@ -135,14 +135,12 @@ enough context to pick up cold.
 
 ## MAJORs deferred
 
-### Server-side font fidelity gap
-- **Where:** `src/lib/print-pipeline/processors/{save-the-date,arte,studio,spotify}.ts` — SVG text uses system fonts via librsvg's fontconfig, which on Vercel Functions has no Google-Fonts equivalents.
-- **Symptom:** Preview renders text in Playfair / Cormorant / Great-Vibes / Montserrat; print PNG falls back to DejaVu Sans or similar. Preview ↔ print divergence violates the "what you see is what you print" promise.
-- **Scope:** STD + Arte + Studio + Spotify.
-- **Fix direction (pick one):**
-  - Bundle TTF files in `public/fonts/` and embed `@font-face` data URIs inside SVG strings.
-  - Migrate `src/lib/print-pipeline/utils/text-renderer.ts` to `@napi-rs/canvas` with `registerFont`.
-- **Reference:** `memory/server_font_fidelity_gap.md`.
+### Server-side font fidelity gap (Save the Date only — Spotify/Studio/Arte FIXED in Phase 4)
+- **Where:** `src/lib/print-pipeline/processors/save-the-date.ts` — only STD remains on the SVG/librsvg path. Spotify, Studio, and Arte migrated to canvas via `font-loader.ts` + `renderTextLayer` in Phase 4 (Appendix I).
+- **Symptom:** STD preview renders text in Playfair / Cormorant / Great-Vibes / Montserrat etc.; print PNG falls back to DejaVu/Liberation Sans without correct fonts.
+- **Why STD specifically deferred:** SVG `<filter>` effects for `treatment={shadow|halo|outline|frame|card}` use `feDropShadow` and blur halos. Each treatment needs a canvas equivalent (ctx.shadow*, ctx.filter='blur()', strokeText, strokeRect for the four trivial cases; halo+card need more careful translation). Substantial follow-up; deferred to Phase 4.5 or Phase 4-followup.
+- **Fix direction:** Replace STD's `buildOverlaySvg` with a canvas-based renderer that produces the same rectangle of text + treatment effects. Reuse `font-loader.ts` registry; build per-treatment canvas drawing routines.
+- **Reference:** `memory/server_font_fidelity_gap.md`; `INTEGRITY_AUDIT.md` row #10 PARTIALLY FIXED.
 
 ### Admin print-file download enumerates raw R2 prefixes
 - **Where:** `src/app/api/admin/print-files/` (prefix-listing endpoint) and `src/app/admin/pedidos/[orderNumber]/page.tsx` (consumer).
@@ -154,10 +152,10 @@ enough context to pick up cold.
 
 ## MINORs deferred
 
-### Studio Japanese text uses generic `sans-serif` SVG font-family
-- **Where:** `src/lib/print-pipeline/processors/studio.ts:195` — the `japaneseText` SVG layer uses `font-family="sans-serif"` and relies on the Vercel runtime having a CJK font in fontconfig's chain.
-- **Symptom:** Japanese characters (e.g. `千と千尋の神隠し`) may render as tofu squares on Vercel Functions. Subset of the broader font fidelity gap.
-- **Fix direction:** Bundle Noto Sans JP (or similar CJK font) and pin `font-family` explicitly for the `japaneseText` layer.
+(Studio CJK font fallback was FIXED in Phase 4 — Noto Sans JP now bundled
+and pinned explicitly. See `INTEGRITY_AUDIT.md` row #13 + the
+`processor-contract.test.ts` "finding closures" Studio CJK pixel-region
+test for the regression fence.)
 
 ---
 
