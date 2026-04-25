@@ -46,9 +46,19 @@ export async function POST(request: Request) {
 
   const items = body.items as CartItem[];
 
-  // Empty cart: no-op. Don't create empty Shopify carts; let the old one age
-  // out. Client treats a 204 as "nothing to restore yet".
+  // Empty cart: clear the cookie so CartHydrator can't restore the prior
+  // Shopify cart on the next page load. Without this, removing every item
+  // (or returning from a successful checkout) would resurrect the previous
+  // session because the cookie still points at a living anonymous cart.
+  // (Phase 3.3 — empty-cart resurrect fix.)
+  //
+  // We don't try to delete the remote cart from Shopify — anonymous carts
+  // age out on their own (~10 days), and `cartUpdate` with empty lines is
+  // not a no-op (it'd still leave a referenced empty cart). Cookie clear
+  // alone is sufficient: the next save will create a fresh cart.
   if (items.length === 0) {
+    const jar = await cookies();
+    jar.delete(CART_COOKIE);
     return new NextResponse(null, { status: 204 });
   }
 

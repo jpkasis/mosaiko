@@ -18,10 +18,14 @@
  * Tonos fitMode is now honored end-to-end (Phase 2) — see the
  * dedicated describe block below for pixel-level proof.
  *
- * Remaining open gaps (Phase 3+ work) are captured as `test.todo`:
- *   - composite-reuse metadata is stored in the cart but not forwarded
- *     to Shopify; the webhook always re-renders.
- *   - Studio CJK fallback is missing on Vercel runtime.
+ * Composite-reuse (Phase 3.1) is pinned in `webhook-failure-modes.test.ts`
+ * §"Phase 3.1 — composite-reuse bypass" — bypass happy path, version
+ * mismatch fall-through, untrusted-key rejection, dimension mismatch,
+ * Tonos bypass, key/url binding (server-derived URL).
+ *
+ * Remaining open gap captured as `test.todo`:
+ *   - Studio CJK fallback is missing on Vercel runtime (Phase 4 of
+ *     Appendix I plan).
  */
 import { describe, test, expect, beforeAll } from 'vitest';
 import sharp from 'sharp';
@@ -604,15 +608,12 @@ describe('tonos — fitMode honored by the print pipeline', () => {
 // ─── Known contract gaps (MAJOR findings from the audit) ────────────────────
 
 describe('processor contract — known gaps (see DEFERRED.md)', () => {
-
-  test.todo(
-    'MAJOR-fix-TODO: composite-reuse metadata stored in cart but not ' +
-      'forwarded to Shopify — checkout.ts#buildCartLines omits ' +
-      'compositeKey/compositeUrl from line-item attrs, so the webhook ' +
-      'always re-renders. Means abandoned composites accumulate in R2 ' +
-      'and the webhook does 2x the Sharp work. Forward compositeKey as ' +
-      '_composite_key and let the webhook split from it when present.',
-  );
+  // MAJOR composite-reuse + MINOR _-prefix attr naming — both FIXED
+  // in Phase 3 (commit on `fix/cart-correctness`). Pinned tests for
+  // composite-reuse live in `webhook-failure-modes.test.ts`
+  // (§"Phase 3.1 — composite-reuse bypass") and the attr-naming
+  // assertion lives in `webhook-parser.test.ts`
+  // (§"Phase 3.4: _preview_image_url and _grid_type survive the filter").
 
   test.todo(
     'MINOR-fix-TODO: Studio Japanese text rendered with generic sans-serif — ' +
@@ -620,15 +621,7 @@ describe('processor contract — known gaps (see DEFERRED.md)', () => {
       "the Vercel runtime having a CJK fallback installed. Fontconfig's " +
       'default chain on Vercel Functions does NOT include a CJK font, so ' +
       'Japanese characters can render as tofu. Bundle Noto Sans JP (or ' +
-      'similar) and pin font-family explicitly for the japaneseText layer.',
-  );
-
-  test.todo(
-    'MINOR-fix-TODO: grid_type / preview_image_url line-item attributes ' +
-      'are attached without the `_` prefix — the webhook `_`-filter in ' +
-      'extractCustomizedLineItems drops them, but the admin email ' +
-      'template reads them from the same attrs. Either prefix both ' +
-      'with `_` at the source and rename the reader, or teach the ' +
-      'extractor to preserve a whitelist of display-only attrs.',
+      'similar) and pin font-family explicitly for the japaneseText layer. ' +
+      'Phase 4 of `Appendix I` plan.',
   );
 });

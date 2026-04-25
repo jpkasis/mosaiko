@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/admin/auth';
-import { uploadPrintTiles } from '@/lib/storage';
+import { uploadPrintTiles, deleteFile } from '@/lib/storage';
 import {
   processWebhookOrder,
   type ProcessingDeps,
@@ -140,6 +140,7 @@ export async function POST(
     fetchPhoto: fetchPhotoBuffer,
     uploadPrintTiles,
     processPrintJob: processPrintJob as ProcessingDeps['processPrintJob'],
+    deleteComposite: (key) => deleteFile('print-files', key),
   };
 
   const result = await processWebhookOrder(order, deps, { priors });

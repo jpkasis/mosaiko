@@ -74,7 +74,18 @@ async function uploadOrEncode(file: File): Promise<
   try {
     const url = await uploadPhoto(file);
     return { kind: 'url', url };
-  } catch {
+  } catch (uploadError) {
+    // Production gate (Phase 3.2): data-URL fallback can produce
+    // non-printable orders (empty `_photo_url` reaches the webhook,
+    // which then has no source photo to render from). Throw in
+    // production so the photo-uploader retry UI surfaces the failure
+    // instead of silently advancing to a broken cart item. Dev
+    // environments keep the fallback for offline iteration.
+    if (process.env.NODE_ENV === 'production') {
+      throw uploadError instanceof Error
+        ? uploadError
+        : new Error('Photo upload failed');
+    }
     const data = await fileToDataUrl(file);
     return { kind: 'data', data };
   }
@@ -98,6 +109,9 @@ interface CartCompositeResponse {
   thumbUrl: string;
   width: number;
   height: number;
+  /** Pipeline version stamped at composite-creation time; webhook uses
+   *  this to invalidate stale composites after a renderer change. */
+  pipelineVersion: string;
 }
 
 /**
@@ -225,6 +239,7 @@ export function MagnetBuilder() {
             compositeJobId: composite.jobId,
             compositeKey: composite.compositeKey,
             compositeUrl: composite.compositeUrl,
+            compositePipelineVersion: composite.pipelineVersion,
           },
         });
         return;
@@ -277,6 +292,7 @@ export function MagnetBuilder() {
           compositeJobId: composite.jobId,
           compositeKey: composite.compositeKey,
           compositeUrl: composite.compositeUrl,
+          compositePipelineVersion: composite.pipelineVersion,
         },
       });
     } catch (error) {

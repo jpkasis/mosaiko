@@ -1,41 +1,24 @@
 /**
- * Integrity test: the two BLOCKER findings from the pipeline audit
+ * Integrity test: webhook order processing — failure modes + Phase 3
+ * composite-reuse bypass.
  *
- * These tests pin the **current broken behaviour** so the test file
- * functions as a regression fence: before Phase 3/4 fixes land the
- * broken assertions must pass; after the fixes they get replaced with
- * the "fixed behaviour" assertions (currently expressed as `test.todo`).
+ * Both pipeline-audit BLOCKERs are FIXED:
+ *   - BLOCKER #1 (webhook silent photo-fetch failure) — Phase 3 of the
+ *     integrity audit. Tests under §"BLOCKER #1 — webhook photo-fetch
+ *     silent drop (post-fix behaviour)" pin the typed `LineItemResult`
+ *     contract and 7 distinct failure reasons.
+ *   - BLOCKER #2 (R2 upload partial state) — Phase 4 of the integrity
+ *     audit. Tests under §"Phase 4 fix" pin `Promise.allSettled` +
+ *     `UploadFailure { succeeded, failed }` shape + per-line idempotency
+ *     reuse/retry.
  *
- * BLOCKER #1 — webhook swallows photo-fetch failure
- *   `src/app/api/webhooks/shopify/route.ts:233, 291, 368`
- *   On `fetchPhotoBuffer` returning null, `processLineItem` logs and
- *   returns `[]`. The webhook never marks the order "failed" — the
- *   admin email still fires with a download link that resolves to
- *   nothing, the order-level print_files metafield stays absent, and
- *   the route's own idempotency gate (metafield exists → skip) has
- *   no state to distinguish "not processed yet" from "processed and
- *   failed" — a legitimate retry is indistinguishable from a first
- *   run, so the same failure repeats silently.
- *
- *   Proper unit coverage requires extracting `processLineItem` into
- *   its own module (Phase 3's first step). Until then the finding
- *   is captured as `test.todo` so CI sees it.
- *
- * BLOCKER #2 — R2 upload partial-state on tile-upload failure
- *   `src/lib/storage.ts:120` uses `Promise.all` — on the first
- *   rejected tile, the whole promise rejects, but any tile that had
- *   already resolved has already written to R2. Those tiles are
- *   orphaned: no URL set in the metafield (the whole throw aborts
- *   the upstream push), no cleanup, no retry signal.
- *
- *   The order-level idempotency gate (metafield check) then flips:
- *   on retry, either (a) no tiles at all were written — the gate is
- *   empty and retry proceeds, OR (b) a prior *partial* run wrote
- *   the metafield with partial URLs — the gate fires "already
- *   processed, skip" and the missing tiles never get regenerated.
- *
- *   These tests assert `Promise.all` semantics directly against the
- *   exported `uploadPrintTiles` with a mocked S3 send.
+ * Phase 3 (Appendix I) added composite-reuse bypass: when the cart
+ * carries `_composite_key` + `_composite_pipeline_version`, the webhook
+ * splits the stored composite into tiles instead of re-running the
+ * Sharp processor. Tests under §"Phase 3.1 — composite-reuse bypass"
+ * pin: happy path (every category), version mismatch fall-through,
+ * untrusted-key rejection, dimension mismatch, Tonos-grid bypass,
+ * server-derived URL (key/url binding).
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -837,5 +820,372 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
       // Detail names slot 1 (b.jpg is index 1).
       expect(result.detail).toBe('slots=1');
     }
+  });
+});
+
+// ─── Phase 3.1 — Composite-reuse bypass (FIXED, was MAJOR #9) ───────────────
+
+/**
+ * Phase 3 wired the cart-composite path: when a cart line carries a
+ * pre-rendered composite (`_composite_key` + `_composite_url` +
+ * `_composite_pipeline_version`), the webhook splits it into tiles via
+ * `splitCompositeIntoTiles` instead of re-running the Sharp processor.
+ *
+ * These tests pin every gate of the bypass with mocked `processPrintJob`
+ * that throws-if-called — proving the bypass actually skipped it on the
+ * happy path, and was correctly rejected (fall-through to processPrintJob)
+ * for the version-mismatch and untrusted-key cases.
+ */
+describe('Phase 3.1 — composite-reuse bypass', () => {
+  // Build a real composite buffer at the dimensions a mosaicos 3-grid
+  // (1×3 tiles, each 827×827) would produce. Sharp's `extract` validates
+  // input is a real PNG, so we must use a valid encode here — not a
+  // synthetic byte buffer.
+  async function buildMosaicos3Composite(): Promise<Buffer> {
+    const sharp = (await import('sharp')).default;
+    return sharp({
+      create: {
+        width: 3 * 827,
+        height: 1 * 827,
+        channels: 3,
+        background: { r: 30, g: 200, b: 220 },
+      },
+    })
+      .png()
+      .toBuffer();
+  }
+
+  test('happy path: valid composite + matching version → bypass; processPrintJob NOT called', async () => {
+    const composite = await buildMosaicos3Composite();
+    const { PIPELINE_VERSION } = await import('@/lib/print-pipeline/version');
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+
+    const processPrintJobSpy = vi.fn(async () => {
+      throw new Error('processPrintJob should NOT be called when bypass succeeds');
+    });
+    const uploadPrintTilesSpy = vi.fn(
+      async (jobId: string, tiles: { index: number; buffer: Buffer }[]) =>
+        tiles.map((t) => ({
+          key: `print-files/${jobId}/tile-${t.index}.png`,
+          publicUrl: `https://r2.test.mosaiko.mx/print-files/${jobId}/tile-${t.index}.png`,
+        })),
+    );
+    const deleteCompositeSpy = vi.fn(async () => {});
+
+    const result = await processLineItem(
+      42,
+      {
+        lineItemId: 7,
+        title: 'Mosaico 3 (composite-reused)',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 3,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+          _composite_key: 'cart-composites/abc-123.png',
+          _composite_url: 'https://r2.mosaiko.mx/cart-composites/abc-123.png',
+          _composite_pipeline_version: PIPELINE_VERSION,
+        },
+      },
+      {
+        // fetchPhoto is invoked once for the composite URL, not for the
+        // original photo — the bypass path uses fetchPhoto for both.
+        fetchPhoto: async () => composite,
+        uploadPrintTiles: uploadPrintTilesSpy,
+        processPrintJob: processPrintJobSpy,
+        deleteComposite: deleteCompositeSpy,
+      },
+    );
+
+    expect(result.kind).toBe('ok');
+    expect(processPrintJobSpy).not.toHaveBeenCalled();
+    // Mosaicos 3-grid → 3 tiles uploaded.
+    expect(uploadPrintTilesSpy).toHaveBeenCalledTimes(1);
+    expect(uploadPrintTilesSpy.mock.calls[0][1]).toHaveLength(3);
+    // Cleanup ran (best-effort, non-fatal — we just confirm the call).
+    expect(deleteCompositeSpy).toHaveBeenCalledWith('cart-composites/abc-123.png');
+  });
+
+  test('pipeline-version mismatch → bypass falls through; processPrintJob IS called', async () => {
+    const composite = await buildMosaicos3Composite();
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+
+    const processPrintJobSpy = vi.fn(async (job: unknown) => ({
+      tiles: [
+        {
+          index: 0,
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          filename: 't0',
+        },
+      ],
+      job,
+    }));
+
+    const result = await processLineItem(
+      43,
+      {
+        lineItemId: 8,
+        title: 'Mosaico 3 (stale composite)',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 3,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+          _composite_key: 'cart-composites/abc-456.png',
+          _composite_url: 'https://r2.mosaiko.mx/cart-composites/abc-456.png',
+          // Deliberately stale version — should reject the bypass.
+          _composite_pipeline_version: 'pre-phase-3-old-version',
+        },
+      },
+      {
+        fetchPhoto: async () => composite,
+        uploadPrintTiles: async (jobId, tiles) =>
+          tiles.map((t) => ({
+            key: `k${t.index}`,
+            publicUrl: `https://r2.test/${jobId}/${t.index}`,
+          })),
+        processPrintJob: processPrintJobSpy,
+      },
+    );
+
+    expect(result.kind).toBe('ok');
+    expect(processPrintJobSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('untrusted _composite_key (wrong prefix) → bypass falls through; processPrintJob IS called', async () => {
+    const { PIPELINE_VERSION } = await import('@/lib/print-pipeline/version');
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+
+    const processPrintJobSpy = vi.fn(async () => ({
+      tiles: [
+        {
+          index: 0,
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          filename: 't0',
+        },
+      ],
+    }));
+    // fetchPhoto should not be called for the composite (key was rejected
+    // before fetch); will be called for the original photo path though,
+    // which is mocked to return a tiny buffer the processor stub ignores.
+    const fetchPhotoSpy = vi.fn(async () => Buffer.from('x'));
+
+    const result = await processLineItem(
+      44,
+      {
+        lineItemId: 9,
+        title: 'Mosaico 3 (tampered key)',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 3,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+          // Path-traversal-style attack; regex requires `cart-composites/<id>.png`.
+          _composite_key: '../../../etc/passwd',
+          _composite_url: 'https://r2.mosaiko.mx/anywhere.png',
+          _composite_pipeline_version: PIPELINE_VERSION,
+        },
+      },
+      {
+        fetchPhoto: fetchPhotoSpy,
+        uploadPrintTiles: async () => [
+          { key: 'k0', publicUrl: 'https://r2.test/k0' },
+        ],
+        processPrintJob: processPrintJobSpy,
+      },
+    );
+
+    expect(result.kind).toBe('ok');
+    expect(processPrintJobSpy).toHaveBeenCalledTimes(1);
+    // fetchPhoto called once — for the original photo only, NOT the composite.
+    // (The composite-key gate rejected before fetch.)
+    expect(fetchPhotoSpy).toHaveBeenCalledTimes(1);
+    expect(fetchPhotoSpy).toHaveBeenCalledWith('https://r2.mosaiko.mx/uploads/x.jpg');
+  });
+
+  test('Tonos 9-grid composite bypass: same path works for tone+logo-baked composites', async () => {
+    const sharp = (await import('sharp')).default;
+    // Tonos 9-grid → 3 rows × 3 cols × 827 = 2481×2481.
+    const composite = await sharp({
+      create: {
+        width: 3 * 827,
+        height: 3 * 827,
+        channels: 3,
+        background: { r: 220, g: 30, b: 30 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    const { PIPELINE_VERSION } = await import('@/lib/print-pipeline/version');
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+
+    const processPrintJobSpy = vi.fn(async () => {
+      throw new Error('processPrintJob should NOT be called for Tonos bypass');
+    });
+    const uploadPrintTilesSpy = vi.fn(
+      async (jobId: string, tiles: { index: number; buffer: Buffer }[]) =>
+        tiles.map((t) => ({
+          key: `print-files/${jobId}/tile-${t.index}.png`,
+          publicUrl: `https://r2.test.mosaiko.mx/print-files/${jobId}/tile-${t.index}.png`,
+        })),
+    );
+
+    const result = await processLineItem(
+      46,
+      {
+        lineItemId: 11,
+        title: 'Tonos 9 (composite-reused)',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'tonos',
+            gridSize: 9,
+            intensity: 'medium',
+          }),
+          _photo_urls: JSON.stringify([
+            'https://r2.mosaiko.mx/uploads/a.jpg',
+            'https://r2.mosaiko.mx/uploads/b.jpg',
+            'https://r2.mosaiko.mx/uploads/c.jpg',
+          ]),
+          _crop_areas: JSON.stringify([
+            { x: 0, y: 0, width: 1, height: 1 },
+            { x: 0, y: 0, width: 1, height: 1 },
+            { x: 0, y: 0, width: 1, height: 1 },
+          ]),
+          _composite_key: 'cart-composites/tonos-abc.png',
+          _composite_pipeline_version: PIPELINE_VERSION,
+        },
+      },
+      {
+        fetchPhoto: async () => composite,
+        uploadPrintTiles: uploadPrintTilesSpy,
+        processPrintJob: processPrintJobSpy,
+      },
+    );
+
+    expect(result.kind).toBe('ok');
+    expect(processPrintJobSpy).not.toHaveBeenCalled();
+    // Tonos 9-grid → 9 tiles uploaded.
+    expect(uploadPrintTilesSpy.mock.calls[0][1]).toHaveLength(9);
+  });
+
+  test('client-supplied _composite_url is IGNORED: server derives from key (Codex MAJOR fix)', async () => {
+    // Even if a client passes a malicious _composite_url pointing at an
+    // arbitrary allow-listed origin (e.g. a different R2 object or a
+    // Shopify CDN image), the webhook must derive the URL from the
+    // validated _composite_key instead. Proven here by passing an
+    // attacker-controlled URL alongside a valid key — fetchPhoto must
+    // be called with the key-derived URL, NOT the supplied one.
+    const composite = await buildMosaicos3Composite();
+    const { PIPELINE_VERSION } = await import('@/lib/print-pipeline/version');
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+
+    const fetchPhotoSpy = vi.fn(async (_url: string) => composite);
+    await processLineItem(
+      47,
+      {
+        lineItemId: 12,
+        title: 'Mosaico 3 (key/url binding)',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 3,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+          _composite_key: 'cart-composites/legitimate.png',
+          // Attacker-controlled URL — should be IGNORED by the webhook.
+          _composite_url: 'https://r2.mosaiko.mx/cart-composites/attacker-controlled.png',
+          _composite_pipeline_version: PIPELINE_VERSION,
+        },
+      },
+      {
+        fetchPhoto: fetchPhotoSpy,
+        uploadPrintTiles: async (jobId, tiles) =>
+          tiles.map((t) => ({
+            key: `${jobId}/${t.index}`,
+            publicUrl: `https://r2.test/${jobId}/${t.index}`,
+          })),
+        processPrintJob: async () => ({ tiles: [] }),
+      },
+    );
+
+    // First fetchPhoto call MUST be for the key-derived URL, not the
+    // attacker's URL. The R2_PUBLIC_URL env in this test suite is
+    // `https://r2.test.mosaiko.mx`, so the derived URL is
+    // `https://r2.test.mosaiko.mx/cart-composites/legitimate.png`.
+    expect(fetchPhotoSpy.mock.calls[0][0]).toBe(
+      'https://r2.test.mosaiko.mx/cart-composites/legitimate.png',
+    );
+    expect(fetchPhotoSpy.mock.calls[0][0]).not.toContain('attacker-controlled');
+  });
+
+  test('composite dimension mismatch → bypass falls through; processPrintJob IS called', async () => {
+    // Sharp create at WRONG dims for mosaicos-3 (expecting 2481×827).
+    const sharp = (await import('sharp')).default;
+    const wrongComposite = await sharp({
+      create: {
+        width: 1000,
+        height: 1000,
+        channels: 3,
+        background: { r: 200, g: 80, b: 110 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    const { PIPELINE_VERSION } = await import('@/lib/print-pipeline/version');
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+
+    const processPrintJobSpy = vi.fn(async () => ({
+      tiles: [
+        {
+          index: 0,
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          filename: 't0',
+        },
+      ],
+    }));
+
+    const result = await processLineItem(
+      45,
+      {
+        lineItemId: 10,
+        title: 'Mosaico 3 (mismatched composite dims)',
+        quantity: 1,
+        attrs: {
+          _customization: JSON.stringify({
+            categoryType: 'mosaicos',
+            gridSize: 3,
+          }),
+          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+          _composite_key: 'cart-composites/abc-789.png',
+          _composite_url: 'https://r2.mosaiko.mx/cart-composites/abc-789.png',
+          _composite_pipeline_version: PIPELINE_VERSION,
+        },
+      },
+      {
+        fetchPhoto: async () => wrongComposite,
+        uploadPrintTiles: async () => [
+          { key: 'k0', publicUrl: 'https://r2.test/k0' },
+        ],
+        processPrintJob: processPrintJobSpy,
+      },
+    );
+
+    expect(result.kind).toBe('ok');
+    expect(processPrintJobSpy).toHaveBeenCalledTimes(1);
   });
 });

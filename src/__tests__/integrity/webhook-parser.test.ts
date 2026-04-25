@@ -135,6 +135,63 @@ describe('extractCustomizedLineItems', () => {
     expect(result.map((r) => r.lineItemId)).toEqual([2]);
   });
 
+  test('Phase 3 BLOCKER fix: predesigned line (no customizations) carries no _ attrs and is dropped', () => {
+    // The Phase 3.4 attr rename moved `_preview_image_url`/`_grid_type`
+    // into the `_`-prefixed namespace. If those were stamped on EVERY
+    // line (including predesigned ones), the webhook's `_`-prefix
+    // filter would treat predesigned lines as "customized" and then
+    // fail them with `missing_customization_attr`. The producer fix
+    // (only stamp `_` display attrs when `customizations` exists) means
+    // predesigned lines have ZERO `_` properties → filter drops them
+    // entirely → webhook treats them as plain catalog purchases.
+    const result = extractCustomizedLineItems(
+      mockOrder({
+        line_items: [
+          {
+            id: 50,
+            title: 'Mosaico 9 (predesigned)',
+            quantity: 1,
+            variant_id: 99,
+            // Predesigned line: no `_`-prefixed properties at all.
+            // (After the Phase 3 BLOCKER fix, `_preview_image_url` and
+            // `_grid_type` are NOT stamped here — only on customized lines.)
+            properties: [],
+          },
+        ],
+      }),
+    );
+    expect(result).toEqual([]);
+  });
+
+  test('Phase 3.4: _preview_image_url and _grid_type survive the filter', () => {
+    // Phase 3.4 renamed `preview_image_url` → `_preview_image_url` and
+    // `grid_type` → `_grid_type` at the producer (`checkout.ts`) so they
+    // pass the `_`-prefix filter. Pre-Phase-3, these were unprefixed and
+    // got dropped — admin UI + email template silently saw `undefined`.
+    const result = extractCustomizedLineItems(
+      mockOrder({
+        line_items: [
+          {
+            id: 200,
+            title: 'Mosaico 9 piezas',
+            quantity: 1,
+            variant_id: 12345,
+            properties: [
+              { name: '_preview_image_url', value: 'https://r2/preview.jpg' },
+              { name: '_grid_type', value: '3x3' },
+              { name: '_customization', value: '{"categoryType":"mosaicos"}' },
+              { name: '_photo_url', value: 'https://r2.mosaiko.mx/uploads/x.jpg' },
+              { name: '_crop_area', value: '{"x":0,"y":0,"width":1,"height":1}' },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].attrs._preview_image_url).toBe('https://r2/preview.jpg');
+    expect(result[0].attrs._grid_type).toBe('3x3');
+  });
+
   test('a single _-prefixed key is enough to qualify the line item', () => {
     const result = extractCustomizedLineItems(
       mockOrder({

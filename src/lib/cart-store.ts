@@ -50,6 +50,16 @@ export interface CartItem {
     compositeJobId?: string;
     compositeKey?: string;
     compositeUrl?: string;
+    /**
+     * Pipeline version at the moment the composite was created. Stamped
+     * by `/api/cart-composite` on the response and persisted here so the
+     * webhook's composite-reuse bypass can verify the composite still
+     * matches the current renderer at order time. A cart item created
+     * before a pipeline deploy and checked out after would otherwise
+     * carry a stale composite that bypasses the renderer change. Per
+     * Codex Phase 3 audit MAJOR.
+     */
+    compositePipelineVersion?: string;
   };
 }
 
@@ -208,6 +218,19 @@ if (typeof window !== 'undefined') {
 
   let pendingSync: ReturnType<typeof setTimeout> | null = null;
   let lastSyncedItems: CartItem[] | null = null;
+  // Codex Phase 3 audit MAJOR fix (in-flight race): an older non-empty
+  // save could still be in-flight when the user clears the cart and
+  // checks out. Without aborting, the older response could complete
+  // AFTER the empty save and re-create the `mosaiko_cart_id` cookie —
+  // resurrecting the just-checked-out cart. AbortController + "newest
+  // wins" policy: every new performSync aborts whatever's in flight.
+  let inFlightAbort: AbortController | null = null;
+  // Tracks whether we've ever fired a performSync this session. The
+  // pagehide handler uses this to distinguish "initial load with empty
+  // cart, never synced" (skip beacon) from "user did something then
+  // navigated away" (always flush — including empty, including the
+  // case where the immediate-fire empty failed/was dropped).
+  let hasEverSynced = false;
 
   let hasHydrated = useCartStore.persist.hasHydrated();
   useCartStore.persist.onFinishHydration(() => {
@@ -215,25 +238,44 @@ if (typeof window !== 'undefined') {
   });
 
   function performSync(items: CartItem[]) {
-    // Empty cart: skip the network call. The previous Shopify cart will age
-    // out on its own; spinning up an empty cart just to be empty is waste.
-    if (items.length === 0) {
-      lastSyncedItems = items;
-      return;
+    // POST every change — including the non-empty → empty transition,
+    // because /api/cart/save needs to clear `mosaiko_cart_id` so the
+    // Shopify-backed prior cart can't resurrect on next page load
+    // (Phase 3.3 empty-cart resurrect fix). Initial-load empty state
+    // is not a concern: subscribes are gated on `hasHydrated` and only
+    // fire after Zustand persist finishes, so the first POST we ever
+    // send reflects an actual user action, not a hydration default.
+    if (inFlightAbort) {
+      inFlightAbort.abort();
     }
-    lastSyncedItems = items;
+    const ctrl = new AbortController();
+    inFlightAbort = ctrl;
+    hasEverSynced = true;
     fetch(SAVE_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items }),
       keepalive: true,
+      signal: ctrl.signal,
     })
       .then((r) => {
-        if (!r.ok && r.status !== 204) {
+        // Only update `lastSyncedItems` on successful response. A failed
+        // save should NOT suppress the next retry — Codex flagged that
+        // marking before-await leaves stale items[] looking synced.
+        if (r.ok || r.status === 204) {
+          lastSyncedItems = items;
+        } else {
           console.warn('[cart-store] sync responded', r.status);
         }
+        if (inFlightAbort === ctrl) inFlightAbort = null;
       })
-      .catch((e) => console.warn('[cart-store] sync failed:', e));
+      .catch((e) => {
+        // AbortError is expected when a newer sync supersedes us.
+        if (!(e instanceof Error) || e.name !== 'AbortError') {
+          console.warn('[cart-store] sync failed:', e);
+        }
+        if (inFlightAbort === ctrl) inFlightAbort = null;
+      });
   }
 
   function scheduleSync(items: CartItem[]) {
@@ -248,18 +290,48 @@ if (typeof window !== 'undefined') {
   useCartStore.subscribe((state, prev) => {
     if (!hasHydrated) return;
     if (state.items === prev.items) return;
+    // Transition to empty (clearCart, last-item-removed, post-checkout
+    // wipe): bypass debounce so the empty save races ahead of any
+    // pending non-empty timer. `performSync` aborts any in-flight
+    // request as well, so an older non-empty fetch can't re-set the
+    // cookie after the empty save lands.
+    if (state.items.length === 0 && prev.items.length > 0) {
+      if (pendingSync) {
+        clearTimeout(pendingSync);
+        pendingSync = null;
+      }
+      performSync(state.items);
+      return;
+    }
     scheduleSync(state.items);
   });
 
   // Best-effort flush on tab close — sendBeacon is fire-and-forget and
   // completes after the page is gone, so the pending debounce still lands.
+  //
+  // Codex Phase 3 audit (round 3) MAJOR fix: the prior `!hadPendingSync`
+  // guard skipped the beacon for the checkout flow because the empty
+  // transition fires `performSync([])` immediately (no debounce, no
+  // pendingSync). If that keepalive empty fetch was dropped or failed,
+  // pagehide skipped the beacon → cookie survived → CartHydrator
+  // resurrected the just-checked-out cart. Replace with a `hasEverSynced`
+  // gate: we always flush on pagehide as long as the current items
+  // differ from the last successful sync AND we've ever synced this
+  // session (otherwise initial-load empty would spuriously delete).
   window.addEventListener('pagehide', () => {
     if (pendingSync) {
       clearTimeout(pendingSync);
       pendingSync = null;
     }
     const items = useCartStore.getState().items;
-    if (items.length === 0 || items === lastSyncedItems) return;
+    // Skip only when we've never synced AND the cart is empty —
+    // i.e. initial-load empty, no user action, no in-flight state to
+    // flush. If the user added their first item but left within the
+    // 800ms debounce, we MUST still flush (otherwise their first add
+    // never reaches Shopify). Codex Phase 3 round-4 fix.
+    if (!hasEverSynced && items.length === 0) return;
+    // Already up-to-date with the last successful sync. Skip.
+    if (items === lastSyncedItems) return;
     if (typeof navigator === 'undefined' || !navigator.sendBeacon) return;
     const blob = new Blob([JSON.stringify({ items })], {
       type: 'application/json',

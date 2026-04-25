@@ -21,18 +21,12 @@ pick up cold.
 
 These are on the cart branch **before** any of the refactor / polish
 landed. Codex flagged them in both its foundation-refactor audit and
-its mobile-polish audits. Shouldn't block shipping the refactor, but
-worth landing on a dedicated fix branch off the cart branch.
+its mobile-polish audits.
 
-### Empty-cart can resurrect from the Shopify cookie
-- **Where:** `src/lib/cart-store.ts:217` (sync skip) + `src/app/api/cart/save/route.ts:49` (returns 204 without clearing cookie) + `src/components/cart/CartHydrator.tsx:20` (restores whenever local items are empty).
-- **Symptom:** Removing all items, clearing after checkout, or returning from checkout can resurrect the prior Shopify cart from `mosaiko_cart_id`.
-- **Fix direction:** Delete the cookie / remote state on empty save, OR make `CartHydrator` distinguish "localStorage missing" from "persisted empty cart."
-
-### Data-URL upload fallback can produce non-printable orders in production
-- **Where:** `src/components/builder/MagnetBuilder.tsx` `uploadOrEncode()`.
-- **Symptom:** On a transient R2 upload failure, the fallback path can add a cart item whose `photoStorageUrl(s)` are empty strings. Checkout serializes those, and the webhook regenerates from `_photo_url(s)` rather than the stored composite — a purchasable but non-printable order is possible.
-- **Fix direction:** Either block the data-URL fallback in production (throw instead), OR teach the webhook to consume `compositeUrl`/`compositeKey` when the photo URLs are missing.
+(Two prior items here — empty-cart resurrect + data-URL fallback —
+were resolved in **Phase 3 of Appendix I** on `fix/cart-correctness`.
+Cookie clear + AbortController + pagehide flush + production-throw
+gate covered both.)
 
 ### Shipping ETA inconsistency across surfaces
 - **Where:** Cart drawer + cart page say `Estándar · 3–5 días hábiles` (from polish M5/M6); order-confirmation email (`src/lib/email/resend-client.ts:105`) says `5 a 10 días hábiles`.
@@ -134,18 +128,12 @@ Items identified during the pipeline integrity audit (`INTEGRITY_AUDIT.md`)
 that were intentionally scoped out of the two-BLOCKER fix. Each entry has
 enough context to pick up cold.
 
-**Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`); Phase 2 Tonos fitMode landed on `fix/tonos-fitmode` (off `qa/integration`).
-**Last updated:** 2026-04-25 (post Phase 2 — Tonos `fitMode` end-to-end resolved).
+**Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`); Phase 2 Tonos fitMode landed on `fix/tonos-fitmode` (off `qa/integration`); Phase 3 cart correctness landed on `fix/cart-correctness` (off `fix/tonos-fitmode`).
+**Last updated:** 2026-04-25 (post Phase 3 — cart correctness: composite-reuse, attr-naming, data-URL gate, empty-cart resurrect — all resolved).
 
 ---
 
 ## MAJORs deferred
-
-### Composite-reuse metadata stored in cart but not sent to Shopify
-- **Where:** `src/components/builder/MagnetBuilder.tsx:~228` sets `customizations.compositeKey` + `compositeUrl`; `src/lib/shopify/checkout.ts#buildCartLines` does not serialize these as line-item attributes.
-- **Symptom:** The cart's `/api/cart-composite` already produced a canonical composite PNG and stored it in R2. The webhook does not know this and regenerates by splitting the original photo. Result: the composite R2 object is abandoned, and the webhook does 2× the Sharp work.
-- **Fix direction:** Forward `compositeKey` as a `_composite_key` line-item attribute; in the webhook, when present, bypass `processPrintJob` and split the stored composite via `assembleTilesToComposite`'s inverse or direct Sharp extract.
-- **Test:** `processor-contract.test.ts` §known-gaps todo #3.
 
 ### Server-side font fidelity gap
 - **Where:** `src/lib/print-pipeline/processors/{save-the-date,arte,studio,spotify}.ts` — SVG text uses system fonts via librsvg's fontconfig, which on Vercel Functions has no Google-Fonts equivalents.
@@ -165,11 +153,6 @@ enough context to pick up cold.
 ---
 
 ## MINORs deferred
-
-### `grid_type` / `preview_image_url` attached without `_` prefix
-- **Where:** `src/lib/shopify/checkout.ts` (producer), `src/lib/email/resend-client.ts:433` (consumer).
-- **Symptom:** The webhook `_`-filter in `extractCustomizedLineItems` drops unprefixed keys, but the email reader grabs them from the same `attrs` map. The code happens to work because the email template reads from `customizedItems[].attrs` (the filter-kept subset), but the naming is inconsistent with every other attribute.
-- **Fix direction:** Prefix both with `_` at the source, update the reader. Alternatively: teach `extractCustomizedLineItems` to preserve a small whitelist of display-only attrs.
 
 ### Studio Japanese text uses generic `sans-serif` SVG font-family
 - **Where:** `src/lib/print-pipeline/processors/studio.ts:195` — the `japaneseText` SVG layer uses `font-family="sans-serif"` and relies on the Vercel runtime having a CJK font in fontconfig's chain.

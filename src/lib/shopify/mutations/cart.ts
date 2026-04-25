@@ -132,10 +132,10 @@ export async function createCart(options: CreateCartOptions = {}): Promise<Cart>
  * Each line can include `attributes` for customization data:
  * ```
  * attributes: [
- *   { key: "preview_image_url", value: "https://..." },
- *   { key: "grid_type", value: "3x3" },
+ *   { key: "_preview_image_url", value: "https://..." },
+ *   { key: "_grid_type", value: "3x3" },
  *   { key: "category", value: "tonos" },
- *   { key: "_crop_config", value: "{...}" },  // underscore = hidden from customer
+ *   { key: "_crop_config", value: "{...}" },  // underscore = hidden from customer + retained by webhook filter
  * ]
  * ```
  */

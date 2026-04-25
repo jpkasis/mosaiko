@@ -19,12 +19,16 @@ export interface CheckoutError {
 /**
  * Translates local cart items into Shopify `CartLineInput[]`. Each line gets
  * the attributes consumed by the order webhook:
- * - preview_image_url: visible in Shopify order details
- * - grid_type: e.g. "3x3"
- * - category: customization category
+ * - _preview_image_url: visible in Shopify order details (and admin UI)
+ * - _grid_type: e.g. "3x3"
+ * - category: customization category (kept unprefixed — visible to customer)
  * - _photo_url(s): R2 URL(s) (underscore = hidden from customer receipt)
  * - _customization: full customization JSON
  * - _crop_area(s): crop area JSON
+ * - _composite_key / _composite_url / _composite_pipeline_version:
+ *     pre-rendered cart-composite the webhook can split into tiles
+ *     (Phase 3.1) instead of re-running the Sharp processor. Version
+ *     guards against pipeline-output changes (Phase 4 font fidelity).
  *
  * Returns a CheckoutError if Shopify isn't configured or a variant is missing.
  */
@@ -49,12 +53,24 @@ export function buildCartLines(
       };
     }
 
-    const attributes: { key: string; value: string }[] = [
-      { key: 'preview_image_url', value: item.previewUrl || '' },
-      { key: 'grid_type', value: `${item.gridLayout.rows}x${item.gridLayout.cols}` },
-    ];
+    // `_`-prefix convention: keys starting with `_` are hidden from the
+    // customer-facing receipt and survive the webhook's
+    // `extractCustomizedLineItems` filter. Phase 3.4 reconciles
+    // `_preview_image_url` and `_grid_type` into the same scheme so the
+    // admin UI + email template still see them after the filter.
+    //
+    // BLOCKER fix (Codex Phase 3 audit): stamp these `_` display attrs
+    // ONLY on customized lines. A `predesigned` line without
+    // `customizations` would otherwise carry `_preview_image_url` and
+    // pass the webhook's `_`-prefix filter, then immediately fail with
+    // `missing_customization_attr` in `processLineItem`.
+    const attributes: { key: string; value: string }[] = [];
 
     if (item.customizations) {
+      attributes.push(
+        { key: '_preview_image_url', value: item.previewUrl || '' },
+        { key: '_grid_type', value: `${item.gridLayout.rows}x${item.gridLayout.cols}` },
+      );
       attributes.push(
         { key: 'category', value: item.customizations.categoryType },
         { key: '_customization', value: JSON.stringify(toPrintCustomization(item)) },
@@ -82,6 +98,37 @@ export function buildCartLines(
             value: JSON.stringify(item.customizations.cropArea),
           });
         }
+      }
+
+      // Composite-reuse forwarding (Phase 3.1). Only include when the
+      // cart actually has a stored composite (compositeKey is non-empty
+      // and not the dev-fallback in-memory blob path). Webhook validates
+      // strictly before bypassing `processPrintJob`; missing or invalid
+      // → fall back to full pipeline.
+      //
+      // Codex Phase 3 audit MAJOR fix: forward the stored
+      // `compositePipelineVersion` (stamped at composite-creation time
+      // in `/api/cart-composite`), NOT the current `PIPELINE_VERSION`
+      // const. A cart item created before a renderer deploy and checked
+      // out after must carry the OLD version — the webhook will then
+      // detect the mismatch and fall back to full pipeline. Stamping
+      // the current const at checkout time would defeat the version
+      // guard and bypass with stale pixels.
+      if (
+        item.customizations.compositeKey &&
+        item.customizations.compositeUrl &&
+        item.customizations.compositePipelineVersion &&
+        // Reject the dev-mode blob fallback (compositeKey is null then).
+        item.customizations.compositeKey.length > 0
+      ) {
+        attributes.push(
+          { key: '_composite_key', value: item.customizations.compositeKey },
+          { key: '_composite_url', value: item.customizations.compositeUrl },
+          {
+            key: '_composite_pipeline_version',
+            value: item.customizations.compositePipelineVersion,
+          },
+        );
       }
     }
 

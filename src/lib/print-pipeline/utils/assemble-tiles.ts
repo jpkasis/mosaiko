@@ -140,6 +140,60 @@ export async function assembleTilesToComposite(
 }
 
 /**
+ * Inverse of `assembleTilesToComposite`: reads a fully-assembled
+ * composite buffer + its layout and re-extracts the tile regions.
+ *
+ * Used by the order webhook to skip the entire `processPrintJob` cost
+ * when the cart already produced the canonical composite (cart-composite
+ * endpoint stored it under `cart-composites/<jobId>.png`). The composite
+ * is the single source of truth: it has all tones, frames, text, and
+ * effects baked in, so extracting tile-sized regions is correct for
+ * every category — Tonos included.
+ *
+ * Validates composite dimensions against the layout before any extract;
+ * mismatch throws so the caller (webhook) can fall back to the full
+ * pipeline rather than ship corrupt tiles.
+ *
+ * Output filenames mirror the on-disk pattern used by storage so a tile
+ * extracted here is byte-equivalent (within Sharp re-encode noise) to a
+ * tile produced by the corresponding processor.
+ */
+export async function splitCompositeIntoTiles(
+  composite: Buffer,
+  layout: CompositeLayout,
+  jobId: string,
+): Promise<TileOutput[]> {
+  const meta = await sharp(composite).metadata();
+  if (meta.width !== layout.width || meta.height !== layout.height) {
+    throw new Error(
+      `[splitCompositeIntoTiles] composite dimensions ${meta.width}×${meta.height} ` +
+        `do not match expected layout ${layout.width}×${layout.height}`,
+    );
+  }
+
+  const tiles = await Promise.all(
+    layout.tiles.map(async (placement): Promise<TileOutput> => {
+      const buffer = await sharp(composite)
+        .extract({
+          left: placement.left,
+          top: placement.top,
+          width: placement.width,
+          height: placement.height,
+        })
+        .png()
+        .toBuffer();
+      return {
+        index: placement.index,
+        buffer,
+        filename: `${jobId}_tile_${placement.index}.png`,
+      };
+    }),
+  );
+
+  return tiles;
+}
+
+/**
  * Tonos composites have darker photography; keep the cart thumbnail on a
  * neutral light background so surrounding empty cells (if any) don't look
  * like artefacts.

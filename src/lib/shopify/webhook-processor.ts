@@ -27,6 +27,100 @@ import {
   type CustomizedLineItem,
   type ShopifyOrderWebhook,
 } from './webhook-parser';
+import { PIPELINE_VERSION } from '../print-pipeline/version';
+import {
+  getCompositeLayout,
+  splitCompositeIntoTiles,
+} from '../print-pipeline/utils/assemble-tiles';
+import { getPublicUrl } from '../storage';
+
+// Composite-reuse: strict key validator. Matches the producer pattern
+// from `/api/cart-composite/route.ts:342` (`cart-composites/<jobId>.png`).
+// jobId is `crypto.randomUUID()` from the cart-composite endpoint, but we
+// allow any [\w-]{1,128} to absorb future UUID format changes without
+// breaking existing carts. Anything outside this shape is rejected and
+// the webhook falls back to the full pipeline.
+const COMPOSITE_KEY_REGEX = /^cart-composites\/[\w-]{1,128}\.png$/;
+
+/**
+ * Composite-reuse bypass. Runs before the regular processor invocation:
+ * if every gate passes (key shape, pipeline version, composite fetch,
+ * dimension match), produces tiles by extracting from the composite via
+ * `splitCompositeIntoTiles` instead of re-running `processPrintJob`.
+ *
+ * Returns `null` on any failure — caller falls back to the full pipeline.
+ * Never throws; failures are warnings + fall-through, not order failures.
+ */
+async function tryComposeReuseBypass(
+  customization: CategoryCustomization,
+  lineItemAttrs: Record<string, string>,
+  jobId: string,
+  deps: ProcessingDeps,
+): Promise<Array<{ index: number; buffer: Buffer; filename: string }> | null> {
+  const compositeKey = lineItemAttrs['_composite_key'];
+  const compositeVersion = lineItemAttrs['_composite_pipeline_version'];
+
+  if (!compositeKey || !compositeVersion) return null;
+
+  // Pipeline-version gate — Phase 4 will bump PIPELINE_VERSION when font
+  // rendering changes; stale carts re-render through processPrintJob so
+  // they pick up the new fonts. Cart stores the version stamped at
+  // composite-creation time (see /api/cart-composite), not at checkout
+  // time, so an item created before a deploy and checked out after
+  // correctly carries the OLD version and falls through here.
+  if (compositeVersion !== PIPELINE_VERSION) return null;
+
+  // Untrusted-input gate: reject keys that don't match the producer pattern.
+  if (!COMPOSITE_KEY_REGEX.test(compositeKey)) {
+    console.warn(
+      '[webhook] composite-reuse rejected: invalid _composite_key shape',
+      { compositeKey },
+    );
+    return null;
+  }
+
+  // Layout — throws if customization is malformed; fall through on any throw.
+  let layout;
+  try {
+    layout = getCompositeLayout(customization);
+  } catch (error) {
+    console.warn(
+      '[webhook] composite-reuse rejected: getCompositeLayout failed',
+      { error: String(error) },
+    );
+    return null;
+  }
+
+  // Codex Phase 3 audit MAJOR fix: ignore any client-supplied
+  // `_composite_url`. Derive the URL from the validated `_composite_key`
+  // ourselves so a tampered cart attribute can't steer the fetch at any
+  // allow-listed origin (r2.mosaiko.mx + cdn.shopify.com). The key is
+  // already constrained by `COMPOSITE_KEY_REGEX` to the
+  // `cart-composites/<id>.png` shape, so the derived URL is always one
+  // we trust.
+  const compositeUrl = getPublicUrl(compositeKey);
+
+  // Fetch the composite. fetchPhoto's allow-list includes the R2 public
+  // host (which is what `getPublicUrl` returns), so this passes; null
+  // means missing or refused. No bypass without the actual composite bytes.
+  const composite = await deps.fetchPhoto(compositeUrl);
+  if (!composite) return null;
+
+  // Split + dimension check (the helper validates and throws on mismatch).
+  let tiles;
+  try {
+    tiles = await splitCompositeIntoTiles(composite, layout, jobId);
+  } catch (error) {
+    console.warn(
+      '[webhook] composite-reuse rejected: split failed (likely dimension mismatch)',
+      { error: String(error) },
+    );
+    return null;
+  }
+
+  if (tiles.length === 0) return null;
+  return tiles;
+}
 
 // ─── Result shapes ──────────────────────────────────────────────────────────
 
@@ -102,6 +196,16 @@ export interface ProcessingDeps {
   processPrintJob: (job: unknown) => Promise<{
     tiles: Array<{ index: number; buffer: Buffer; filename: string }>;
   }>;
+
+  /**
+   * Delete the cart-composite object after a successful composite-reuse
+   * bypass + tile upload. Optional — when absent, composites accumulate
+   * until R2 lifecycle policy reaps them. The route wires
+   * `deleteFile('print-files', key)`; tests can pass a stub or omit.
+   *
+   * Failures are non-fatal — caller logs and proceeds.
+   */
+  deleteComposite?: (key: string) => Promise<void>;
 }
 
 // ─── Line-item processing ───────────────────────────────────────────────────
@@ -138,6 +242,58 @@ export async function processLineItem(
   }
 
   const jobId = `order-${orderId}-item-${lineItem.lineItemId}`;
+
+  // ── Composite-reuse bypass (Phase 3.1) ─────────────────────────────
+  // If the cart already produced a canonical composite via
+  // `/api/cart-composite`, we can split it directly into the printed
+  // tiles instead of re-running the Sharp processor. Saves the second
+  // render and avoids R2 orphans for every successful order. The bypass
+  // is category-agnostic — extracting pixel regions from a composite
+  // works identically for Mosaicos, Tonos (tones+logo already baked),
+  // STD/Arte/Studio (text already rendered), Spotify, and Polaroid.
+  //
+  // Strict gates: pipeline-version match, key-shape regex, fetch ok,
+  // dimension match. Any failure → log + fall through to the full
+  // pipeline below. The bypass never throws an order failure on its own.
+  const bypassTiles = await tryComposeReuseBypass(
+    customization,
+    lineItem.attrs,
+    jobId,
+    deps,
+  );
+  if (bypassTiles) {
+    let stored;
+    try {
+      stored = await deps.uploadPrintTiles(
+        jobId,
+        bypassTiles.map((t) => ({ index: t.index, buffer: t.buffer })),
+      );
+    } catch (error) {
+      return fail('tile_upload_error', String(error));
+    }
+    if (stored.length === 0) {
+      return fail('no_tiles_generated');
+    }
+    // Best-effort R2 cleanup — fire-and-forget. The composite is no
+    // longer needed once the tiles are in `print-files/<jobId>/`. We
+    // intentionally don't `await` it: a slow R2 delete (or transient
+    // failure) shouldn't delay the webhook response or block the next
+    // line item's processing. R2 lifecycle policy on `cart-composites/`
+    // reaps anything left behind. Codex Phase 3 audit MINOR fix.
+    if (deps.deleteComposite) {
+      const compositeKey = lineItem.attrs['_composite_key'];
+      if (compositeKey) {
+        // void: explicit "I am ignoring this promise on purpose."
+        void deps.deleteComposite(compositeKey).catch((error) => {
+          console.warn(
+            '[webhook] composite cleanup failed (non-fatal)',
+            { compositeKey, error: String(error) },
+          );
+        });
+      }
+    }
+    return { kind: 'ok', ...base, urls: stored.map((s) => s.publicUrl) };
+  }
 
   // ── Tonos (multi-image) ────────────────────────────────────────────
   if (customization.categoryType === 'tonos') {

@@ -11,7 +11,7 @@
 
 **Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
 
-**Last updated:** 2026-04-25 (post Phase 2 — Tonos `fitMode` end-to-end).
+**Last updated:** 2026-04-25 (post Phase 3 — cart correctness: composite-reuse, attr-naming reconciliation, data-URL gate, empty-cart resurrect).
 
 ---
 
@@ -27,10 +27,10 @@
 | 6 | **BLOCKER** | `processLineItem` could produce `kind: 'ok'` with empty `urls[]` if `processPrintJob` or `uploadPrintTiles` returned zero tiles → order marked 'complete' with no files, idempotency gate freezes | **FIXED — Phase 4b** | `webhook-failure-modes.test.ts` §"processPrintJob returns 0 tiles → no_tiles_generated" |
 | 7 | **BLOCKER** | `layoutRotated` captured in builder but dropped by serializer → rotated Mosaicos 3/6 ships unrotated | **FIXED — Phase 4c** | `serializer.test.ts` §"mosaicos — layoutRotated round-trip" (4 tests) + `processor-contract.test.ts` §"mosaicos layoutRotated" (3 tests, incl. buffer-inequality proof for 3/6 and identity proof for 9) |
 | 8 | MAJOR | Tonos `fitMode` serialized via `as unknown as` cast, webhook reads only `rotation`, `TonosPrintJob` has no fit-mode field → processor always crops-to-fill | **FIXED — Phase 2 (post-Phase-4c)** | `serializer.test.ts` §"Tonos — fitMode end-to-end (FIXED, was MAJOR)" (2 tests) + `processor-contract.test.ts` §"tonos — fitMode honored" (pixel-sample test on striped fixture) + `webhook-failure-modes.test.ts` Tonos passthrough + malformed-tonosSlots tests |
-| 9 | MAJOR | Composite-reuse metadata stored in cart but not sent to Shopify → webhook regenerates from original photo, abandoned composites accumulate in R2 | **DEFERRED** | `processor-contract.test.ts` §known-gaps todo #3 |
+| 9 | MAJOR | Composite-reuse metadata stored in cart but not sent to Shopify → webhook regenerates from original photo, abandoned composites accumulate in R2 | **FIXED — Phase 3 (Appendix I)** | `webhook-failure-modes.test.ts` §"Phase 3.1 — composite-reuse bypass" (6 tests: happy path, version mismatch, untrusted key, dimension mismatch, Tonos bypass, key/url binding) |
 | 10 | MAJOR | Font fidelity gap (STD/Arte/Studio/Spotify) — SVG text uses system fonts, preview diverges from print | **DEFERRED** (tracked separately) | `memory/server_font_fidelity_gap.md` |
 | 11 | MAJOR | Admin print-file download still enumerates raw R2 prefixes — partial-upload survivors can appear downloadable even while the line is failed. (Codex flag — not in scope of this audit, needs admin-UI fix.) | **DEFERRED** | See DEFERRED.md |
-| 12 | MINOR | `grid_type` / `preview_image_url` line-item attrs attached without `_` prefix → webhook filter drops them; email reader silently receives `undefined` | **DEFERRED** | `processor-contract.test.ts` §known-gaps todo #4 |
+| 12 | MINOR | `grid_type` / `preview_image_url` line-item attrs attached without `_` prefix → webhook filter drops them; email reader silently receives `undefined` | **FIXED — Phase 3 (Appendix I)** | `webhook-parser.test.ts` §"Phase 3.4: _preview_image_url and _grid_type survive the filter" + admin readers updated (`OrderCard.tsx`, `OrderDetailContent.tsx`) |
 | 13 | MINOR | Studio Japanese text uses generic `sans-serif` SVG font-family → no guaranteed CJK fallback on Vercel Functions runtime | **DEFERRED** | `processor-contract.test.ts` §known-gaps todo #5 |
 
 Legend:
@@ -92,6 +92,28 @@ Legend:
 
 **Tests:** `serializer.test.ts` "Tonos — fitMode end-to-end" (2 tests, casts removed) + `processor-contract.test.ts` "tonos — fitMode honored" (pixel-sample on cyan/red/yellow striped 800×2000, samples top + bottom corners to discriminate `'cover'` from `'fill'`) + `webhook-failure-modes.test.ts` "tonos fitMode whitelisted" + "malformed tonosSlots fallback" (2 tests).
 
+### MAJOR #9 + MINOR #12 — Cart correctness (Phase 3, Appendix I)
+
+Phase 3 closed two findings + three follow-ups in one PR on the cart→webhook surface:
+
+**MAJOR #9 — Composite-reuse metadata not forwarded.**
+- Cart-composite endpoint produces a canonical PNG and stores it under `cart-composites/<jobId>.png`. Pre-Phase-3, the cart held the key but checkout dropped it; webhook always re-rendered. R2 orphans accumulated; Sharp work doubled.
+- New: cart line attrs `_composite_key` + `_composite_url` + `_composite_pipeline_version`. Webhook reads them with strict gates: regex prefix (`^cart-composites/[\w-]{1,128}\.png$`), pipeline-version match (per `src/lib/print-pipeline/version.ts#PIPELINE_VERSION`), URL derived from key (ignores client-supplied `_composite_url` to prevent steered fetches), composite dimension match against `getCompositeLayout(customization)`. On any failure → fall through to full pipeline.
+- Bypass uses new `splitCompositeIntoTiles` helper in `assemble-tiles.ts` — extracts pixel regions per `TilePlacement` placement. Category-agnostic: same path for Mosaicos, Tonos (tones+logo already baked into composite), STD/Arte/Studio (text already rendered), Spotify, Polaroid.
+- After successful tile upload + metafield write, fire-and-forget `deleteFile('print-files', compositeKey)` cleans up the cart-composite. R2 lifecycle policy reaps any abandoned composites.
+- Pipeline version stamped at composite-creation time (cart-composite endpoint returns `pipelineVersion`), persisted on the cart item, forwarded at checkout. Phase 4 (font fidelity) bumps the const → stale composites fall through to full render.
+
+**MINOR #12 — Attr naming reconciliation.**
+- `preview_image_url` and `grid_type` were stamped without the `_` prefix → webhook's `extractCustomizedLineItems` filter dropped them → admin UI + email reader silently saw `undefined`.
+- Renamed at producer (`checkout.ts`) + every reader: webhook route email path, admin `OrderCard.tsx`, admin `OrderDetailContent.tsx`. Filter retains them via the existing `_`-prefix rule.
+
+**Follow-ups landed in the same commit:**
+- **Production data-URL fallback gate** (`MagnetBuilder.tsx#uploadOrEncode`): throws in production instead of returning `{ kind: 'data', data: ... }`. The throw surfaces as the photo-uploader retry UI. Pre-fix: a transient R2 upload failure could produce a purchasable order with empty `_photo_url` → webhook had no photo to render.
+- **Empty-cart resurrect fix** (`/api/cart/save` + `cart-store.ts` + `pagehide`): on transition to empty, `/api/cart/save` deletes the `mosaiko_cart_id` cookie. cart-store performSync uses an AbortController so older non-empty saves can't race ahead of the empty save and re-create the cookie. `lastSyncedItems` set only on successful response (failed saves no longer suppress retries). Pagehide flushes empty via beacon when items differ from last-synced AND we've ever synced this session.
+- **Predesigned-line BLOCKER** (caught by Codex audit): `_preview_image_url` + `_grid_type` are stamped only when `item.customizations` exists, so a predesigned line carries zero `_`-prefixed attrs and the webhook filter correctly drops it (no `missing_customization_attr` failure on catalog-only orders).
+
+**Tests:** `webhook-failure-modes.test.ts` adds 6 composite-reuse tests (happy path, version mismatch, untrusted key, dimension mismatch, Tonos bypass, key/url binding). `webhook-parser.test.ts` adds 2 (predesigned-drops, attr-prefix retention). Total integrity tests now **84 passing + 1 todo** (was 76+3 after Phase 2; +5 net new + 2 stale TODOs converted).
+
 ### BLOCKERS #3–6 — Codex second-pass findings (Phase 4b)
 
 During the post-fix audit Codex flagged four additional must-fix issues within the same surface area:
@@ -108,11 +130,11 @@ During the post-fix audit Codex flagged four additional must-fix issues within t
 | File | Tests | Finding pinned |
 |---|---|---|
 | `src/__tests__/integrity/serializer.test.ts` | 26 passing + 0 todo | `buildPrintCustomization` round-trip per category × grid; JSON cart-attribute survival; Tonos rotation + fitMode in cart (now typed, no cast); BLOCKER #7 layoutRotated round-trip (4 tests); finding #8 Tonos fitMode end-to-end (2 tests) |
-| `src/__tests__/integrity/webhook-parser.test.ts` | 19 passing | `extractCustomizedLineItems` `_`-prefix filter; `whitelistTonosRotations` quarter-turn clamp; `safeJsonParse` malformed-input safety; captured-fixture payload integration |
-| `src/__tests__/integrity/webhook-failure-modes.test.ts` | 15 passing + 0 todo | BLOCKERs #1 + #6 (8 tests); BLOCKER #2 `UploadFailure` shape + per-line idempotency reuse/retry (5 tests); finding #8 Tonos fitMode passthrough + malformed-tonosSlots fallback (2 tests) |
-| `src/__tests__/integrity/processor-contract.test.ts` | 16 passing + 3 todo | Every processor produces N 827×827 PNG tiles; Tonos `intensity='strong'` regression test; BLOCKER #7 mosaicos layoutRotated — buffer-inequality for 3/6 and byte-identity for 9 (3 tests); finding #8 Tonos fitMode pixel-sample on striped fixture (1 test); findings #9 #12 #13 captured as todos |
+| `src/__tests__/integrity/webhook-parser.test.ts` | 21 passing | `extractCustomizedLineItems` `_`-prefix filter; `whitelistTonosRotations` quarter-turn clamp; `safeJsonParse` malformed-input safety; captured-fixture payload integration; **finding #12 + Phase-3 BLOCKER fix:** `_preview_image_url` + `_grid_type` retention; predesigned line drops (no `_` attrs → filter drops it) |
+| `src/__tests__/integrity/webhook-failure-modes.test.ts` | 21 passing + 0 todo | BLOCKERs #1 + #6 (8 tests); BLOCKER #2 `UploadFailure` shape + per-line idempotency reuse/retry (5 tests); finding #8 Tonos fitMode passthrough + malformed-tonosSlots fallback (2 tests); **finding #9 Phase-3.1 composite-reuse bypass — 6 tests:** happy path, version-mismatch fall-through, untrusted-key rejection, dimension mismatch, Tonos bypass (composite for non-Mosaicos), key/url binding (server derives URL from validated key) |
+| `src/__tests__/integrity/processor-contract.test.ts` | 16 passing + 1 todo | Every processor produces N 827×827 PNG tiles; Tonos `intensity='strong'` regression test; BLOCKER #7 mosaicos layoutRotated — buffer-inequality for 3/6 and byte-identity for 9 (3 tests); finding #8 Tonos fitMode pixel-sample on striped fixture (1 test); finding #13 Studio CJK captured as todo (Phase 4 of Appendix I plan) |
 
-Totals: **76 passing, 3 todo (79 tests total), 4 test files, `tsc --noEmit` clean.** (Phase 2 added 5 passing tests + flipped 2 todos.)
+Totals: **84 passing, 1 todo (85 tests total), 4 test files, `tsc --noEmit` clean.** (Phase 3 added 8 passing tests + converted 2 stale TODOs after closing findings #9 + #12.)
 
 Run: `npm test`.
 
@@ -150,4 +172,5 @@ Items that require a live Shopify store + R2 bucket + Vercel runtime. None are a
 - `041e375` fix(webhook): Codex final-pass patches — always-overwrite empty metafield keys, retry endpoint surfaces 500 on metafield-write failure
 - `ade90a0` fix(mosaicos): thread layoutRotated end-to-end (BLOCKER #7)
 - `936be78` fix(mosaicos): Codex audit — preview/cart/print parity (assemble-tiles + cart-composite request + composite-dimension oracle tests)
-- (this commit) fix(tonos): Tonos `fitMode` end-to-end (MAJOR #8) — types centralized, serializer cast removed, webhook + endpoints whitelist + forward, processor honors per-slot fitMode, cropper aspect respects fit mode, preview helper mirrors Sharp semantics
+- `0788dd7` fix(tonos): Tonos `fitMode` end-to-end (MAJOR #8) — types centralized, serializer cast removed, webhook + endpoints whitelist + forward, processor honors per-slot fitMode, cropper aspect respects fit mode, preview helper mirrors Sharp semantics
+- (this commit) fix(cart): cart correctness — composite-reuse bypass + attr naming + data-URL gate + empty-cart resurrect (MAJOR #9 + MINOR #12; Appendix I Phase 3) — closes the last two cart→webhook correctness defects from the integrity audit; 5-round Codex audit converged on cart-store sync race + key/url binding + version-stamp timing + predesigned-line BLOCKER

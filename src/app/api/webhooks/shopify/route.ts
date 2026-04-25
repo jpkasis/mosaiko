@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import crypto from 'node:crypto';
-import { uploadPrintTiles } from '@/lib/storage';
+import { uploadPrintTiles, deleteFile } from '@/lib/storage';
 import { sendOrderConfirmation, sendAdminNotification } from '@/lib/email/resend-client';
 import {
   extractCustomizedLineItems,
@@ -250,6 +250,8 @@ export async function POST(request: NextRequest) {
       fetchPhoto: fetchPhotoBuffer,
       uploadPrintTiles,
       processPrintJob: processPrintJob as ProcessingDeps['processPrintJob'],
+      // Phase 3.1c — clean up cart-composite after successful split + upload.
+      deleteComposite: (key) => deleteFile('print-files', key),
     };
 
     // Per-line idempotency: on a retry, reuse URLs from lines that
@@ -279,9 +281,9 @@ export async function POST(request: NextRequest) {
       customerEmail: order.email,
       items: customizedItems.map((item) => ({
         title: item.title,
-        gridType: item.attrs['grid_type'] || 'Personalizado',
+        gridType: item.attrs['_grid_type'] || 'Personalizado',
         quantity: item.quantity,
-        previewImageUrl: item.attrs['preview_image_url'],
+        previewImageUrl: item.attrs['_preview_image_url'],
       })),
       printFileDownloadUrl:
         result.allUrls.length > 0

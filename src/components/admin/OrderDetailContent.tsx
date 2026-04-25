@@ -214,8 +214,11 @@ export function OrderDetailContent({ orderId }: OrderDetailContentProps) {
             </h3>
             <div className="flex flex-col gap-4">
               {lineItems.map((item) => {
-                const previewUrl = item.customAttributes.find((a) => a.key === 'preview_image_url')?.value;
-                const gridType = item.customAttributes.find((a) => a.key === 'grid_type')?.value;
+                // `_`-prefixed keys per Phase 3.4 attr-naming reconciliation
+                // (matches the cart-attribute convention so the webhook's
+                // extractCustomizedLineItems filter keeps them).
+                const previewUrl = item.customAttributes.find((a) => a.key === '_preview_image_url')?.value;
+                const gridType = item.customAttributes.find((a) => a.key === '_grid_type')?.value;
                 const category = item.customAttributes.find((a) => a.key === 'category')?.value;
 
                 return (

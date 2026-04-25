@@ -42,11 +42,13 @@ export {
 } from './utils/filter-presets';
 export {
   assembleTilesToComposite,
+  splitCompositeIntoTiles,
   getCompositeLayout,
   CART_COMPOSITE_BG,
   type CompositeLayout,
   type TilePlacement,
 } from './utils/assemble-tiles';
+export { PIPELINE_VERSION } from './version';
 
 /**
  * Main print pipeline orchestrator.

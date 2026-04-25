@@ -8,6 +8,7 @@ import type {
 } from '@/lib/customization-types';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
 import { whitelistTonosFitModes } from '@/lib/shopify/webhook-parser';
+import { PIPELINE_VERSION } from '@/lib/print-pipeline/version';
 import type {
   PrintJob,
   SingleImagePrintJob,
@@ -356,6 +357,10 @@ export async function POST(request: NextRequest) {
         thumbUrl: thumbUpload.publicUrl,
         width: composed.width,
         height: composed.height,
+        // Stamp the renderer version at composite creation time so the
+        // webhook's bypass can reject stale composites (per Codex Phase 3
+        // audit MAJOR). Cart item persists this; checkout forwards it.
+        pipelineVersion: PIPELINE_VERSION,
       });
     } catch (uploadError) {
       if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_BLOB_FALLBACK) {
@@ -385,6 +390,7 @@ export async function POST(request: NextRequest) {
         thumbUrl: `/api/cart-composite/blob/${thumbBlobId}`,
         width: composed.width,
         height: composed.height,
+        pipelineVersion: PIPELINE_VERSION,
       });
     }
   } catch (error) {
