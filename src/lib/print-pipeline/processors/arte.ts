@@ -6,6 +6,7 @@ import type { ArteCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
 import { wrapTitle, wrapArtist } from '../utils/text-wrap';
+import { renderTextLayer, type TextSpec } from '../utils/text-renderer';
 
 const TILE = TILE_PRINT_SIZE;
 const LOGO_PATH = join(process.cwd(), 'public/logos/logo-blanco.png');
@@ -52,15 +53,6 @@ export async function processArte(job: SingleImagePrintJob): Promise<TileOutput[
   return tiles;
 }
 
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
 async function renderInfoTile(
   title: string,
   artist: string,
@@ -88,30 +80,37 @@ async function renderInfoTile(
   const artistStartY =
     titleStartY + (titleLines.length - 1) * titleLineHeight + gapBetween + artistFontSize;
 
-  const titleTspans = titleLines
-    .map(
-      (line, i) =>
-        `<tspan x="${textRightX}" y="${titleStartY + i * titleLineHeight}">${escapeXml(line)}</tspan>`,
-    )
-    .join('');
+  // Phase 4 — Each SVG <tspan> becomes a separate canvas TextSpec at
+  // the same (x, y_i). Functionally equivalent: tspans were just
+  // grouping for shared font attributes, not a layout primitive.
+  const titleSpecs: TextSpec[] = titleLines.map((line, i) => ({
+    text: line,
+    x: textRightX,
+    y: titleStartY + i * titleLineHeight,
+    fontFamily: 'Montserrat',
+    fontSize: titleFontSize,
+    fontWeight: 700,
+    fill: '#FFFFFF',
+    align: 'end',
+    letterSpacing: 0.8,
+  }));
+  const artistSpecs: TextSpec[] = artistLines.map((line, i) => ({
+    text: line,
+    x: textRightX,
+    y: artistStartY + i * artistLineHeight,
+    fontFamily: 'Montserrat',
+    fontSize: artistFontSize,
+    fontWeight: 400,
+    fill: '#E5E5E5',
+    align: 'end',
+  }));
 
-  const artistTspans = artistLines
-    .map(
-      (line, i) =>
-        `<tspan x="${textRightX}" y="${artistStartY + i * artistLineHeight}">${escapeXml(line)}</tspan>`,
-    )
-    .join('');
-
-  const svg = `<svg width="${TILE}" height="${TILE}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${TILE}" height="${TILE}" fill="#000000" />
-    <text font-family="Montserrat, sans-serif" font-size="${titleFontSize}" font-weight="700" fill="#FFFFFF" text-anchor="end" letter-spacing="0.8">${titleTspans}</text>
-    <text font-family="Montserrat, sans-serif" font-size="${artistFontSize}" font-weight="400" fill="#E5E5E5" text-anchor="end">${artistTspans}</text>
-  </svg>`;
-
-  const baseBuffer = await sharp(Buffer.from(svg))
-    .resize(TILE, TILE)
-    .png()
-    .toBuffer();
+  const baseBuffer = await renderTextLayer({
+    width: TILE,
+    height: TILE,
+    background: '#000000',
+    texts: [...titleSpecs, ...artistSpecs],
+  });
 
   const logoHeight = Math.round(TILE * 0.08);
   const resizedLogo = await sharp(await readFile(LOGO_PATH))

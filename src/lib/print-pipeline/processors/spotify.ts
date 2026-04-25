@@ -5,6 +5,7 @@ import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { SpotifyCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
+import { renderTextLayer } from '../utils/text-renderer';
 
 const TILE = TILE_PRINT_SIZE;
 
@@ -91,20 +92,40 @@ async function renderBottomLeftTile(
     .png()
     .toBuffer();
 
-  // Create text overlay SVG
+  // Phase 4 — text rendered on canvas (was inline SVG / librsvg, which
+  // dropped the Source Sans 3 font on Vercel and silently fell back to
+  // DejaVu). Canvas's font registry (font-loader.ts) provides the actual
+  // glyph outlines so the printed PNG matches the cropper preview.
   const textX = Math.round(TILE * 0.10);
   const songY = Math.round(TILE * 0.40);
   const artistY = Math.round(TILE * 0.55);
-
-  const textSvg = `<svg width="${TILE}" height="${TILE}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${textX}" y="${songY}" font-family="'Source Sans 3', 'Source Sans Pro', sans-serif" font-size="56" font-weight="bold" fill="#FFFFFF">${escapeXml(songName)}</text>
-    <text x="${textX}" y="${artistY}" font-family="'Source Sans 3', 'Source Sans Pro', sans-serif" font-size="40" fill="#FFFFFF" opacity="0.7">${escapeXml(artistName)}</text>
-  </svg>`;
-
-  const textBuffer = await sharp(Buffer.from(textSvg))
-    .resize(TILE, TILE)
-    .png()
-    .toBuffer();
+  const textBuffer = await renderTextLayer({
+    width: TILE,
+    height: TILE,
+    texts: [
+      {
+        text: songName,
+        x: textX,
+        y: songY,
+        fontFamily: 'Source Sans 3',
+        fontSize: 56,
+        fontWeight: 700,
+        fill: '#FFFFFF',
+        align: 'start',
+      },
+      {
+        text: artistName,
+        x: textX,
+        y: artistY,
+        fontFamily: 'Source Sans 3',
+        fontSize: 40,
+        fontWeight: 400,
+        fill: '#FFFFFF',
+        opacity: 0.7,
+        align: 'start',
+      },
+    ],
+  });
 
   // Load and resize Spotify logo
   const spotifyLogoBuffer = await readFile(join(LOGO_DIR, 'LOGO SPOTIFY.png'));
@@ -163,11 +184,3 @@ async function renderBottomRightTile(): Promise<Buffer> {
     .toBuffer();
 }
 
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}

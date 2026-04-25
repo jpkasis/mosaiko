@@ -6,6 +6,7 @@ import type { StudioCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
 import { studioLayout } from '../../category-layouts/studio';
+import { renderTextLayer } from '../utils/text-renderer';
 
 const TILE = TILE_PRINT_SIZE;
 const TEMPLATE_DIR = join(process.cwd(), 'mosaic-categories/studio/studio-template-PNGs');
@@ -152,12 +153,14 @@ async function renderLeftPanel(
   const yearY = Math.round(TILE * 0.325);
   const studioY = Math.round(TILE * 0.405);
 
-  const textSvg = `<svg width="${TILE}" height="${TILE}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${textX}" y="${yearY}" font-family="Montserrat, sans-serif" font-size="58" fill="#2a2a2a">${escapeXml(year)}</text>
-    <text x="${textX}" y="${studioY}" font-family="Montserrat, sans-serif" font-size="58" fill="#2a2a2a">${escapeXml(studioText || 'STUDIO GHIBLI')}</text>
-  </svg>`;
-
-  const textBuffer = await sharp(Buffer.from(textSvg)).resize(TILE, TILE).png().toBuffer();
+  const textBuffer = await renderTextLayer({
+    width: TILE,
+    height: TILE,
+    texts: [
+      { text: year, x: textX, y: yearY, fontFamily: 'Montserrat', fontSize: 58, fontWeight: 400, fill: '#2a2a2a', align: 'start' },
+      { text: studioText || 'STUDIO GHIBLI', x: textX, y: studioY, fontFamily: 'Montserrat', fontSize: 58, fontWeight: 400, fill: '#2a2a2a', align: 'start' },
+    ],
+  });
 
   return sharp(baseBuffer)
     .composite([
@@ -191,12 +194,17 @@ async function renderRightPanel(
   const jpY = Math.round(TILE * 0.325);
   const titleY = Math.round(TILE * 0.415);
 
-  const textSvg = `<svg width="${TILE}" height="${TILE}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${textRight}" y="${jpY}" font-family="sans-serif" font-size="58" fill="#2a2a2a" text-anchor="end">${escapeXml(japaneseText)}</text>
-    <text x="${textRight}" y="${titleY}" font-family="Montserrat, sans-serif" font-size="58" font-weight="bold" fill="#2a2a2a" text-anchor="end">${escapeXml(customText)}</text>
-  </svg>`;
-
-  const textBuffer = await sharp(Buffer.from(textSvg)).resize(TILE, TILE).png().toBuffer();
+  // Phase 4 — japaneseText now pins to Noto Sans JP (was generic
+  // sans-serif → tofu squares on Vercel without a CJK fontconfig
+  // fallback). customText keeps Montserrat at bold weight.
+  const textBuffer = await renderTextLayer({
+    width: TILE,
+    height: TILE,
+    texts: [
+      { text: japaneseText, x: textRight, y: jpY, fontFamily: 'Noto Sans JP', fontSize: 58, fontWeight: 400, fill: '#2a2a2a', align: 'end' },
+      { text: customText, x: textRight, y: titleY, fontFamily: 'Montserrat', fontSize: 58, fontWeight: 700, fill: '#2a2a2a', align: 'end' },
+    ],
+  });
 
   return sharp(baseBuffer)
     .composite([
@@ -208,11 +216,3 @@ async function renderRightPanel(
     .toBuffer();
 }
 
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
