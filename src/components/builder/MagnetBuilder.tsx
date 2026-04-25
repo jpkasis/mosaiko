@@ -24,6 +24,7 @@ import {
   type StepId,
   type TonosIndex,
 } from './useBuilderFlow';
+import { useKeyboardInset } from './useKeyboardInset';
 import { CategorySelector } from './CategorySelector';
 import { GridSelector } from './GridSelector';
 import { PhotoUploader } from './PhotoUploader';
@@ -143,6 +144,11 @@ export function MagnetBuilder() {
   const initialGrid = searchParams.get('grid') ? (Number(searchParams.get('grid')) as GridSize) : null;
 
   const flow = useBuilderFlow({ initialCategory, initialGrid });
+  // Phase 6.1 — sticky CTA must ride above iOS soft keyboard. The hook
+  // returns 0 on desktop / older browsers / SSR, so the math degrades
+  // to "zero offset" → no visual change. iOS Safari + Android Chrome
+  // populate `window.visualViewport`.
+  const keyboardInset = useKeyboardInset();
 
   // Listen for the top-nav "Personalizar" click-while-already-here signal.
   // The header dispatches BUILDER_RESET_EVENT so we can reset to step 1
@@ -679,9 +685,11 @@ export function MagnetBuilder() {
               // Lift above sticky CTA (if shown) AND above the cookie banner
               // (if visible). `--cookie-banner-offset` is set by CookieBanner
               // on :root via ResizeObserver while the banner is onscreen.
+              // Phase 6.1: also lift above the iOS soft keyboard when open
+              // (keyboardInset is 0 on desktop / when closed).
               bottom: stickyCta.visible
-                ? 'calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem)'
-                : 'calc(var(--cookie-banner-offset, 0px) + 1rem)',
+                ? `calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`
+                : `calc(var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`,
             }}
             aria-label="Ver vista previa"
           >
@@ -733,7 +741,10 @@ export function MagnetBuilder() {
           style={{
             zIndex: 'var(--z-header)',
             ['--safe-min' as string]: '0.75rem',
-            bottom: 'var(--cookie-banner-offset, 0px)',
+            // Phase 6.1: sticky CTA rides above the iOS soft keyboard
+            // when it's open. `keyboardInset` is 0 on desktop / when
+            // the keyboard is closed → behaviour identical to pre-fix.
+            bottom: `calc(var(--cookie-banner-offset, 0px) + ${keyboardInset}px)`,
           }}
         >
           <button
