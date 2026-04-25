@@ -142,11 +142,12 @@ enough context to pick up cold.
 - **Fix direction:** Replace STD's `buildOverlaySvg` with a canvas-based renderer that produces the same rectangle of text + treatment effects. Reuse `font-loader.ts` registry; build per-treatment canvas drawing routines.
 - **Reference:** `memory/server_font_fidelity_gap.md`; `INTEGRITY_AUDIT.md` row #10 PARTIALLY FIXED.
 
-### Admin print-file download enumerates raw R2 prefixes
-- **Where:** `src/app/api/admin/print-files/` (prefix-listing endpoint) and `src/app/admin/pedidos/[orderNumber]/page.tsx` (consumer).
-- **Symptom:** Partial-upload survivors (from any PR prior to this audit) can still appear as downloadable tiles even when the overall order is `partial` or `failed`. Admin may ship an incomplete multi-line order thinking it's complete.
-- **Fix direction:** Gate downloads on `print_pipeline_status === 'complete'` AND compute the tile list from the authoritative `print_pipeline_results` metafield, not an R2 prefix listing.
-- **Test:** Not yet captured; open a new test file once the admin route is scoped.
+(Admin print-file R2 gate was FIXED in Phase 5 (Appendix I) — route
+rewritten to read `print_pipeline_status` + `print_pipeline_results`
+metafields, gates downloads on status==='complete', parses R2 keys via
+`parseR2KeyFromPublicUrl` with cross-order tamper protection. See
+`INTEGRITY_AUDIT.md` row #11 + `admin-print-files.test.ts` for the
+13-test regression fence.)
 
 ---
 

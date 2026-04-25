@@ -11,7 +11,7 @@
 
 **Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
 
-**Last updated:** 2026-04-25 (post Phase 3 — cart correctness: composite-reuse, attr-naming reconciliation, data-URL gate, empty-cart resurrect).
+**Last updated:** 2026-04-25 (post Phase 5 — admin R2 gate. Phases 2/3/4-partial/5 all landed; only STD font fidelity + Phase 6 polish remain).
 
 ---
 
@@ -29,7 +29,7 @@
 | 8 | MAJOR | Tonos `fitMode` serialized via `as unknown as` cast, webhook reads only `rotation`, `TonosPrintJob` has no fit-mode field → processor always crops-to-fill | **FIXED — Phase 2 (post-Phase-4c)** | `serializer.test.ts` §"Tonos — fitMode end-to-end (FIXED, was MAJOR)" (2 tests) + `processor-contract.test.ts` §"tonos — fitMode honored" (pixel-sample test on striped fixture) + `webhook-failure-modes.test.ts` Tonos passthrough + malformed-tonosSlots tests |
 | 9 | MAJOR | Composite-reuse metadata stored in cart but not sent to Shopify → webhook regenerates from original photo, abandoned composites accumulate in R2 | **FIXED — Phase 3 (Appendix I)** | `webhook-failure-modes.test.ts` §"Phase 3.1 — composite-reuse bypass" (6 tests: happy path, version mismatch, untrusted key, dimension mismatch, Tonos bypass, key/url binding) |
 | 10 | MAJOR | Font fidelity gap (STD/Arte/Studio/Spotify) — SVG text uses system fonts, preview diverges from print | **PARTIALLY FIXED — Phase 4 (Spotify/Studio/Arte; STD deferred)** | font-loader.ts + canvas-text helper; STD migration pending due to SVG filter effects (shadow/halo/outline/frame/card) |
-| 11 | MAJOR | Admin print-file download still enumerates raw R2 prefixes — partial-upload survivors can appear downloadable even while the line is failed. (Codex flag — not in scope of this audit, needs admin-UI fix.) | **DEFERRED** | See DEFERRED.md |
+| 11 | MAJOR | Admin print-file download still enumerates raw R2 prefixes — partial-upload survivors can appear downloadable even while the line is failed. (Codex flag — not in scope of this audit, needs admin-UI fix.) | **FIXED — Phase 5 (Appendix I)** | `admin-print-files.test.ts` (13 tests covering parseR2KeyFromPublicUrl strict modes + cross-order tamper guard + regex-meta defense) + route rewrite gates downloads on `print_pipeline_status === 'complete'` + per-line metafield-driven listing |
 | 12 | MINOR | `grid_type` / `preview_image_url` line-item attrs attached without `_` prefix → webhook filter drops them; email reader silently receives `undefined` | **FIXED — Phase 3 (Appendix I)** | `webhook-parser.test.ts` §"Phase 3.4: _preview_image_url and _grid_type survive the filter" + admin readers updated (`OrderCard.tsx`, `OrderDetailContent.tsx`) |
 | 13 | MINOR | Studio Japanese text uses generic `sans-serif` SVG font-family → no guaranteed CJK fallback on Vercel Functions runtime | **FIXED — Phase 4 (Appendix I)** | `processor-contract.test.ts` §"finding closures" Studio CJK pixel-region test (proves `Noto Sans JP` glyphs render, not tofu) |
 
