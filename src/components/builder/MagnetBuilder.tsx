@@ -320,6 +320,13 @@ export function MagnetBuilder() {
 
   // Mobile-only live-preview drawer. Desktop keeps the sticky sidebar.
   const [previewDrawerOpen, setPreviewDrawerOpen] = useState(false);
+
+  // Phase 6.3 — upload-step sticky CTA. Single-image uploader emits the
+  // ready file via `onReadyChange`; parent stores it here so the sticky
+  // CTA can advance from outside the PhotoUploader component without
+  // lifting the rest of its phase state. Tonos derives readiness from
+  // `flow.tonos.imageSrcs` directly (already in `useBuilderFlow`).
+  const [uploadReadyFile, setUploadReadyFile] = useState<File | null>(null);
   // Only show the FAB once the user is past the category pick — the preview
   // has nothing to render before a category + image exist. Hide on the
   // preview step since that page *is* the preview (FAB would be redundant)
@@ -360,13 +367,14 @@ export function MagnetBuilder() {
   const showPreviewFab = canPreview && !previewDrawerOpen;
 
   // Mobile sticky bottom CTA. Keeps the primary action anchored so it never
-  // drifts out of the thumb zone as step content changes. Only rendered on
+  // drifts out of the thumb zone as step content changes. Rendered on
   // steps where the `useBuilderFlow` hook already owns the advance action:
+  //   - upload    → flow.handleImageSelected / flow.handleTonosImagesSelected
+  //                 (Phase 6.3: PhotoUploader emits readiness via
+  //                 onReadyChange; Tonos derives from imageSrcs)
   //   - customize → flow.handleCustomizeComplete (always eligible to advance)
   //   - preview   → handleAddToCart (disabled while upload is in flight)
-  // Upload and crop keep their inline CTAs for now — their proceed actions
-  // live inside the respective step components (PhotoUploader / ImageCropper)
-  // and need state lifting or imperative handles, which is scoped to M2/M3.
+  // Crop step keeps its inline CTA — proceed lives inside the cropper.
   const stickyCta = useMemo<
     | { visible: false }
     | {
@@ -376,6 +384,32 @@ export function MagnetBuilder() {
         onAdvance: () => void | Promise<void>;
       }
   >(() => {
+    if (flow.currentStepId === 'upload' && flow.gridConfig) {
+      if (isTonos) {
+        const allReady = flow.tonos.imageSrcs.every((s) => s !== null);
+        return {
+          visible: true,
+          label: tc('next'),
+          canAdvance: allReady,
+          onAdvance: () => {
+            const files = flow.tonos.fileRefs.current;
+            if (files.every((f) => f != null)) {
+              flow.handleTonosImagesSelected(
+                files as [File, File, File],
+              );
+            }
+          },
+        };
+      }
+      return {
+        visible: true,
+        label: tc('next'),
+        canAdvance: !!uploadReadyFile,
+        onAdvance: () => {
+          if (uploadReadyFile) flow.handleImageSelected(uploadReadyFile);
+        },
+      };
+    }
     if (flow.currentStepId === 'customize') {
       return {
         visible: true,
@@ -400,7 +434,13 @@ export function MagnetBuilder() {
     flow.gridConfig,
     flow.isUploading,
     flow.handleCustomizeComplete,
+    flow.handleImageSelected,
+    flow.handleTonosImagesSelected,
+    flow.tonos.imageSrcs,
+    flow.tonos.fileRefs,
     handleAddToCart,
+    isTonos,
+    uploadReadyFile,
     t,
     tc,
   ]);
@@ -547,6 +587,7 @@ export function MagnetBuilder() {
                   <PhotoUploader
                     onImageSelected={flow.handleImageSelected}
                     gridConfig={flow.gridConfig}
+                    onReadyChange={setUploadReadyFile}
                   />
                 )}
                 {flow.currentStepId === 'upload' && flow.gridConfig && isTonos && (

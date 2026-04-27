@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { assessImageQuality } from '@/lib/canvas-utils';
@@ -10,6 +10,11 @@ import { Button } from '@/components/ui/Button';
 interface PhotoUploaderProps {
   onImageSelected: (file: File) => void;
   gridConfig: GridConfig;
+  /** Phase 6.3: emits the selected File when phase becomes `ready`, or
+   *  `null` when the user resets / retries / leaves the step. Lets the
+   *  parent (MagnetBuilder) own the upload-step sticky-CTA advance
+   *  without lifting all of PhotoUploader's internal phase state. */
+  onReadyChange?: (file: File | null) => void;
 }
 
 type ImageQuality = 'good' | 'medium' | 'low' | null;
@@ -32,7 +37,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProps) {
+export function PhotoUploader({ onImageSelected, gridConfig, onReadyChange }: PhotoUploaderProps) {
   const t = useTranslations('builder');
   const tc = useTranslations('common');
 
@@ -46,8 +51,53 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  // Phase 6.3 — keep the latest onReadyChange in a ref so the
+  // notification effect doesn't re-fire just because the parent passed a
+  // fresh inline callback. State changes (`phase`, `selectedFile`) are
+  // the only events that should trigger emission.
+  const onReadyChangeRef = useRef(onReadyChange);
+  useEffect(() => {
+    onReadyChangeRef.current = onReadyChange;
+  }, [onReadyChange]);
+
+  // Phase 6.3 — decode token guarding against stale image-decode races.
+  // If the user picks file A, then quickly picks file B (or hits reset)
+  // before A's `img.onload` fires, the in-flight callback for A would
+  // otherwise set phase='ready' against the new selectedFile (B) and
+  // emit a `ready` signal with the wrong/unverified image. Each
+  // processFile bumps this token and captures the value into closure;
+  // late callbacks compare and bail if the token has moved on.
+  const decodeRequestRef = useRef(0);
+
+  // Emit readiness changes to the parent. Parent uses this to drive the
+  // sticky-CTA advance for the upload step.
+  useEffect(() => {
+    const cb = onReadyChangeRef.current;
+    if (!cb) return;
+    if (phase === 'ready' && selectedFile) {
+      cb(selectedFile);
+    } else {
+      cb(null);
+    }
+  }, [phase, selectedFile]);
+
+  // Cleanup on unmount: parent should not hold a stale "ready" file once
+  // the uploader has left the tree.
+  useEffect(() => {
+    return () => {
+      onReadyChangeRef.current?.(null);
+    };
+  }, []);
+
   const processFile = useCallback(
     (file: File) => {
+      // Phase 6.3 — invalidate any prior in-flight decode and clear
+      // parent readiness FIRST, before any validation. Otherwise a stale
+      // decode from a previously-valid file survives an invalid pick
+      // and can re-enable the sticky CTA with the prior file's data.
+      decodeRequestRef.current += 1;
+      onReadyChangeRef.current?.(null);
+
       setError(null);
 
       // Validate file type
@@ -64,6 +114,8 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
         return;
       }
 
+      const myRequest = decodeRequestRef.current;
+
       setSelectedFile(file);
       setPhase('processing');
 
@@ -77,11 +129,13 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
 
       const img = new Image();
       img.onload = () => {
+        if (myRequest !== decodeRequestRef.current) return; // stale
         const q = assessImageQuality(img.width, img.height, gridConfig);
         setQuality(q);
         setPhase('ready');
       };
       img.onerror = () => {
+        if (myRequest !== decodeRequestRef.current) return; // stale
         setError(t('uploadErrorRead'));
         setPhase('failed');
       };
@@ -127,6 +181,11 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
   }
 
   function handleReset() {
+    // Phase 6.3 — invalidate any in-flight decode AND clear parent
+    // readiness synchronously so the sticky CTA disables on this tick,
+    // not on the deferred render-phase effect.
+    decodeRequestRef.current += 1;
+    onReadyChangeRef.current?.(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSelectedFile(null);
     setPreviewUrl(null);
@@ -137,6 +196,8 @@ export function PhotoUploader({ onImageSelected, gridConfig }: PhotoUploaderProp
 
   function handleRetry() {
     // From the failed state, just go back to idle — the user re-picks.
+    decodeRequestRef.current += 1;
+    onReadyChangeRef.current?.(null);
     setError(null);
     setPhase('idle');
   }

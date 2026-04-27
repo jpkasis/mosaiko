@@ -62,12 +62,6 @@ gate covered both.)
 - **What:** The `Restablecer` / `Cambiar foto` toolbar from M3 only applies to the single-image `ImageCropper`. Tonos still lacks a per-slot reset / replace affordance; users re-pick each slot from the upload step instead.
 - **Fix direction:** Lift per-slot reset into `ImageCropperMulti`; for "replace" there's already per-slot re-pick in `PhotoUploaderMulti` via direct file-input tap on each slot, so this is a nice-to-have rather than a blocker.
 
-### Upload-step sticky CTA
-- **Where:** `src/components/builder/MagnetBuilder.tsx`.
-- **Deferred from:** PR M1 (sticky CTA).
-- **What:** M1 only put a sticky CTA on `customize` + `preview` steps, where the advance callback is in `useBuilderFlow`. The `upload` step's proceed logic is internal to `PhotoUploader`; wiring a sticky CTA there requires either lifting `selectedFile` into the hook or exposing an imperative handle.
-- **Fix direction:** Lift `selectedFile` + `phase` state into `useBuilderFlow` so the sticky CTA can own `upload` advance. Low risk but invasive.
-
 ---
 
 ## Out of scope for this phase
