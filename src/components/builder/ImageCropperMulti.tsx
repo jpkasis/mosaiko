@@ -21,11 +21,22 @@ interface ImageCropperMultiProps {
   cropAreas: [CropArea | null, CropArea | null, CropArea | null];
   intensity: TonosIntensity;
   slots: [TonosSlot, TonosSlot, TonosSlot];
+  /** Phase 6.2 — per-slot remount counter. React key={resetSeq[i]} on
+   *  each TonosCropSlot forces a fresh mount when reset/replace is
+   *  invoked, clearing local crop/zoom/imageSize/debounce in one shot. */
+  resetSeq: [number, number, number];
   onCropChange: (index: TonosIndex, cropAreaPixels: CropArea) => void;
   onCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
   onIntensityChange: (intensity: TonosIntensity) => void;
   onFitModeChange: (index: TonosIndex, mode: TonosFitMode) => void;
   onToggleRotation: (index: TonosIndex) => void;
+  /** Phase 6.2 — per-slot reset (clears fitMode/rotation/cropAreas;
+   *  keeps the photo). Undo affordance for one slot. */
+  onSlotReset: (index: TonosIndex) => void;
+  /** Phase 6.2 — per-slot photo replace. Wired to a hidden file input
+   *  inside each slot's toolbar so users don't have to navigate back
+   *  to the upload step to swap one photo. */
+  onSlotReplacePhoto: (index: TonosIndex, file: File) => void;
   onAllDone: () => void;
 }
 
@@ -43,11 +54,14 @@ export function ImageCropperMulti({
   cropAreas,
   intensity,
   slots,
+  resetSeq,
   onCropChange,
   onCropComplete,
   onIntensityChange,
   onFitModeChange,
   onToggleRotation,
+  onSlotReset,
+  onSlotReplacePhoto,
   onAllDone,
 }: ImageCropperMultiProps) {
   const t = useTranslations('builder');
@@ -72,7 +86,10 @@ export function ImageCropperMulti({
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         {imageSrcs.map((src, i) => (
           <TonosCropSlot
-            key={i}
+            // Phase 6.2 — composite key includes resetSeq so a bumped
+            // counter for slot i forces remount of THAT slot only.
+            // Other slots retain their crop/zoom/imageSize state.
+            key={`${i}-${resetSeq[i]}`}
             index={i as TonosIndex}
             imageSrc={src}
             slot={slots[i]}
@@ -80,6 +97,8 @@ export function ImageCropperMulti({
             onCropComplete={onCropComplete}
             onFitModeChange={onFitModeChange}
             onToggleRotation={onToggleRotation}
+            onSlotReset={onSlotReset}
+            onSlotReplacePhoto={onSlotReplacePhoto}
           />
         ))}
       </div>
@@ -109,6 +128,8 @@ function TonosCropSlot({
   onCropComplete,
   onFitModeChange,
   onToggleRotation,
+  onSlotReset,
+  onSlotReplacePhoto,
 }: {
   index: TonosIndex;
   imageSrc: string | null;
@@ -117,6 +138,8 @@ function TonosCropSlot({
   onCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
   onFitModeChange: (index: TonosIndex, mode: TonosFitMode) => void;
   onToggleRotation: (index: TonosIndex) => void;
+  onSlotReset: (index: TonosIndex) => void;
+  onSlotReplacePhoto: (index: TonosIndex, file: File) => void;
 }) {
   const t = useTranslations('builder');
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -219,6 +242,21 @@ function TonosCropSlot({
         selected={slot.fitMode}
         onChange={(m) => onFitModeChange(index, m)}
       />
+
+      {/* Phase 6.2 — per-slot toolbar. Mirrors the single-image cropper's
+          Restablecer + Cambiar foto pattern, scoped to this one slot.
+          Only renders when there's a photo (no point in resetting an
+          empty slot, and replace-via-input only makes sense once the
+          user has at least one photo loaded). */}
+      {imageSrc && (
+        <SlotToolbar
+          index={index}
+          onReset={() => onSlotReset(index)}
+          onReplaceFile={(file) => onSlotReplacePhoto(index, file)}
+          resetLabel={t('cropReset')}
+          replaceLabel={t('replacePhoto')}
+        />
+      )}
 
       <div
         className="relative w-full overflow-hidden rounded-xl bg-cream"
@@ -469,3 +507,79 @@ function IntensitySelector({
 
 // gridConfig param retained for future per-grid behaviour even though aspect is fixed at 1.
 export type { ImageCropperMultiProps };
+
+// ─── Per-slot toolbar (Phase 6.2) ──────────────────────────────────────────
+//
+// Mirrors `src/components/builder/ImageCropper.tsx` toolbar styling: 48 px
+// touch targets, neutral white buttons with terracotta hover. Differences
+// from the single-image version:
+//   - Reset is scoped to ONE slot via `onReset` (no fitMode mutation since
+//     fitMode is per-slot in Tonos and the underlying handler resets it).
+//   - "Cambiar foto" triggers a per-slot hidden file input rather than
+//     navigating back to the upload step. The user stays in the cropper
+//     and the OTHER slots' state is preserved.
+
+function SlotToolbar({
+  index,
+  onReset,
+  onReplaceFile,
+  resetLabel,
+  replaceLabel,
+}: {
+  index: TonosIndex;
+  onReset: () => void;
+  onReplaceFile: (file: File) => void;
+  resetLabel: string;
+  replaceLabel: string;
+}) {
+  // Use a per-slot ref so each slot's hidden input is independent.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex w-full gap-2">
+      <button
+        type="button"
+        onClick={onReset}
+        aria-label={`${resetLabel} foto ${index + 1}`}
+        className="flex min-h-[44px] flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-light-gray bg-white px-2 text-xs font-medium text-warm-gray transition-colors hover:border-terracotta/40 hover:text-charcoal active:scale-[0.98]"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 3-6.7" />
+          <polyline points="3 4 3 10 9 10" />
+        </svg>
+        {resetLabel}
+      </button>
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        aria-label={`${replaceLabel} foto ${index + 1}`}
+        className="flex min-h-[44px] flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-light-gray bg-white px-2 text-xs font-medium text-warm-gray transition-colors hover:border-terracotta/40 hover:text-charcoal active:scale-[0.98]"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+        {replaceLabel}
+      </button>
+      {/* Hidden — clicked programmatically via the button above. Per-slot
+          ref means slot 1's button can't accidentally trigger slot 2's input.
+          aria-hidden because className='hidden' makes display:none which
+          already excludes it from the AT tree. The visible buttons above
+          carry the slot-specific aria-labels. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onReplaceFile(file);
+          // Clear the input value so picking the same file twice still fires.
+          e.target.value = '';
+        }}
+      />
+    </div>
+  );
+}

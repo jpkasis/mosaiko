@@ -587,11 +587,14 @@ export function MagnetBuilder() {
                     cropAreas={flow.tonos.cropAreas}
                     intensity={flow.tonos.intensity}
                     slots={flow.tonos.slots}
+                    resetSeq={flow.tonos.resetSeq}
                     onCropChange={flow.handleTonosCropChange}
                     onCropComplete={flow.handleTonosCropComplete}
                     onIntensityChange={flow.setTonosIntensity}
                     onFitModeChange={flow.setTonosFitMode}
                     onToggleRotation={flow.toggleTonosRotation}
+                    onSlotReset={flow.handleTonosSlotReset}
+                    onSlotReplacePhoto={flow.handleTonosSlotReplacePhoto}
                     onAllDone={flow.advanceFromTonosCrop}
                   />
                 )}
