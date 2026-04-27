@@ -11,7 +11,7 @@
 
 **Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
 
-**Last updated:** 2026-04-27 (post Phase 4 STD migration — full font fidelity now closed for all 4 text-bearing categories. All BLOCKERs + MAJORs FIXED; remaining work is Phase 6 polish + cleanup scripts).
+**Last updated:** 2026-04-27 (post Phase 6 polish + Phase 5 cleanup scripts — all engineering work closed. Zero open BLOCKERs. Zero open MAJORs. Zero open MINORs. Remaining items in `DEFERRED.md` require external action only: real-device iOS test, shipping-ETA product decision, push to origin, Shopify store creation by client).
 
 ---
 
