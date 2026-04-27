@@ -275,16 +275,27 @@ export async function listFiles(
   const bucketName =
     bucket === 'uploads' ? R2_BUCKET_UPLOADS : R2_BUCKET_PRINT_FILES;
 
-  const response = await client.send(
-    new ListObjectsV2Command({
-      Bucket: bucketName,
-      Prefix: prefix,
-    }),
-  );
-
-  return (response.Contents ?? [])
-    .map((obj) => obj.Key)
-    .filter((key): key is string => key !== undefined);
+  // ListObjectsV2 returns at most 1000 keys per page. Continuation
+  // tokens drive subsequent pages — without this loop, callers operating
+  // on buckets with >1000 keys would silently see only the first page.
+  const all: string[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const response = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucketName,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    for (const obj of response.Contents ?? []) {
+      if (obj.Key) all.push(obj.Key);
+    }
+    continuationToken = response.IsTruncated
+      ? response.NextContinuationToken
+      : undefined;
+  } while (continuationToken);
+  return all;
 }
 
 // ─── Delete file ────────────────────────────────────────────────────────────
