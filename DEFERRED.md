@@ -135,12 +135,12 @@ enough context to pick up cold.
 
 ## MAJORs deferred
 
-### Server-side font fidelity gap (Save the Date only — Spotify/Studio/Arte FIXED in Phase 4)
-- **Where:** `src/lib/print-pipeline/processors/save-the-date.ts` — only STD remains on the SVG/librsvg path. Spotify, Studio, and Arte migrated to canvas via `font-loader.ts` + `renderTextLayer` in Phase 4 (Appendix I).
-- **Symptom:** STD preview renders text in Playfair / Cormorant / Great-Vibes / Montserrat etc.; print PNG falls back to DejaVu/Liberation Sans without correct fonts.
-- **Why STD specifically deferred:** SVG `<filter>` effects for `treatment={shadow|halo|outline|frame|card}` use `feDropShadow` and blur halos. Each treatment needs a canvas equivalent (ctx.shadow*, ctx.filter='blur()', strokeText, strokeRect for the four trivial cases; halo+card need more careful translation). Substantial follow-up; deferred to Phase 4.5 or Phase 4-followup.
-- **Fix direction:** Replace STD's `buildOverlaySvg` with a canvas-based renderer that produces the same rectangle of text + treatment effects. Reuse `font-loader.ts` registry; build per-treatment canvas drawing routines.
-- **Reference:** `memory/server_font_fidelity_gap.md`; `INTEGRITY_AUDIT.md` row #10 PARTIALLY FIXED.
+(Server-side font fidelity gap was FULLY FIXED in Phase 4 + Phase 4
+STD migration. Save-the-Date now uses a canvas-based overlay renderer
+with per-treatment canvas equivalents (ctx.shadow* for shadow + card,
+ctx.filter='blur()' for halo, strokeText for outline, strokeRect for
+frame). See `INTEGRITY_AUDIT.md` row #10 + `processor-contract.test.ts`
+finding-closures section for the 7-test STD regression fence.)
 
 (Admin print-file R2 gate was FIXED in Phase 5 (Appendix I) — route
 rewritten to read `print_pipeline_status` + `print_pipeline_results`

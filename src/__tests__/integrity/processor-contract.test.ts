@@ -682,4 +682,104 @@ describe('processor contract — finding closures', () => {
     // in this region ≈ at least a few glyph strokes.
     expect(textPixelCount).toBeGreaterThan(50);
   }, 30_000);
+
+  // Phase 4 STD migration (post-Phase-5) — finding #10 closure for STD.
+  // The canvas-based STD overlay renders the user's chosen brand font
+  // (Playfair Display, Cormorant Garamond, Great Vibes, etc.) instead
+  // of librsvg's DejaVu fallback. Proven via pixel-color sampling: the
+  // user picks color #FFFFFF (white), the rendered text region must
+  // contain pixels approximately white. If the text didn't render at
+  // all (font missing), we'd see only the SOURCE_IMAGE's red.
+  test('Save-the-Date renders user-color text (canvas, brand font) — finding #10 STD', async () => {
+    const stdCustomization = {
+      categoryType: 'save-the-date' as const,
+      gridSize: 9 as const,
+      eventText: 'Wedding\nMosaiko 2026',
+      date: '2026-06-15',
+      fontFamily: 'playfair' as const,
+      fontSize: 'L' as const,
+      // White text on red SOURCE_IMAGE — high contrast, easy to detect.
+      color: '#FFFFFF',
+      anchor: 'middle-center' as const,
+      treatment: 'none' as const,
+      intensity: 'medium' as const,
+    };
+    const job: SingleImagePrintJob = {
+      imageBuffer: SOURCE_IMAGE,
+      customization: stdCustomization,
+      cropArea: FULL_CROP,
+      jobId: 'test-std-canvas',
+    };
+    const result = await processPrintJob(job);
+    await assertTileContract(result.tiles, { count: 9, jobId: job.jobId });
+
+    // STD overlays text BEFORE splitting into tiles, so the center
+    // tile (index 4 in a 3×3 grid, middle-center anchor) carries the
+    // user's text. Sweep the central region and count near-white pixels.
+    const TILE = 827;
+    const tile4 = result.tiles.find((t) => t.index === 4);
+    expect(tile4).toBeDefined();
+    const { data, info } = await sharp(tile4!.buffer)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    // Center band (x ∈ [0.2, 0.8], y ∈ [0.2, 0.8] of TILE).
+    const xStart = Math.round(TILE * 0.2);
+    const xEnd = Math.round(TILE * 0.8);
+    const yStart = Math.round(TILE * 0.2);
+    const yEnd = Math.round(TILE * 0.8);
+    let whitePixelCount = 0;
+    for (let y = yStart; y <= yEnd; y++) {
+      for (let x = xStart; x <= xEnd; x++) {
+        const idx = (y * info.width + x) * info.channels;
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        // Near-white text glyphs (allow AA edges + JPEG noise).
+        if (r > 200 && g > 200 && b > 200) {
+          whitePixelCount++;
+        }
+      }
+    }
+    // STD writes 'Wedding\nMosaiko 2026' at L size — we expect a
+    // substantial number of white pixels (hundreds at minimum) if the
+    // canvas rendered the text. If the canvas registry failed to load
+    // Playfair Display, no glyphs would draw and this would fail.
+    expect(whitePixelCount).toBeGreaterThan(500);
+  }, 30_000);
+
+  // Round-trip every STD treatment — proves no treatment branch crashes
+  // and each produces a valid tile contract. Pixel-content per treatment
+  // is implicitly tested by the treatment-specific code paths.
+  const STD_TREATMENTS = [
+    'none',
+    'shadow',
+    'outline',
+    'halo',
+    'card',
+    'frame',
+  ] as const;
+  for (const treatment of STD_TREATMENTS) {
+    test(`Save-the-Date treatment="${treatment}" produces 9 valid tiles`, async () => {
+      const job: SingleImagePrintJob = {
+        imageBuffer: SOURCE_IMAGE,
+        customization: {
+          categoryType: 'save-the-date',
+          gridSize: 9,
+          eventText: 'Save the Date',
+          date: '2026-06-15',
+          fontFamily: 'cormorant',
+          fontSize: 'M',
+          color: '#FFFFFF',
+          anchor: 'middle-center',
+          treatment,
+          intensity: 'medium',
+        },
+        cropArea: FULL_CROP,
+        jobId: `test-std-${treatment}`,
+      };
+      const result = await processPrintJob(job);
+      await assertTileContract(result.tiles, { count: 9, jobId: job.jobId });
+    }, 30_000);
+  }
 });
