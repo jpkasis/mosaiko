@@ -166,11 +166,14 @@ test('getEffectiveGridConfig: arte:9 uses 4×3 with aspect 2', () => {
   assert.equal(cfg.price, GRID_CONFIGS[9].price);
 });
 
-test('getEffectiveGridConfig: spotify:6 uses square aspect', () => {
+test('getEffectiveGridConfig: spotify:6 uses visible-region aspect (1109/1152)', () => {
+  // Was 1.0 (square) pre-Spotify-geometry-reconciliation; the new aspect
+  // matches the combined transparent area inside the template borders so
+  // the cropper shows exactly what shows through in the printed magnet.
   const cfg = getEffectiveGridConfig(6, 'spotify');
   assert.equal(cfg.rows, 3);
   assert.equal(cfg.cols, 2);
-  assert.equal(cfg.aspect, 1);
+  assert.equal(cfg.aspect, 1109 / 1152);
 });
 
 test('getEffectiveGridConfig: studio:6 uses 1055/1204 aspect', () => {

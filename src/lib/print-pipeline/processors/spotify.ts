@@ -4,10 +4,49 @@ import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { SpotifyCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
+import { CATEGORY_LAYOUTS } from '../../category-layouts';
+import { derivePhotoRegion } from '../../category-layouts/derive';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
 import { renderTextLayer } from '../utils/text-renderer';
 
 const TILE = TILE_PRINT_SIZE;
+
+/**
+ * Compute the combined visible photo region (across the 2×2 photo grid)
+ * from the layout's per-tile bounds. Each tile is `sourceSize` px native;
+ * combined is 2×sourceSize. Returns normalized 0..1 fractions so callers
+ * can multiply by their own canvas size (2×TILE for the print composite).
+ */
+function combinedVisibleRegion() {
+  const region = derivePhotoRegion(CATEGORY_LAYOUTS.spotify);
+  if (!region) {
+    throw new Error('[spotify] expected photo region in CATEGORY_LAYOUTS.spotify');
+  }
+  const s = region.sourceSize;
+  const grid2 = 2 * s;
+  // Each tile occupies a quadrant in the 2×2 grid. Map per-tile bounds
+  // into combined-space coordinates (offset by tile's grid position).
+  const tileOffset = (i: number) => ({
+    dx: (i % 2) * s,
+    dy: Math.floor(i / 2) * s,
+  });
+  let left = grid2, top = grid2, right = 0, bottom = 0;
+  for (const idxStr of Object.keys(region.tiles)) {
+    const i = Number(idxStr);
+    const t = region.tiles[i];
+    const off = tileOffset(i);
+    left = Math.min(left, t.left + off.dx);
+    top = Math.min(top, t.top + off.dy);
+    right = Math.max(right, t.right + off.dx);
+    bottom = Math.max(bottom, t.bottom + off.dy);
+  }
+  return {
+    leftFrac: left / grid2,
+    topFrac: top / grid2,
+    rightFrac: right / grid2,
+    bottomFrac: bottom / grid2,
+  };
+}
 
 // Path to the template PNGs (relative to project root)
 const TEMPLATE_DIR = join(process.cwd(), 'mosaic-categories/spotify/spotify-template-PNGs');
@@ -25,15 +64,38 @@ export async function processSpotify(job: SingleImagePrintJob): Promise<TileOutp
   const customization = job.customization as SpotifyCustomization;
   const { songName, artistName } = customization;
 
-  // Step 1: Crop and split photo into 2x2 (top 4 tiles)
-  const croppedBuffer = await cropAndResize(
+  // Step 1: Crop the user's photo to the exact pixels of the visible
+  // region (the transparent area inside the 2×2 template borders), then
+  // place it on a transparent 2×TILE canvas at the offset and split into
+  // 4 tiles. This ensures the user's chosen framing is what shows
+  // through — the template's opaque rounded-card border doesn't crop
+  // any part of their crop.
+  const region = combinedVisibleRegion();
+  const visibleW = Math.round((region.rightFrac - region.leftFrac) * 2 * TILE);
+  const visibleH = Math.round((region.bottomFrac - region.topFrac) * 2 * TILE);
+  const offX = Math.round(region.leftFrac * 2 * TILE);
+  const offY = Math.round(region.topFrac * 2 * TILE);
+
+  const visiblePhoto = await cropAndResize(
     job.imageBuffer,
     job.cropArea,
-    2 * TILE,
-    2 * TILE,
+    visibleW,
+    visibleH,
   );
 
-  const photoTiles = await splitIntoTiles(croppedBuffer, 2, 2);
+  const canvasBuffer = await sharp({
+    create: {
+      width: 2 * TILE,
+      height: 2 * TILE,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([{ input: visiblePhoto, left: offX, top: offY }])
+    .png()
+    .toBuffer();
+
+  const photoTiles = await splitIntoTiles(canvasBuffer, 2, 2);
 
   // Step 2: Overlay PNG template frames on each photo tile
   const framedPhotoTiles = await Promise.all(

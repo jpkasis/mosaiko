@@ -204,6 +204,46 @@ export function MagnetPreview({
           return;
         }
 
+        // Spotify: photo region is bordered by opaque template edges
+        // (rounded-corner card frame). Splits are at the visible-region
+        // tile boundaries — NOT equal halves — because the per-tile
+        // photo widths/heights are asymmetric: left col is 555/1109
+        // wide, right col is 554/1109; top row is 540/1152 tall, bottom
+        // row is 612/1152. Mirror the server processor's offset math.
+        if (categoryType === 'spotify') {
+          const tileSize = 200;
+          const fullCanvas = getCroppedCanvas(image, cropArea, tileSize * 2, tileSize * 2, 0);
+          const hSplit = 555 / 1109;
+          const vSplit = 540 / 1152;
+          const leftW  = Math.round(tileSize * 2 * hSplit);
+          const rightW = tileSize * 2 - leftW;
+          const topH   = Math.round(tileSize * 2 * vSplit);
+          const botH   = tileSize * 2 - topH;
+          const regions = [
+            { sx: 0,     sy: 0,    sw: leftW,  sh: topH },
+            { sx: leftW, sy: 0,    sw: rightW, sh: topH },
+            { sx: 0,     sy: topH, sw: leftW,  sh: botH },
+            { sx: leftW, sy: topH, sw: rightW, sh: botH },
+          ];
+
+          const urls: string[] = [];
+          for (const r of regions) {
+            const tc = document.createElement('canvas');
+            tc.width = r.sw;
+            tc.height = r.sh;
+            const ctx = tc.getContext('2d')!;
+            ctx.drawImage(fullCanvas, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+            urls.push(tc.toDataURL('image/jpeg', 0.9));
+            tc.width = 0;
+            tc.height = 0;
+          }
+          fullCanvas.width = 0;
+          fullCanvas.height = 0;
+          if (cancelled) return;
+          setTiles(urls);
+          return;
+        }
+
         // Studio: 2×2 photo area + 63-unit photo strip extending into
         // the top of tiles 5 & 6 (matches transparent regions of the frame PNGs
         // and the print pipeline's 1055×1204 photo buffer).
@@ -238,8 +278,9 @@ export function MagnetPreview({
           return;
         }
 
-        const photoRows = categoryType === 'spotify' || categoryType === 'arte' ? 2
-          : gridConfig.rows;
+        // Spotify is handled in its own branch above; the only remaining
+        // category that uses 2 photo rows in the generic split is Arte.
+        const photoRows = categoryType === 'arte' ? 2 : gridConfig.rows;
         const photoCols = gridConfig.cols;
 
         const splitTileCount = photoTileCount;
@@ -718,13 +759,27 @@ function PhotoTile({
 
   if (categoryType === 'spotify') {
     const tileNumber = index + 1;
+    const inset = deriveClientInset(CATEGORY_LAYOUTS.spotify, index);
     return (
       <div className="relative overflow-hidden" style={{ aspectRatio: '1' }}>
-        {imgElement}
+        {inset && (
+          <img
+            src={tileSrc}
+            alt={`Pieza ${index + 1} de ${totalTiles}`}
+            className="absolute"
+            style={{
+              left: `${inset.left}%`,
+              top: `${inset.top}%`,
+              width: `${inset.width}%`,
+              height: `${inset.height}%`,
+            }}
+            draggable={false}
+          />
+        )}
         <img
           src={`/templates/spotify/${tileNumber}.png`}
           alt=""
-          className="pointer-events-none absolute inset-0 h-full w-full"
+          className="pointer-events-none relative z-10 h-full w-full"
           draggable={false}
         />
       </div>
