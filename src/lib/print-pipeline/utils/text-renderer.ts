@@ -237,4 +237,3 @@ export async function renderMultiTextToBuffer(
   }));
   return renderTextLayer({ width, height, background: backgroundColor, texts });
 }
-

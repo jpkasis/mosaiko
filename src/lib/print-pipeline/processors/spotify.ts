@@ -183,4 +183,3 @@ async function renderBottomRightTile(): Promise<Buffer> {
     .png()
     .toBuffer();
 }
-

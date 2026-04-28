@@ -215,4 +215,3 @@ async function renderRightPanel(
     .png()
     .toBuffer();
 }
-

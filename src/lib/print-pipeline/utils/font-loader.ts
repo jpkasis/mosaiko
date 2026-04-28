@@ -112,12 +112,3 @@ export function ensurePrintFontsRegistered(): void {
   }
   registered = true;
 }
-
-/**
- * Returns the list of registered family names. Useful for tests and
- * for processors that want to assert font availability before building
- * their canvas calls.
- */
-export function listRegisteredFamilies(): readonly string[] {
-  return FONT_REGISTRY.map((e) => e.family);
-}

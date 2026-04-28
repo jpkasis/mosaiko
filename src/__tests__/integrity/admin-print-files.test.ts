@@ -20,14 +20,29 @@
  * a non-trivial slice of Next.js runtime that vitest can't easily
  * boot for a unit test).
  */
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { parseR2KeyFromPublicUrl } from '@/lib/shopify/pipeline-metafields';
 
 describe('parseR2KeyFromPublicUrl — strict R2 URL → {key, index} parser', () => {
+  // Snapshot the original env value so beforeEach resets and the
+  // 'fallback to default origin' test (which deletes the var) leaves
+  // process.env clean for any test that runs after this describe block.
+  // Codex final-audit LOW finding.
+  let originalR2PublicUrl: string | undefined;
+
   beforeEach(() => {
+    originalR2PublicUrl = process.env.R2_PUBLIC_URL;
     // Match the real producer's URL format: ${R2_PUBLIC_URL}/${key}.
     // Tests run with a fixture host so we know what the gate expects.
     process.env.R2_PUBLIC_URL = 'https://r2.test.mosaiko.mx';
+  });
+
+  afterEach(() => {
+    if (originalR2PublicUrl === undefined) {
+      delete process.env.R2_PUBLIC_URL;
+    } else {
+      process.env.R2_PUBLIC_URL = originalR2PublicUrl;
+    }
   });
 
   test('valid URL → returns key + parsed index', () => {

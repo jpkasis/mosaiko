@@ -11,7 +11,7 @@
 
 **Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
 
-**Last updated:** 2026-04-27 (post Phase 6 polish + Phase 5 cleanup scripts — all engineering work closed. Zero open BLOCKERs. Zero open MAJORs. Zero open MINORs. Remaining items in `DEFERRED.md` require external action only: real-device iOS test, shipping-ETA product decision, push to origin, Shopify store creation by client).
+**Last updated:** 2026-04-27 (final pre-push audit clean — Codex cumulative review caught 1 MAJOR (font-glob bloat 37 MB → 1.28 MB), 1 LOW (test env-leak), 2 NITs (dangling export, trailing blank lines), all fixed. Zero open BLOCKERs. Zero open MAJORs. Zero open MINORs. Remaining items in `DEFERRED.md` require external action only: real-device iOS test, shipping-ETA product decision, push to origin, Shopify store creation by client).
 
 ---
 

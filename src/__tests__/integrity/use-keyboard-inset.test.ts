@@ -13,7 +13,7 @@
  * unsubscribe pair, not the math (innerHeight - viewport.height is
  * trivially correct).
  */
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useKeyboardInset } from '@/components/builder/useKeyboardInset';
 
@@ -54,6 +54,24 @@ function makeFakeViewport(initialHeight: number): {
 }
 
 describe('useKeyboardInset', () => {
+  // Snapshot + restore window.innerHeight so tests after this suite see
+  // jsdom's default rather than whatever the last test wrote. Codex
+  // final-audit LOW finding.
+  let originalInnerHeight: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    originalInnerHeight = Object.getOwnPropertyDescriptor(
+      window,
+      'innerHeight',
+    );
+  });
+
+  afterEach(() => {
+    if (originalInnerHeight) {
+      Object.defineProperty(window, 'innerHeight', originalInnerHeight);
+    }
+  });
+
   test('returns 0 when keyboard is closed (innerHeight === viewport.height)', () => {
     const fake = makeFakeViewport(844);
     Object.defineProperty(window, 'innerHeight', {
