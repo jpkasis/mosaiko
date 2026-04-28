@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
+import { Link } from '@/i18n/navigation';
 import { useCartStore, type CartItem as CartItemType } from '@/lib/cart-store';
 import { formatPrice } from '@/lib/grid-config';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
@@ -17,6 +18,7 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
   const t = useTranslations('cart');
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const closeDrawer = useCartStore((s) => s.closeDrawer);
   const [imgFailed, setImgFailed] = useState(false);
 
   // Bigger thumbnail on mobile for the drawer variant (compact) so the
@@ -41,16 +43,22 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
       className="relative flex gap-3 rounded-xl bg-white p-3 shadow-sm"
     >
-      {/* Thumbnail */}
-      <div
-        className={`${thumbnailSize} flex-shrink-0 overflow-hidden rounded-lg bg-cream-dark`}
+      {/* Thumbnail — link to fridge-style detail view at /carrito/{id}.
+          Closes the drawer on click so the detail page isn't covered by
+          the drawer overlay. closeDrawer is a no-op when CartItem is
+          rendered inside /carrito (drawer isn't open). */}
+      <Link
+        href={{ pathname: '/carrito/[itemId]', params: { itemId: item.id } }}
+        onClick={closeDrawer}
+        aria-label={t('viewItemDetail')}
+        className={`${thumbnailSize} group flex-shrink-0 overflow-hidden rounded-lg bg-cream-dark cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta`}
       >
         {hasImage ? (
           <img
             src={item.previewUrl}
             alt={displayName}
             onError={() => setImgFailed(true)}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.04]"
           />
         ) : (
           <div
@@ -75,7 +83,7 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
             </svg>
           </div>
         )}
-      </div>
+      </Link>
 
       {/* Details */}
       <div className="flex min-w-0 flex-1 flex-col justify-between">

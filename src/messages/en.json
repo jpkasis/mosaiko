@@ -207,7 +207,11 @@
     "noCustomText": "No custom text",
     "shippingEta": "Standard · 3–5 business days",
     "checkoutPayNow": "Pay {price} · Secure checkout",
-    "processorAttribution": "Secure checkout by Shopify"
+    "processorAttribution": "Secure checkout by Shopify",
+    "backToCart": "Back to cart",
+    "itemDetailSubtitle": "This is how your magnets will look on the fridge",
+    "itemDetailMissing": "We couldn't find this item in your cart. Returning to your cart.",
+    "viewItemDetail": "View detail"
   },
   "cookies": {
     "title": "Your privacy matters",

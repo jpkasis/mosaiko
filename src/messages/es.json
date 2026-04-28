@@ -207,7 +207,11 @@
     "noCustomText": "Sin texto personalizado",
     "shippingEta": "Estándar · 3–5 días hábiles",
     "checkoutPayNow": "Pagar {price} · Pago seguro",
-    "processorAttribution": "Checkout seguro por Shopify"
+    "processorAttribution": "Checkout seguro por Shopify",
+    "backToCart": "Volver al carrito",
+    "itemDetailSubtitle": "Así se verán tus imanes en el refrigerador",
+    "itemDetailMissing": "No encontramos esta pieza en tu carrito. Volvamos a tu carrito.",
+    "viewItemDetail": "Ver detalle"
   },
   "cookies": {
     "title": "Tu privacidad nos importa",
