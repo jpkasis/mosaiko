@@ -43,12 +43,73 @@
 
   /* Spacing */
   --container-max: 1280px;
-  --header-height: 72px;
+  --header-height: var(--header-height-desktop);
   --announcement-height: 40px;
 
   /* Transitions */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Runtime-critical tokens live in `@theme static` so Tailwind v4's dev
+ * pipeline does NOT tree-shake them. Plain `:root {}` vars that aren't
+ * referenced from `@theme inline` or any utility class get silently
+ * dropped by Turbopack's CSS emission in dev mode (even though they
+ * survive in production builds) — which broke every overlay/drawer/
+ * cookie banner that reads `var(--z-drawer)` et al via inline JS style.
+ *
+ * `@theme static` is the v4 escape-hatch that forces emission on `:root`
+ * regardless of utility usage. Keep color/typography tokens in plain
+ * `:root {}` above — they're already preserved via `@theme inline`
+ * (`--color-* : var(--terracotta)` etc.).
+ */
+@theme static {
+  /* Z-index stack (single source of truth; numeric values ordered low → high).
+   * Header sits above page content; drawers (cart, mobile menu) above header;
+   * modals above drawers so a dialog inside a drawer still works; toast above
+   * modals for confirmations; cookie banner above toast to ensure consent
+   * remains reachable; grain overlay on top as a pure visual effect. */
+  --z-header: 40;
+  --z-drawer: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+  --z-cookie: 80;
+  --z-grain: 90;
+
+  /* Responsive header height. Mobile variant activates at < 640 px via the
+   * media-query override below; desktop default is the base `--header-height`
+   * in `:root`. Both are referenced through `var()` in layout code (e.g.
+   * `pt-[var(--header-height)]`), so they must be preserved. */
+  --header-height-mobile: 64px;
+  --header-height-desktop: 72px;
+
+  /* Builder mobile sticky CTA footer. Used by MagnetBuilder on mobile to
+   * keep a contextual primary action visible at all times. Step content
+   * on mobile pads its bottom by this value so the footer doesn't cover
+   * the last control. Value: 64 px visible button area + 16 px vertical
+   * padding block; safe-area-inset-bottom is added on top via `pb-safe`. */
+  --mobile-footer-height: 80px;
+}
+
+/* Mobile header height — applied below the Tailwind `sm` breakpoint. */
+@media (max-width: 639px) {
+  :root {
+    --header-height: var(--header-height-mobile);
+  }
+}
+
+/* Reduced-motion safety net — disables all CSS transitions/animations for
+   users who opt in. Framer Motion has its own useReducedMotion hook that
+   kicks in for JS-driven animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @theme inline {
@@ -120,6 +181,17 @@ body {
 :focus-visible {
   outline: 2px solid var(--terracotta);
   outline-offset: 2px;
+}
+
+/* Form inputs carry their own visible focus state via border-color changes
+   (see FieldInput / FieldTextarea). The global outline is redundant there
+   and its 2px offset gets clipped by ancestor `overflow-hidden` wrappers
+   (e.g. the builder's step slide container). Disable it just for editable
+   form controls — buttons, links, and other focusables still get the
+   global terracotta ring. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
 /* ── Utility Classes ── */
@@ -199,12 +271,44 @@ body {
   scrollbar-width: none;
 }
 
+/* ── Safe-area utilities ──
+   iOS notch + home-bar insets. Combine with normal padding via `max()` so the
+   element gets at least the design padding even on devices without insets. */
+.pt-safe {
+  padding-top: max(var(--safe-min, 0px), env(safe-area-inset-top));
+}
+.pb-safe {
+  padding-bottom: max(var(--safe-min, 0px), env(safe-area-inset-bottom));
+}
+.pl-safe {
+  padding-left: max(var(--safe-min, 0px), env(safe-area-inset-left));
+}
+.pr-safe {
+  padding-right: max(var(--safe-min, 0px), env(safe-area-inset-right));
+}
+.px-safe {
+  padding-left: max(var(--safe-min, 0px), env(safe-area-inset-left));
+  padding-right: max(var(--safe-min, 0px), env(safe-area-inset-right));
+}
+.py-safe {
+  padding-top: max(var(--safe-min, 0px), env(safe-area-inset-top));
+  padding-bottom: max(var(--safe-min, 0px), env(safe-area-inset-bottom));
+}
+
 /* ── react-easy-crop sizing overrides ──
    Tailwind preflight applies `img { max-width: 100%; height: auto }` to all
    images, which clamps the cropper's media element to the container width.
    That defeats cover mode (where the image MUST overflow the container so
    the user can pan/choose the crop) and produces brown gaps when dragging
-   non-square photos. Reassert the library's intended sizing here. */
+   non-square photos. Reassert the library's intended sizing here.
+
+   Also: `touch-action: none` blocks page pinch-zoom inside the cropper so
+   two-finger gestures go to react-easy-crop instead of the browser viewport.
+   Everywhere else on the page, default touch-action applies — `userScalable`
+   accessibility zoom still works for visually impaired users. */
+.reactEasyCrop_Container {
+  touch-action: none;
+}
 .reactEasyCrop_Container .reactEasyCrop_Image,
 .reactEasyCrop_Container .reactEasyCrop_Video {
   max-width: none;
@@ -233,6 +337,6 @@ body {
   height: 100%;
   pointer-events: none;
   opacity: 0.03;
-  z-index: 9999;
+  z-index: var(--z-grain);
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
 }

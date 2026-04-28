@@ -1,4 +1,5 @@
 import type { GridSize } from './grid-config';
+import { CATEGORY_LAYOUTS } from './category-layouts';
 
 // ─── Category identifiers ───────────────────────────────────────────────────
 
@@ -17,11 +18,54 @@ export type TonosIntensity = 'mild' | 'medium' | 'strong';
 
 export type TonosToneColumn = 'warm' | 'none' | 'cool';
 
+// ─── Tonos per-slot config (single source of truth) ────────────────────────
+
+/**
+ * How the user's photo fits inside its 827×827 print tile when the
+ * source image's aspect doesn't match. Three modes match the Sharp
+ * `fit` semantics (UI label → Sharp behaviour):
+ *   - `'fill'`  — UI: cropper covers full tile, may crop edges → Sharp `fit: 'cover'`
+ *   - `'fit'`   — UI: shows whole image, letterboxes empty space → Sharp `fit: 'contain'` + cream bg
+ *   - `'stretch'` — UI: distorts to exact dimensions → Sharp `fit: 'fill'`
+ */
+export type TonosFitMode = 'fill' | 'fit' | 'stretch';
+
+/** The four quarter-turns supported by the print pipeline. */
+export type TonosRotation = 0 | 90 | 180 | 270;
+
+/** Per-slot (one of three) fit + rotation user controls in the cropper. */
+export interface TonosSlotConfig {
+  fitMode: TonosFitMode;
+  rotation: TonosRotation;
+}
+
+/**
+ * Tonos always has exactly three uploaded slots (one per source photo),
+ * regardless of grid size. Fixed-length tuple so consumers can reach
+ * into a slot by index without conditional length checks. NOT marked
+ * `readonly` because the builder's `setTonosFitMode` /
+ * `setTonosRotation` setters do `next[index] = { ...prev[index], ... }`
+ * during state updates; consumers that need an immutable view can use
+ * `Readonly<TonosSlotConfigs>` locally.
+ */
+export type TonosSlotConfigs = [
+  TonosSlotConfig,
+  TonosSlotConfig,
+  TonosSlotConfig,
+];
+
 // ─── Per-category customization data (discriminated union) ──────────────────
 
 export interface MosaicosCustomization {
   categoryType: 'mosaicos';
   gridSize: 3 | 6 | 9;
+  /**
+   * True when the user rotated the grid (portrait ↔ landscape) in the
+   * builder. Captured from `useBuilderFlow.layoutRotated` and threaded
+   * through the cart so the print processor can swap rows/cols before
+   * cropping + splitting. Rotation is a no-op on gridSize 9 (square).
+   */
+  layoutRotated?: boolean;
 }
 
 export interface SpotifyCustomization {
@@ -35,6 +79,14 @@ export interface TonosCustomization {
   categoryType: 'tonos';
   gridSize: 3 | 9;
   intensity: TonosIntensity;
+  /**
+   * Per-slot fit + rotation. Persisted in the cart, serialized into
+   * Shopify line-item attributes, and read back at order time by the
+   * webhook to drive the print processor's per-slot crop semantics.
+   * Optional: pre-fitMode-fix payloads default the processor to
+   * `[{fitMode:'fill', rotation:0}, ...]` for backward compat.
+   */
+  tonosSlots?: TonosSlotConfigs;
 }
 
 export type STDFontFamily =
@@ -103,15 +155,19 @@ export const STD_FONT_CSS_VARS: Record<STDFontFamily, string> = {
   'tenor-sans': 'var(--font-tenor-sans), "Tenor Sans", sans-serif',
 };
 
+// Single-quoted family names are safe to interpolate into SVG
+// `font-family="..."` attributes; double-quoted family names would
+// collide with the outer attribute delimiter and break SVG parsing in
+// libvips / librsvg at render time.
 export const STD_FONT_PRINT_NAMES: Record<STDFontFamily, string> = {
-  cormorant: '"Cormorant Garamond", Georgia, serif',
-  playfair: '"Playfair Display", Georgia, serif',
+  cormorant: "'Cormorant Garamond', Georgia, serif",
+  playfair: "'Playfair Display', Georgia, serif",
   montserrat: 'Montserrat, sans-serif',
-  'dm-sans': '"DM Sans", sans-serif',
-  'dancing-script': '"Dancing Script", cursive',
-  'great-vibes': '"Great Vibes", cursive',
+  'dm-sans': "'DM Sans', sans-serif",
+  'dancing-script': "'Dancing Script', cursive",
+  'great-vibes': "'Great Vibes', cursive",
   cinzel: 'Cinzel, Georgia, serif',
-  'tenor-sans': '"Tenor Sans", sans-serif',
+  'tenor-sans': "'Tenor Sans', sans-serif",
 };
 
 export const STD_COLOR_PALETTE: ReadonlyArray<{ hex: string; nameKey: string }> = [
@@ -241,79 +297,35 @@ export interface TileDescriptor {
   toneColumn?: TonosToneColumn;
 }
 
-const TONOS_COLUMNS: readonly TonosToneColumn[] = ['warm', 'none', 'cool'];
-
 /**
  * Returns the tile layout for a given category customization.
- * Describes which tiles are photo tiles, special tiles, or text panels.
+ *
+ * Adapter: the canonical layout data lives in `src/lib/category-layouts/`.
+ * This function translates each category's `LayoutTile` descriptors into
+ * the historical flat shape existing consumers expect. PR 1b migrates
+ * consumers to the new contract and deletes this compatibility layer.
  */
 export function getTileLayout(config: CategoryCustomization): TileDescriptor[] {
-  const { categoryType, gridSize } = config;
-
-  switch (categoryType) {
-    case 'mosaicos':
-    case 'polaroid':
-      return Array.from({ length: gridSize }, (_, i) => ({
-        index: i,
-        role: 'photo' as const,
-      }));
-
-    case 'spotify':
-      // 6-grid: top 4 = photo (2x2), bottom 2 = black bar
-      return [
-        { index: 0, role: 'photo' },
-        { index: 1, role: 'photo' },
-        { index: 2, role: 'photo' },
-        { index: 3, role: 'photo' },
-        { index: 4, role: 'special', label: 'spotify-bar-left' },
-        { index: 5, role: 'special', label: 'spotify-bar-right' },
-      ];
-
-    case 'tonos':
-      // Rows = uploaded picture, columns = tone (warm/none/cool).
-      // 9-grid: 3 rows × 3 cols, sourceImageIndex = row.
-      // 3-grid: 1 row × 3 cols, sourceImageIndex = column (one picture per tile).
-      if (gridSize === 9) {
-        return Array.from({ length: 9 }, (_, i) => ({
-          index: i,
-          role: 'photo' as const,
-          sourceImageIndex: Math.floor(i / 3) as 0 | 1 | 2,
-          toneColumn: TONOS_COLUMNS[i % 3],
-        }));
-      }
-      return Array.from({ length: 3 }, (_, i) => ({
-        index: i,
-        role: 'photo' as const,
-        sourceImageIndex: i as 0 | 1 | 2,
-        toneColumn: TONOS_COLUMNS[i],
-      }));
-
-    case 'save-the-date':
-      // All tiles are photo tiles (with text overlay)
-      return Array.from({ length: gridSize }, (_, i) => ({
-        index: i,
-        role: 'photo' as const,
-      }));
-
-    case 'arte':
-      // 4×2+1 layout: 8 photo tiles in 2 rows of 4, info tile at row 3 col 4
-      return [
-        ...Array.from({ length: 8 }, (_, i) => ({
-          index: i,
-          role: 'photo' as const,
-        })),
-        { index: 8, role: 'special', label: 'arte-info', gridColumn: 4, gridRow: 3 },
-      ];
-
-    case 'studio':
-      // 6-grid: top 4 = photo (2x2), bottom 2 = text panels
-      return [
-        { index: 0, role: 'photo' },
-        { index: 1, role: 'photo' },
-        { index: 2, role: 'photo' },
-        { index: 3, role: 'photo' },
-        { index: 4, role: 'text-panel', label: 'studio-left' },
-        { index: 5, role: 'text-panel', label: 'studio-right' },
-      ];
+  const layout = CATEGORY_LAYOUTS[config.categoryType];
+  const tiles = layout.tiles[config.gridSize];
+  if (!tiles) {
+    throw new Error(
+      `[customization-types] getTileLayout: ${config.categoryType} has no tiles for grid ${config.gridSize}`,
+    );
   }
+  return tiles.map((tile): TileDescriptor => {
+    // Category-specific meta is a discriminated union; the old flat shape
+    // exposes every field as top-level optional. Probe with an index access
+    // so categories that don't have a given field just return undefined.
+    const meta = tile.meta as
+      | { label?: string; sourceImageIndex?: 0 | 1 | 2; toneColumn?: TonosToneColumn }
+      | undefined;
+    const out: TileDescriptor = { index: tile.index, role: tile.role };
+    if (meta?.label !== undefined) out.label = meta.label;
+    if (tile.col !== undefined) out.gridColumn = tile.col;
+    if (tile.row !== undefined) out.gridRow = tile.row;
+    if (meta?.sourceImageIndex !== undefined) out.sourceImageIndex = meta.sourceImageIndex;
+    if (meta?.toneColumn !== undefined) out.toneColumn = meta.toneColumn;
+    return out;
+  });
 }

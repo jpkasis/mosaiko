@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Overlay, OverlayTitle, OverlayDescription } from '@/components/ui/Overlay';
 
 const ONBOARDING_KEY = 'mosaiko-admin-onboarding-seen';
 
@@ -78,84 +78,81 @@ export function OnboardingOverlay() {
     }
   }
 
-  if (!isVisible) return null;
-
   const step = STEPS[currentStep];
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.9, y: 20 }}
-          className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl"
+    <Overlay
+      open={isVisible}
+      onOpenChange={(open) => { if (!open) handleDismiss(); }}
+      variant="modal-center"
+      zLayer="modal"
+      ariaLabel="Tutorial de administración"
+      contentClassName="bg-white p-8 max-w-md"
+    >
+      {/* Step indicator */}
+      <div className="mb-6 flex items-center justify-center gap-2">
+        {STEPS.map((_, i) => (
+          <div
+            key={i}
+            className={[
+              'h-1.5 rounded-full transition-all',
+              i === currentStep ? 'w-6 bg-terracotta' : 'w-1.5 bg-light-gray',
+            ].join(' ')}
+          />
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="text-center">
+        <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-terracotta/10">
+          {step.icon}
+        </div>
+
+        <OverlayTitle
+          asChild
         >
-          {/* Step indicator */}
-          <div className="mb-6 flex items-center justify-center gap-2">
-            {STEPS.map((_, i) => (
-              <div
-                key={i}
-                className={[
-                  'h-1.5 rounded-full transition-all',
-                  i === currentStep ? 'w-6 bg-terracotta' : 'w-1.5 bg-light-gray',
-                ].join(' ')}
-              />
-            ))}
-          </div>
+          <h3
+            className="text-xl font-semibold text-charcoal"
+            style={{ fontFamily: 'var(--font-cormorant), Georgia, serif' }}
+          >
+            {step.title}
+          </h3>
+        </OverlayTitle>
+        <OverlayDescription asChild>
+          <p className="mt-2 text-sm leading-relaxed text-warm-gray">
+            {step.description}
+          </p>
+        </OverlayDescription>
+      </div>
 
-          {/* Content */}
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-terracotta/10">
-              {step.icon}
-            </div>
+      {/* Actions */}
+      <div className="mt-8 flex flex-col gap-3">
+        <button
+          onClick={handleNext}
+          className="flex min-h-[48px] w-full cursor-pointer items-center justify-center rounded-lg font-semibold text-white transition-colors"
+          style={{ backgroundColor: '#7b3f1e' }}
+        >
+          {currentStep < STEPS.length - 1 ? 'Siguiente' : 'Entendido'}
+        </button>
 
-            <h3
-              className="text-xl font-semibold text-charcoal"
-              style={{ fontFamily: 'var(--font-cormorant), Georgia, serif' }}
-            >
-              {step.title}
-            </h3>
-            <p className="mt-2 text-sm leading-relaxed text-warm-gray">
-              {step.description}
-            </p>
-          </div>
-
-          {/* Actions */}
-          <div className="mt-8 flex flex-col gap-3">
-            <button
-              onClick={handleNext}
-              className="flex h-11 w-full cursor-pointer items-center justify-center rounded-lg font-semibold text-white transition-colors"
-              style={{ backgroundColor: '#7b3f1e' }}
-            >
-              {currentStep < STEPS.length - 1 ? 'Siguiente' : 'Entendido'}
-            </button>
-
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-xs text-warm-gray">
-                <input
-                  type="checkbox"
-                  checked={dontShowAgain}
-                  onChange={(e) => setDontShowAgain(e.target.checked)}
-                  className="rounded"
-                />
-                No mostrar de nuevo
-              </label>
-              <button
-                onClick={handleDismiss}
-                className="cursor-pointer text-xs text-warm-gray hover:text-charcoal"
-              >
-                Saltar
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 text-xs text-warm-gray">
+            <input
+              type="checkbox"
+              checked={dontShowAgain}
+              onChange={(e) => setDontShowAgain(e.target.checked)}
+              className="rounded"
+            />
+            No mostrar de nuevo
+          </label>
+          <button
+            onClick={handleDismiss}
+            className="cursor-pointer text-xs text-warm-gray hover:text-charcoal"
+          >
+            Saltar
+          </button>
+        </div>
+      </div>
+    </Overlay>
   );
 }

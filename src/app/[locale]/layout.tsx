@@ -18,6 +18,7 @@ import { AnnouncementBar } from '@/components/layout/AnnouncementBar';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { CartDrawer } from '@/components/cart/CartDrawer';
+import { CartHydrator } from '@/components/cart/CartHydrator';
 import { CookieBanner } from '@/components/layout/CookieBanner';
 import '../globals.css';
 
@@ -122,6 +123,12 @@ export default async function LocaleLayout({
     <html lang={locale}>
       <body
         className={`${cormorant.variable} ${dmSans.variable} ${sourceSans.variable} ${montserrat.variable} ${playfair.variable} ${dancingScript.variable} ${greatVibes.variable} ${cinzel.variable} ${tenorSans.variable} grain-overlay antialiased flex min-h-dvh flex-col`}
+        // Cookie banner sets `--cookie-banner-offset` on :root while it is
+        // visible. Reserve bottom space on the entire page shell so the
+        // banner never covers actionable content. Fixed bottom surfaces
+        // (sticky CTA, FAB) additionally lift by the same amount where
+        // relevant.
+        style={{ paddingBottom: 'var(--cookie-banner-offset, 0px)' }}
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
           <AnnouncementBar />
@@ -131,6 +138,7 @@ export default async function LocaleLayout({
           </main>
           <Footer />
           <CartDrawer />
+          <CartHydrator />
           <CookieBanner />
         </NextIntlClientProvider>
       </body>

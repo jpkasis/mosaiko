@@ -92,6 +92,75 @@ export function getCroppedCanvas(
 }
 
 /**
+ * Fit-aware variant of `getCroppedCanvas` for Tonos slot previews.
+ *
+ * Mirrors the server pipeline's `cropAndResize({ fitMode, background })`
+ * semantics so the live preview drawer matches the printed magnet:
+ *   - `'fill'`    → cover crop (preserve aspect, crop overflow)
+ *   - `'fit'`     → contain on a cream canvas (preserve aspect, letterbox)
+ *   - `'stretch'` → non-uniform stretch (cropArea pixels → square output)
+ *
+ * Cream default `#efebe0` matches `--cream` and the printer-side
+ * `TONOS_LETTERBOX_BG` so preview ↔ print parity holds.
+ */
+export function getCroppedTileWithFit(
+  image: HTMLImageElement,
+  cropArea: CropArea,
+  size: number,
+  fitMode: 'fill' | 'fit' | 'stretch',
+  rotation: number = 0,
+  background: string = '#efebe0',
+): HTMLCanvasElement {
+  if (fitMode === 'stretch') {
+    return getCroppedCanvas(image, cropArea, size, size, rotation);
+  }
+
+  const nativeW = Math.max(1, Math.round(cropArea.width));
+  const nativeH = Math.max(1, Math.round(cropArea.height));
+  const nativeCanvas = getCroppedCanvas(image, cropArea, nativeW, nativeH, rotation);
+
+  const out = document.createElement('canvas');
+  out.width = size;
+  out.height = size;
+  const ctx = out.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const aspect = nativeW / nativeH;
+  let drawW: number;
+  let drawH: number;
+
+  if (fitMode === 'fill') {
+    if (aspect > 1) {
+      drawH = size;
+      drawW = size * aspect;
+    } else {
+      drawW = size;
+      drawH = size / aspect;
+    }
+  } else {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, size, size);
+    if (aspect > 1) {
+      drawW = size;
+      drawH = size / aspect;
+    } else {
+      drawH = size;
+      drawW = size * aspect;
+    }
+  }
+
+  const dx = (size - drawW) / 2;
+  const dy = (size - drawH) / 2;
+  ctx.drawImage(nativeCanvas, dx, dy, drawW, drawH);
+
+  nativeCanvas.width = 0;
+  nativeCanvas.height = 0;
+
+  return out;
+}
+
+/**
  * Splits a cropped image into grid tiles for printing.
  * Each tile is TILE_PRINT_SIZE × TILE_PRINT_SIZE pixels (7cm at 300dpi).
  * Returns an array of data URLs ordered left-to-right, top-to-bottom.
@@ -144,83 +213,6 @@ export function splitImageIntoTiles(
   return tiles;
 }
 
-/**
- * Creates a preview image (lower resolution) of the split tiles
- * assembled in a grid with gaps, suitable for display.
- */
-export function createPreviewCanvas(
-  image: HTMLImageElement,
-  cropArea: CropArea,
-  grid: GridConfig,
-  previewTileSize: number = 120,
-  gap: number = 4,
-  rotation: number = 0,
-): HTMLCanvasElement {
-  const totalWidth = grid.cols * previewTileSize + (grid.cols - 1) * gap;
-  const totalHeight = grid.rows * previewTileSize + (grid.rows - 1) * gap;
-
-  const croppedWidth = grid.cols * previewTileSize;
-  const croppedHeight = grid.rows * previewTileSize;
-  const croppedCanvas = getCroppedCanvas(image, cropArea, croppedWidth, croppedHeight, rotation);
-
-  const previewCanvas = document.createElement('canvas');
-  previewCanvas.width = totalWidth;
-  previewCanvas.height = totalHeight;
-  const ctx = previewCanvas.getContext('2d')!;
-
-  // Fill with fridge-like background
-  ctx.fillStyle = '#E8E2DA';
-  ctx.fillRect(0, 0, totalWidth, totalHeight);
-
-  for (let row = 0; row < grid.rows; row++) {
-    for (let col = 0; col < grid.cols; col++) {
-      const srcX = col * previewTileSize;
-      const srcY = row * previewTileSize;
-      const destX = col * (previewTileSize + gap);
-      const destY = row * (previewTileSize + gap);
-
-      // Draw tile with rounded corners
-      ctx.save();
-      roundedRect(ctx, destX, destY, previewTileSize, previewTileSize, 4);
-      ctx.clip();
-      ctx.drawImage(
-        croppedCanvas,
-        srcX,
-        srcY,
-        previewTileSize,
-        previewTileSize,
-        destX,
-        destY,
-        previewTileSize,
-        previewTileSize,
-      );
-      ctx.restore();
-    }
-  }
-
-  return previewCanvas;
-}
-
-function roundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
 
 /**
  * Validates image resolution for print quality.

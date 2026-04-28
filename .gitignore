@@ -42,3 +42,8 @@ next-env.d.ts
 
 # product image backups
 public/products/_originals/
+
+# dev-mode cart-composite blob cache (filesystem-backed; survives dev-server
+# restart so cart thumbnails remain valid). Production uses R2; this dir is
+# only written when R2 is unreachable.
+/.cart-composite-cache/

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -83,6 +83,7 @@ export function CookieBanner() {
   const [visible, setVisible] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
   const [preferences, setPreferences] = useState<CookiePreferences>(DEFAULT_PREFERENCES);
+  const bannerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const stored = getStoredConsent();
@@ -92,6 +93,39 @@ export function CookieBanner() {
       setVisible(true);
     }
   }, []);
+
+  // Publish the banner's measured height as `--cookie-banner-offset` on
+  // the document root so page shells + fixed bottom surfaces (sticky
+  // builder CTA, FAB) can reserve bottom padding while the banner is
+  // visible. ResizeObserver (not a single ref read) because the height
+  // changes when preferences expand, text reflows at breakpoints, fonts
+  // finish loading, or on orientation change.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const root = document.documentElement;
+
+    if (!visible) {
+      root.style.removeProperty('--cookie-banner-offset');
+      return;
+    }
+
+    const el = bannerRef.current;
+    if (!el) return;
+
+    const publish = () => {
+      const h = el.getBoundingClientRect().height;
+      root.style.setProperty('--cookie-banner-offset', `${Math.ceil(h)}px`);
+    };
+
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty('--cookie-banner-offset');
+    };
+  }, [visible, showPreferences]);
 
   const acceptAll = useCallback(() => {
     const allAccepted: CookiePreferences = {
@@ -119,15 +153,17 @@ export function CookieBanner() {
     <AnimatePresence>
       {visible && (
         <motion.div
+          ref={bannerRef}
           role="dialog"
           aria-label={t('title')}
           variants={bannerVariants}
           initial="hidden"
           animate="visible"
           exit="exit"
-          className="fixed inset-x-0 bottom-0 z-[9998] px-4 pb-4 sm:px-6 sm:pb-6"
+          className="fixed inset-x-0 bottom-0 px-4 pb-4 sm:px-6 sm:pb-6"
+          style={{ zIndex: 'var(--z-cookie)' }}
         >
-          <div className="mx-auto max-w-xl rounded-2xl border border-light-gray/60 bg-warm-white/80 p-5 shadow-lg backdrop-blur-xl sm:p-6">
+          <div className="mx-auto max-w-xl rounded-2xl border border-light-gray/60 bg-warm-white shadow-lg sm:bg-warm-white/95 sm:backdrop-blur-xl p-5 sm:p-6">
             {/* Cookie icon + title */}
             <div className="flex items-start gap-3">
               <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold/15 text-lg" aria-hidden="true">

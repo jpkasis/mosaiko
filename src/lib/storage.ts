@@ -104,11 +104,47 @@ export async function uploadOriginalPhoto(
 // ─── Upload print tiles ─────────────────────────────────────────────────────
 
 /**
+ * Structured failure thrown by `uploadPrintTiles` when ONE OR MORE tile
+ * PUTs fail. Carries both the tiles that successfully wrote (so the
+ * caller can clean them up or know they're orphaned) and the tiles
+ * that failed (so retries can target only the missing indexes).
+ *
+ * Before this type existed, `Promise.all` threw a plain Error on first
+ * rejection while leaving already-resolved writes persisted in R2 with
+ * no URL making it back to the metafield — the orphan bug.
+ */
+export class UploadFailure extends Error {
+  readonly succeeded: { index: number; key: string; publicUrl: string }[];
+  readonly failed: { index: number; reason: string }[];
+
+  constructor(params: {
+    succeeded: { index: number; key: string; publicUrl: string }[];
+    failed: { index: number; reason: string }[];
+  }) {
+    super(
+      `uploadPrintTiles: ${params.failed.length} of ${
+        params.failed.length + params.succeeded.length
+      } tiles failed`,
+    );
+    this.name = 'UploadFailure';
+    this.succeeded = params.succeeded;
+    this.failed = params.failed;
+  }
+}
+
+/**
  * Uploads generated print tiles to the private print-files bucket.
+ *
+ * Partial failures throw an `UploadFailure` carrying which tiles
+ * succeeded and which failed. Callers MUST NOT use the successful
+ * URLs as a complete set — they are either fully committed together
+ * or reported as a partial failure and left for a retry. See
+ * `webhook-processor.ts` for the consumer contract.
  *
  * @param orderId Unique order/job identifier
  * @param tiles   Array of tile objects with index and buffer
- * @returns       Array of storage keys and URLs for each tile
+ * @returns       Array of storage keys and URLs for each tile — only
+ *                returned on FULL success. Any tile failure throws.
  */
 export async function uploadPrintTiles(
   orderId: string,
@@ -117,10 +153,12 @@ export async function uploadPrintTiles(
   const client = getClient();
   const safeOrderId = sanitizeKeySegment(orderId, 'orderId');
 
-  const results = await Promise.all(
+  // Run uploads with `allSettled` so one failure doesn't hide the
+  // outcome of the others. Then classify and either return clean or
+  // throw a structured failure.
+  const settled = await Promise.allSettled(
     tiles.map(async (tile) => {
       const key = `print-files/${safeOrderId}/tile-${tile.index}.png`;
-
       await client.send(
         new PutObjectCommand({
           Bucket: R2_BUCKET_PRINT_FILES,
@@ -129,12 +167,30 @@ export async function uploadPrintTiles(
           ContentType: 'image/png',
         }),
       );
-
-      return { key, publicUrl: getPublicUrl(key) };
+      return { index: tile.index, key, publicUrl: getPublicUrl(key) };
     }),
   );
 
-  return results;
+  const succeeded: { index: number; key: string; publicUrl: string }[] = [];
+  const failed: { index: number; reason: string }[] = [];
+
+  settled.forEach((outcome, i) => {
+    if (outcome.status === 'fulfilled') {
+      succeeded.push(outcome.value);
+    } else {
+      const reason =
+        outcome.reason instanceof Error
+          ? outcome.reason.message
+          : String(outcome.reason);
+      failed.push({ index: tiles[i].index, reason });
+    }
+  });
+
+  if (failed.length > 0) {
+    throw new UploadFailure({ succeeded, failed });
+  }
+
+  return succeeded.map(({ key, publicUrl }) => ({ key, publicUrl }));
 }
 
 // ─── Get signed URL ─────────────────────────────────────────────────────────
@@ -219,16 +275,27 @@ export async function listFiles(
   const bucketName =
     bucket === 'uploads' ? R2_BUCKET_UPLOADS : R2_BUCKET_PRINT_FILES;
 
-  const response = await client.send(
-    new ListObjectsV2Command({
-      Bucket: bucketName,
-      Prefix: prefix,
-    }),
-  );
-
-  return (response.Contents ?? [])
-    .map((obj) => obj.Key)
-    .filter((key): key is string => key !== undefined);
+  // ListObjectsV2 returns at most 1000 keys per page. Continuation
+  // tokens drive subsequent pages — without this loop, callers operating
+  // on buckets with >1000 keys would silently see only the first page.
+  const all: string[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const response = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucketName,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    for (const obj of response.Contents ?? []) {
+      if (obj.Key) all.push(obj.Key);
+    }
+    continuationToken = response.IsTruncated
+      ? response.NextContinuationToken
+      : undefined;
+  } while (continuationToken);
+  return all;
 }
 
 // ─── Delete file ────────────────────────────────────────────────────────────

@@ -33,7 +33,7 @@ export function CtaBanner() {
   return (
     <section
       ref={sectionRef}
-      className="relative overflow-hidden bg-cta py-20 sm:py-24 lg:py-28"
+      className="relative overflow-hidden bg-cta py-12 sm:py-20 lg:py-24"
     >
       {/* ── Background layers ── */}
 

@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
-import { useCartStore } from '@/lib/cart-store';
+import { useCartStore, selectCartTotal } from '@/lib/cart-store';
+import { formatPrice } from '@/lib/grid-config';
 
 export function CheckoutButton() {
   const t = useTranslations('cart');
   const items = useCartStore((s) => s.items);
+  const total = useCartStore(selectCartTotal);
   const clearCart = useCartStore((s) => s.clearCart);
   const setCheckoutInProgress = useCartStore((s) => s.setCheckoutInProgress);
   const [isLoading, setIsLoading] = useState(false);
@@ -20,6 +22,32 @@ export function CheckoutButton() {
     setCheckoutInProgress(true);
     setError(null);
 
+    // Primary path: POST /api/cart/save — this both persists the cart to
+    // Shopify (for session restore) and returns the same hosted checkoutUrl
+    // we'd get from the legacy /api/checkout call. Reusing the synced cart
+    // avoids creating a duplicate one at checkout time.
+    try {
+      const saveRes = await fetch('/api/cart/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+
+      if (saveRes.ok) {
+        const data = (await saveRes.json()) as { checkoutUrl?: string };
+        if (data.checkoutUrl) {
+          clearCart();
+          window.location.href = data.checkoutUrl;
+          return;
+        }
+      }
+      // Fall through to legacy path if save didn't return a usable response.
+    } catch {
+      // Network error on save — try legacy path before surfacing an error.
+    }
+
+    // Fallback: legacy checkout endpoint. Keeps behaviour identical if the
+    // new save route is misconfigured or Shopify changed under us.
     try {
       const response = await fetch('/api/checkout', {
         method: 'POST',
@@ -34,7 +62,6 @@ export function CheckoutButton() {
         return;
       }
 
-      // Clear cart and redirect to Shopify checkout
       clearCart();
       window.location.href = data.checkoutUrl;
     } catch {
@@ -75,9 +102,27 @@ export function CheckoutButton() {
             Procesando...
           </>
         ) : (
-          t('checkout')
+          /* Explicit handoff language: price + "secure payment" signal.
+             Codex's cart priority was reducing "wait, what happens when I
+             click" anxiety before the redirect. Keep the CTA itself
+             product-branded ("Pago seguro" = trust without leaking the
+             processor name); the Shopify attribution lives as a small
+             support line below the button so it still reassures without
+             dominating the primary action label. */
+          total > 0
+            ? t('checkoutPayNow', { price: formatPrice(total) })
+            : t('checkout')
         )}
       </motion.button>
+
+      {/* Processor attribution — tiny support line, only when there's
+          something to check out. Codex's note: name the processor for
+          trust, but don't let it crowd the CTA label. */}
+      {items.length > 0 && (
+        <p className="mt-2 text-center text-xs text-warm-gray/80">
+          {t('processorAttribution')}
+        </p>
+      )}
 
       {error && (
         <motion.p

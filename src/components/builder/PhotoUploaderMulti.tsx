@@ -57,6 +57,9 @@ export function PhotoUploaderMulti({
         <p className="mt-2 text-sm text-warm-gray md:text-base">
           {t('tonosUploadHint')}
         </p>
+        <p className="mt-1 text-xs text-warm-gray/80">
+          {t('uploadFormatsHintMulti')}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

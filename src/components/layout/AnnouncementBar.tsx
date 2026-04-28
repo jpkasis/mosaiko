@@ -22,14 +22,21 @@ export function AnnouncementBar() {
   if (dismissed) return null;
 
   return (
-    <div className="relative z-50 flex h-[var(--announcement-height)] items-center justify-center overflow-hidden bg-terracotta">
-      <div className="announcement-scroll flex items-center whitespace-nowrap px-4 text-sm font-medium text-gold sm:whitespace-normal sm:text-center">
+    <div
+      className="relative flex h-[var(--announcement-height)] items-center justify-center overflow-hidden bg-terracotta"
+      style={{ zIndex: 'var(--z-header)' }}
+    >
+      {/* Reserve right-space on mobile equal to the close button's 48 px hit
+          area so the scrolling marquee text never passes beneath it. */}
+      <div className="announcement-scroll flex items-center whitespace-nowrap pl-4 pr-14 text-sm font-medium text-gold sm:whitespace-normal sm:px-4 sm:text-center">
         <span>{t('text')}</span>
       </div>
 
+      {/* Touch target sized ≥48px per the mobile accessibility guideline,
+          even though the visible glyph stays compact. */}
       <button
         onClick={handleDismiss}
-        className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-full text-gold/70 transition-colors hover:text-gold cursor-pointer"
+        className="absolute right-0 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center text-gold/70 transition-colors hover:text-gold cursor-pointer"
         aria-label="Cerrar anuncio"
       >
         <svg

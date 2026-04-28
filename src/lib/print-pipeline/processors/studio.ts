@@ -5,18 +5,23 @@ import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { StudioCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
+import { studioLayout } from '../../category-layouts/studio';
+import { renderTextLayer } from '../utils/text-renderer';
 
 const TILE = TILE_PRINT_SIZE;
 const TEMPLATE_DIR = join(process.cwd(), 'mosaic-categories/studio/studio-template-PNGs');
-const SRC_SIZE = 615;
 
-// Transparent area bounds per photo tile (measured from PNGs at 615px)
-const PHOTO_AREAS = [
-  { left: 87, top: 88, right: 615, bottom: 614 },   // tile 1: frame on top+left
-  { left: 0, top: 88, right: 527, bottom: 614 },     // tile 2: frame on top+right
-  { left: 87, top: 0, right: 615, bottom: 615 },     // tile 3: frame on left only
-  { left: 0, top: 0, right: 527, bottom: 615 },      // tile 4: frame on right only
-] as const;
+// Per-tile photo cutout bounds sourced from the shared category-layouts
+// contract so the server processor and client preview derive from the same
+// coordinate table.
+const SRC_SIZE = studioLayout.frame!.photo.sourceSize;
+const PHOTO_TILES = studioLayout.frame!.photo.tiles as Record<number, {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}>;
+const PHOTO_AREAS = Array.from({ length: 4 }, (_, i) => PHOTO_TILES[i]);
 
 /**
  * Studio processor — PNG template overlays + text panels.
@@ -32,11 +37,13 @@ export async function processStudio(job: SingleImagePrintJob): Promise<TileOutpu
   const scale = TILE / SRC_SIZE;
 
   // Calculate visible photo area across the 4 tiles
-  const colLeftW = 615 - 87;  // 528
-  const colRightW = 527;
-  const rowTopH = 614 - 88;   // 526
-  const rowBotH = 615;
-  const stripH = 63;           // photo extends 63px into text panel tiles (5-6)
+  const colLeftW = PHOTO_AREAS[0].right - PHOTO_AREAS[0].left;  // 528
+  const colRightW = PHOTO_AREAS[1].right - PHOTO_AREAS[1].left; // 527
+  const rowTopH = PHOTO_AREAS[0].bottom - PHOTO_AREAS[0].top;   // 526
+  const rowBotH = PHOTO_AREAS[2].bottom - PHOTO_AREAS[2].top;   // 615
+  // Photo extends into tiles 5-6 (text panels). The bleed height is declared
+  // once on the layout so the client preview and server processor agree.
+  const stripH = studioLayout.frame!.photo.photoStripHeight ?? 0;
 
   const printPhotoW = Math.round((colLeftW + colRightW) * scale);
   const printPhotoH = Math.round((rowTopH + rowBotH + stripH) * scale);
@@ -146,12 +153,14 @@ async function renderLeftPanel(
   const yearY = Math.round(TILE * 0.325);
   const studioY = Math.round(TILE * 0.405);
 
-  const textSvg = `<svg width="${TILE}" height="${TILE}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${textX}" y="${yearY}" font-family="Montserrat, sans-serif" font-size="58" fill="#2a2a2a">${escapeXml(year)}</text>
-    <text x="${textX}" y="${studioY}" font-family="Montserrat, sans-serif" font-size="58" fill="#2a2a2a">${escapeXml(studioText || 'STUDIO GHIBLI')}</text>
-  </svg>`;
-
-  const textBuffer = await sharp(Buffer.from(textSvg)).resize(TILE, TILE).png().toBuffer();
+  const textBuffer = await renderTextLayer({
+    width: TILE,
+    height: TILE,
+    texts: [
+      { text: year, x: textX, y: yearY, fontFamily: 'Montserrat', fontSize: 58, fontWeight: 400, fill: '#2a2a2a', align: 'start' },
+      { text: studioText || 'STUDIO GHIBLI', x: textX, y: studioY, fontFamily: 'Montserrat', fontSize: 58, fontWeight: 400, fill: '#2a2a2a', align: 'start' },
+    ],
+  });
 
   return sharp(baseBuffer)
     .composite([
@@ -185,12 +194,17 @@ async function renderRightPanel(
   const jpY = Math.round(TILE * 0.325);
   const titleY = Math.round(TILE * 0.415);
 
-  const textSvg = `<svg width="${TILE}" height="${TILE}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${textRight}" y="${jpY}" font-family="sans-serif" font-size="58" fill="#2a2a2a" text-anchor="end">${escapeXml(japaneseText)}</text>
-    <text x="${textRight}" y="${titleY}" font-family="Montserrat, sans-serif" font-size="58" font-weight="bold" fill="#2a2a2a" text-anchor="end">${escapeXml(customText)}</text>
-  </svg>`;
-
-  const textBuffer = await sharp(Buffer.from(textSvg)).resize(TILE, TILE).png().toBuffer();
+  // Phase 4 — japaneseText now pins to Noto Sans JP (was generic
+  // sans-serif → tofu squares on Vercel without a CJK fontconfig
+  // fallback). customText keeps Montserrat at bold weight.
+  const textBuffer = await renderTextLayer({
+    width: TILE,
+    height: TILE,
+    texts: [
+      { text: japaneseText, x: textRight, y: jpY, fontFamily: 'Noto Sans JP', fontSize: 58, fontWeight: 400, fill: '#2a2a2a', align: 'end' },
+      { text: customText, x: textRight, y: titleY, fontFamily: 'Montserrat', fontSize: 58, fontWeight: 700, fill: '#2a2a2a', align: 'end' },
+    ],
+  });
 
   return sharp(baseBuffer)
     .composite([
@@ -200,13 +214,4 @@ async function renderRightPanel(
     ])
     .png()
     .toBuffer();
-}
-
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 }

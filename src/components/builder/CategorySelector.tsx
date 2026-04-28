@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { CATEGORY_REGISTRY, type CategoryType } from '@/lib/customization-types';
-import { GRID_CONFIGS, CATEGORY_LAYOUT_OVERRIDES, formatPrice, type GridSize } from '@/lib/grid-config';
+import { GRID_CONFIGS, getEffectiveGridConfig, formatPrice, type GridSize } from '@/lib/grid-config';
 
 interface CategorySelectorProps {
   onSelect: (category: CategoryType) => void;
@@ -148,17 +148,17 @@ const cardVariants = {
 
 function getGridBadge(allowedGridSizes: GridSize[], categoryType?: CategoryType): { rows: number; cols: number; count: number; customLabel?: string } {
   const defaultSize = allowedGridSizes[0];
-  const config = GRID_CONFIGS[defaultSize];
+  const base = GRID_CONFIGS[defaultSize];
+  const cfg = categoryType
+    ? getEffectiveGridConfig(defaultSize, categoryType)
+    : base;
 
-  // Check for category-specific layout override
-  if (categoryType) {
-    const override = CATEGORY_LAYOUT_OVERRIDES[`${categoryType}:${defaultSize}`];
-    if (override) {
-      return { rows: override.rows, cols: override.cols, count: config.size, customLabel: '4×2+1 · 9' };
-    }
+  // Arte 9 (4×3 sparse) keeps its bespoke label; other categories with
+  // layout overrides render the override's rows × cols in the badge.
+  if (categoryType === 'arte' && defaultSize === 9) {
+    return { rows: cfg.rows, cols: cfg.cols, count: base.size, customLabel: '4×2+1 · 9' };
   }
-
-  return { rows: config.rows, cols: config.cols, count: config.size };
+  return { rows: cfg.rows, cols: cfg.cols, count: base.size };
 }
 
 function getCategoryPrice(allowedGridSizes: GridSize[]): string {

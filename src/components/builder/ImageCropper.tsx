@@ -125,6 +125,12 @@ interface ImageCropperProps {
   onLayoutRotate?: () => void;
   canRotateLayout?: boolean;
   layoutRotated?: boolean;
+  /**
+   * Replaces the current photo with a new one. The cropper doesn't own the
+   * image state, so it emits this and the parent (MagnetBuilder) handles
+   * clearing the image + navigating back to the upload step.
+   */
+  onReplacePhoto?: () => void;
 }
 
 export function ImageCropper({
@@ -140,6 +146,7 @@ export function ImageCropper({
   onLayoutRotate,
   canRotateLayout = false,
   layoutRotated = false,
+  onReplacePhoto,
 }: ImageCropperProps) {
   const t = useTranslations('builder');
 
@@ -210,6 +217,25 @@ export function ImageCropper({
     setZoom(1);
   }, [onLayoutRotate]);
 
+  // Reset zoom + recenter. Keeps fit-mode intact — the user chose that
+  // deliberately, reset shouldn't second-guess it. Works for fill/fit;
+  // in stretch mode there's no meaningful reset since the whole image is
+  // used, so we also fall back to fill so Reset has a visible effect.
+  //
+  // Also clears finalCropArea/finalCropAreaPixels so the Proceed button
+  // disables until react-easy-crop emits a fresh onCropComplete — a user
+  // who taps Restablecer then Continuar in quick succession should NOT
+  // advance with the old crop coordinates.
+  const handleReset = useCallback(() => {
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    setFinalCropArea(null);
+    setFinalCropAreaPixels(null);
+    if (fitMode === 'stretch') {
+      setFitMode('fill');
+    }
+  }, [fitMode]);
+
   function handleProceed() {
     if (fitMode === 'stretch' && imageSize) {
       // Stretch: use the full image as the crop area
@@ -254,6 +280,38 @@ export function ImageCropper({
         selected={fitMode}
         onChange={setFitMode}
       />
+
+      {/* Ergonomics toolbar: Restablecer (zoom/pan) + Cambiar foto.
+          Codex's cropper concern: "users abandon when they can't undo".
+          Reset snaps zoom back to 1 and recenters; Replace clears the
+          photo + navigates back to upload so the user can pick again. */}
+      <div className="mx-auto flex w-full max-w-[500px] gap-2">
+        <button
+          type="button"
+          onClick={handleReset}
+          className="flex min-h-[48px] flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border border-light-gray bg-white px-3 text-sm font-medium text-warm-gray transition-colors hover:border-terracotta/40 hover:text-charcoal active:scale-[0.98]"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7" />
+            <polyline points="3 4 3 10 9 10" />
+          </svg>
+          {t('cropReset')}
+        </button>
+        {onReplacePhoto && (
+          <button
+            type="button"
+            onClick={onReplacePhoto}
+            className="flex min-h-[48px] flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border border-light-gray bg-white px-3 text-sm font-medium text-warm-gray transition-colors hover:border-terracotta/40 hover:text-charcoal active:scale-[0.98]"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+            {t('replacePhoto')}
+          </button>
+        )}
+      </div>
 
       {/* Layout rotate button */}
       <AnimatePresence>

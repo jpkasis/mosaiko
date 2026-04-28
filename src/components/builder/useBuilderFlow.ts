@@ -1,10 +1,11 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
-import { GRID_CONFIGS, getEffectiveGridConfig, CATEGORY_LAYOUT_OVERRIDES, type GridSize, type GridConfig } from '@/lib/grid-config';
+import { GRID_CONFIGS, getEffectiveGridConfig, type GridSize, type GridConfig } from '@/lib/grid-config';
 import {
   CATEGORY_REGISTRY,
   type CategoryType,
   type TonosIntensity,
 } from '@/lib/customization-types';
+import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
 import type { CropArea } from '@/lib/canvas-utils';
 
 // ─── Step system ────────────────────────────────────────────────────────────
@@ -33,14 +34,22 @@ export const STEP_I18N_MAP: Record<StepId, string> = {
 
 // ─── Tonos state (3 images) ─────────────────────────────────────────────────
 
-export type TonosIndex = 0 | 1 | 2;
-export type TonosFitMode = 'fill' | 'fit' | 'stretch';
-export type TonosRotation = 0 | 90 | 180 | 270;
+// Use the centralized types from customization-types.ts (single source of
+// truth) so cart-store, serializer, webhook, processor, and the builder all
+// agree. Keep re-exports under the legacy names so existing consumers
+// (ImageCropperMulti, MagnetBuilder, MagnetPreview) that import from this
+// module continue to work without path changes. `TonosSlot` is the legacy
+// local name; alias it to the canonical `TonosSlotConfig`.
+import type {
+  TonosFitMode,
+  TonosRotation,
+  TonosSlotConfig,
+  TonosSlotConfigs,
+} from '@/lib/customization-types';
+export type { TonosFitMode, TonosRotation, TonosSlotConfigs };
+export type TonosSlot = TonosSlotConfig;
 
-export interface TonosSlot {
-  fitMode: TonosFitMode;
-  rotation: TonosRotation;
-}
+export type TonosIndex = 0 | 1 | 2;
 
 export interface TonosState {
   fileRefs: React.RefObject<[File | null, File | null, File | null]>;
@@ -48,10 +57,21 @@ export interface TonosState {
   cropAreas: [CropArea | null, CropArea | null, CropArea | null];
   liveCropAreas: [CropArea | null, CropArea | null, CropArea | null];
   intensity: TonosIntensity;
-  slots: [TonosSlot, TonosSlot, TonosSlot];
+  slots: TonosSlotConfigs;
+  /**
+   * Phase 6.2 (Codex audit fix) — per-slot remount counter. Bumped by
+   * `handleTonosSlotReset` and `handleTonosSlotReplacePhoto` so the
+   * cropper for that slot remounts with fresh local state (crop/zoom/
+   * imageSize). Without this, a Reset on a slot already at fill/0
+   * doesn't trigger the local crop/zoom effect (deps unchanged) AND a
+   * pending debounced onCropChange could fire after Reset and
+   * repopulate `liveCropAreas` with stale data. Remount via React
+   * `key={resetSeq[i]}` clears all local state cleanly in one shot.
+   */
+  resetSeq: [number, number, number];
 }
 
-const DEFAULT_TONOS_SLOT: TonosSlot = { fitMode: 'fill', rotation: 0 };
+const DEFAULT_TONOS_SLOT: TonosSlotConfig = { fitMode: 'fill', rotation: 0 };
 
 function nextRotation(r: TonosRotation): TonosRotation {
   return ((r + 90) % 360) as TonosRotation;
@@ -98,6 +118,18 @@ export interface BuilderFlowState {
   setTonosIntensity: (intensity: TonosIntensity) => void;
   setTonosFitMode: (index: TonosIndex, mode: TonosFitMode) => void;
   toggleTonosRotation: (index: TonosIndex) => void;
+  /**
+   * Phase 6.2 — Reset a single Tonos slot's cropper state to defaults
+   * (fitMode='fill', rotation=0, crop areas cleared). Keeps the photo
+   * intact. Mirrors the single-image cropper's `Restablecer` button.
+   */
+  handleTonosSlotReset: (index: TonosIndex) => void;
+  /**
+   * Phase 6.2 — Replace a single Tonos slot's photo. Revokes the prior
+   * URL, swaps in the new file, and clears that slot's crop areas so
+   * the cropper picks up the new photo cleanly. Other slots untouched.
+   */
+  handleTonosSlotReplacePhoto: (index: TonosIndex, file: File) => void;
   advanceFromTonosCrop: () => void;
 
   // Layout rotation
@@ -113,6 +145,12 @@ export interface BuilderFlowState {
   // Upload state
   isUploading: boolean;
   setIsUploading: (v: boolean) => void;
+  addToCartError: string | null;
+  setAddToCartError: (v: string | null) => void;
+
+  // Replace the currently-uploaded single image: clears photo + crop state
+  // and navigates back to the upload step so the user can re-pick.
+  handleReplaceSingleImage: () => void;
 
   // Reset
   handleReset: () => void;
@@ -197,6 +235,10 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     { ...DEFAULT_TONOS_SLOT },
     { ...DEFAULT_TONOS_SLOT },
   ]);
+  // Per-slot remount counter (Phase 6.2). React key={resetSeq[i]} on
+  // each TonosCropSlot — bumping the counter for slot i forces that
+  // slot to remount with fresh local state. See TonosState comment.
+  const [tonosResetSeq, setTonosResetSeq] = useState<[number, number, number]>([0, 0, 0]);
 
   // ─── Layout rotation ───
   const [layoutRotated, setLayoutRotated] = useState(false);
@@ -206,6 +248,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
 
   // ─── Upload ───
   const [isUploading, setIsUploading] = useState(false);
+  const [addToCartError, setAddToCartError] = useState<string | null>(null);
 
   // ─── Stable Tonos view ───
   const tonos = useMemo<TonosState>(
@@ -216,8 +259,9 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
       liveCropAreas: tonosLiveCropAreas,
       intensity: tonosIntensity,
       slots: tonosSlots,
+      resetSeq: tonosResetSeq,
     }),
-    [tonosImageSrcs, tonosCropAreas, tonosLiveCropAreas, tonosIntensity, tonosSlots],
+    [tonosImageSrcs, tonosCropAreas, tonosLiveCropAreas, tonosIntensity, tonosSlots, tonosResetSeq],
   );
 
   // ─── Derived ───
@@ -238,10 +282,11 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
 
   const canRotateLayout = useMemo(() => {
     if (!baseGridConfig || !selectedCategory) return false;
-    if (selectedCategory === 'tonos') return false;
-    const hasOverride = !!CATEGORY_LAYOUT_OVERRIDES[`${selectedCategory}:${selectedGrid}`];
-    return baseGridConfig.rows !== baseGridConfig.cols && !hasOverride;
-  }, [baseGridConfig, selectedCategory, selectedGrid]);
+    // `layout.rotatable` collapses both the old checks (non-Tonos, non-override)
+    // into a single declarative field on the category contract.
+    if (!CATEGORY_LAYOUTS[selectedCategory].rotatable) return false;
+    return baseGridConfig.rows !== baseGridConfig.cols;
+  }, [baseGridConfig, selectedCategory]);
 
   const currentStepIndex = useMemo(
     () => stepSequence.indexOf(currentStepId),
@@ -372,6 +417,34 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
       next[index] = url;
       return next;
     });
+    // Codex Phase 6.2 round-2 audit fix: PhotoUploaderMulti uses this
+    // same handler for both initial empty-slot picks AND for changing
+    // a non-empty slot after Back-from-crop. Both paths must clear
+    // stale crop areas and remount the cropper; otherwise the
+    // re-picked slot keeps a cropArea sized to the prior image and
+    // Preview / Add-to-cart stay enabled with stale data.
+    //
+    // Doing this unconditionally is safe — initial empty picks have
+    // null cropAreas already (these become no-ops via the React
+    // bailout) and the slot wasn't mounted before so the resetSeq
+    // bump is just the first mount's key.
+    setTonosCropAreas((p) => {
+      if (p[index] === null) return p;
+      const n: [CropArea | null, CropArea | null, CropArea | null] = [...p];
+      n[index] = null;
+      return n;
+    });
+    setTonosLiveCropAreas((p) => {
+      if (p[index] === null) return p;
+      const n: [CropArea | null, CropArea | null, CropArea | null] = [...p];
+      n[index] = null;
+      return n;
+    });
+    setTonosResetSeq((p) => {
+      const n: [number, number, number] = [...p];
+      n[index] = p[index] + 1;
+      return n;
+    });
   }, []);
 
   const handleTonosImagesSelected = useCallback((files: [File, File, File]) => {
@@ -448,6 +521,79 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setCurrentStepId('preview');
   }, []);
 
+  // Phase 6.2 — Per-slot reset. Mirrors the single-image cropper's
+  // `Restablecer` semantics for Tonos's 3-slot grid: clear fitMode +
+  // rotation + crop areas for ONE slot only; leave the photo intact
+  // and the OTHER two slots completely untouched.
+  const handleTonosSlotReset = useCallback((index: TonosIndex) => {
+    setTonosSlots((prev) => {
+      const next: [TonosSlot, TonosSlot, TonosSlot] = [...prev];
+      next[index] = { ...DEFAULT_TONOS_SLOT };
+      return next;
+    });
+    setTonosCropAreas((prev) => {
+      const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+      next[index] = null;
+      return next;
+    });
+    setTonosLiveCropAreas((prev) => {
+      const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+      next[index] = null;
+      return next;
+    });
+    // Bump remount counter — forces TonosCropSlot for this index to
+    // unmount + remount with fresh local crop/zoom/imageSize state and
+    // cleared debounce timer. Without this, Reset on a slot already at
+    // fill/0 wouldn't trigger the local effect (deps unchanged), and a
+    // pending debounced onCropChange could fire AFTER Reset and
+    // repopulate `liveCropAreas` with stale data.
+    setTonosResetSeq((prev) => {
+      const next: [number, number, number] = [...prev];
+      next[index] = prev[index] + 1;
+      return next;
+    });
+  }, []);
+
+  // Phase 6.2 — Per-slot photo replace. Revokes the prior object URL,
+  // swaps in the new file, and clears that slot's crop areas so the
+  // cropper picks up the new photo cleanly. Same revoke-and-set pattern
+  // as `handleTonosImageSelected` but also wipes downstream crop state
+  // (which is stale once the image changes). Other slots untouched.
+  const handleTonosSlotReplacePhoto = useCallback(
+    (index: TonosIndex, file: File) => {
+      const refs = tonosFileRefs.current;
+      refs[index] = file;
+      const url = URL.createObjectURL(file);
+      setTonosImageSrcs((prev) => {
+        const next: [string | null, string | null, string | null] = [...prev];
+        if (next[index]) URL.revokeObjectURL(next[index] as string);
+        next[index] = url;
+        return next;
+      });
+      // Clear stale crop areas — they were sized to the prior image.
+      setTonosCropAreas((prev) => {
+        const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+        next[index] = null;
+        return next;
+      });
+      setTonosLiveCropAreas((prev) => {
+        const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
+        next[index] = null;
+        return next;
+      });
+      // Force remount — local imageSize from the OLD image must NOT
+      // be used to compute crop dimensions for the new one. Without
+      // remount, a rapid replace could leave stale imageSize visible
+      // until the new img.onload fires. (Codex Phase 6.2 audit MAJOR.)
+      setTonosResetSeq((prev) => {
+        const next: [number, number, number] = [...prev];
+        next[index] = prev[index] + 1;
+        return next;
+      });
+    },
+    [],
+  );
+
   // ─── Layout rotation ───
   const handleLayoutRotate = useCallback(() => {
     setLayoutRotated((prev) => !prev);
@@ -462,6 +608,16 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setDirection(1);
     setCurrentStepId('preview');
   }, []);
+
+  // ─── Replace single image ───
+  // Clears photo + crop state and navigates back to upload. Users invoke
+  // this from the crop step's "Cambiar foto" toolbar button when they want
+  // a different photo without unwinding the whole builder.
+  const handleReplaceSingleImage = useCallback(() => {
+    clearSingleImage();
+    setDirection(-1);
+    setCurrentStepId('upload');
+  }, [clearSingleImage]);
 
   // ─── Reset ───
   const handleReset = useCallback(() => {
@@ -509,6 +665,8 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setTonosIntensity,
     setTonosFitMode,
     toggleTonosRotation,
+    handleTonosSlotReset,
+    handleTonosSlotReplacePhoto,
     advanceFromTonosCrop,
 
     layoutRotated,
@@ -521,6 +679,10 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
 
     isUploading,
     setIsUploading,
+    addToCartError,
+    setAddToCartError,
+
+    handleReplaceSingleImage,
 
     handleReset,
   };

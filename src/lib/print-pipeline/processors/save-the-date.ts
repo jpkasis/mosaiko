@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { createCanvas, type SKRSContext2D } from '@napi-rs/canvas';
 import { GRID_CONFIGS, TILE_PRINT_SIZE } from '../../grid-config';
 import {
   STD_FONT_PRINT_NAMES,
@@ -11,6 +12,7 @@ import {
 } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
+import { ensurePrintFontsRegistered } from '../utils/font-loader';
 
 const TILE = TILE_PRINT_SIZE;
 
@@ -39,10 +41,20 @@ export async function processSaveTheDate(
     compositeH,
   );
 
-  const overlaySvg = buildOverlaySvg(customization, compositeW, compositeH);
+  // Phase 4 STD migration: text + treatment effects rendered via
+  // @napi-rs/canvas instead of SVG/librsvg. The SVG path silently fell
+  // back to DejaVu/Liberation Sans on Vercel because Google Fonts
+  // aren't installed in the runtime fontconfig — preview ↔ print
+  // diverged on every STD purchase. Canvas has its own font registry
+  // (font-loader.ts) so the printed text matches the cropper preview.
+  const overlay = await renderSaveTheDateOverlay(
+    customization,
+    compositeW,
+    compositeH,
+  );
 
   const composited = await sharp(croppedBuffer)
-    .composite([{ input: Buffer.from(overlaySvg), blend: 'over' }])
+    .composite([{ input: overlay, blend: 'over' }])
     .png()
     .toBuffer();
 
@@ -53,15 +65,6 @@ export async function processSaveTheDate(
     buffer,
     filename: `${job.jobId}_save-the-date_tile_${index}.png`,
   }));
-}
-
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 }
 
 function formatDate(iso: string): string {
@@ -207,20 +210,44 @@ function computeTextLayout(
   };
 }
 
-function buildOverlaySvg(
+/**
+ * Phase 4 STD migration — canvas-based overlay renderer.
+ *
+ * Replaces the SVG/librsvg path with @napi-rs/canvas. The font registry
+ * (`font-loader.ts`) provides the actual glyph outlines so the printed
+ * STD magnet matches the cropper preview. The 5 SVG <filter> treatments
+ * are reproduced via canvas primitives:
+ *   - 'none'    : plain fillText
+ *   - 'outline' : strokeText + fillText (paint-order: stroke fill)
+ *   - 'shadow'  : two passes — ambient (no offset) + drop (offset down).
+ *                 ctx.shadow{Color,Blur,OffsetY} applies per draw call.
+ *   - 'halo'    : two blur passes via ctx.filter='blur(Npx)' rendering
+ *                 the text in halo color, then sharp text on top.
+ *   - 'card'    : filled rect with shadow + inner stroke rect; text on top.
+ *   - 'frame'   : two stroked rects (outer + inner); text on top.
+ *
+ * Returns a transparent PNG that Sharp.composite() blends over the
+ * cropped photo (same call site as the SVG path; only the buffer
+ * source changed).
+ */
+async function renderSaveTheDateOverlay(
   c: SaveTheDateCustomization,
   W: number,
   H: number,
-): string {
+): Promise<Buffer> {
+  ensurePrintFontsRegistered();
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
   const layout = computeTextLayout(c, W, H);
   const fontFamily = STD_FONT_PRINT_NAMES[c.fontFamily];
   const color = c.color;
   const textIsLight = hexLuminance(color) >= 0.6;
   const treatment: STDTextTreatment = c.treatment;
 
-  // Build SVG pieces.
-  const { defs, backing } = buildTreatmentBacking(treatment, textIsLight, layout, W, H);
-  const textGroup = buildTextGroup(
+  drawTreatmentBacking(ctx, treatment, textIsLight, layout, W, H);
+  drawTreatmentText(
+    ctx,
     layout,
     fontFamily,
     color,
@@ -229,20 +256,26 @@ function buildOverlaySvg(
     c.intensity,
   );
 
-  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    <defs>${defs}</defs>
-    ${backing}
-    ${textGroup}
-  </svg>`;
+  return canvas.toBuffer('image/png');
 }
 
-function buildTreatmentBacking(
+function drawTreatmentBacking(
+  ctx: SKRSContext2D,
   treatment: STDTextTreatment,
   textIsLight: boolean,
   layout: TextLayout,
   W: number,
   H: number,
-): { defs: string; backing: string } {
+): void {
+  if (
+    treatment === 'none' ||
+    treatment === 'shadow' ||
+    treatment === 'outline' ||
+    treatment === 'halo'
+  ) {
+    return;
+  }
+
   const padX = layout.boxPadX;
   const padY = layout.boxPadY;
   const boxLeft = layout.blockLeft - padX;
@@ -258,33 +291,56 @@ function buildTreatmentBacking(
   const w = Math.max(1, clipRight - clipLeft);
   const h = Math.max(1, clipBottom - clipTop);
 
-  switch (treatment) {
-    case 'none':
-    case 'shadow':
-    case 'outline':
-    case 'halo':
-      return { defs: '', backing: '' };
+  if (treatment === 'card') {
+    const fill = textIsLight ? 'rgba(22,22,26,0.88)' : 'rgba(250,248,242,0.94)';
+    const innerStroke = textIsLight ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
+    const innerInset = Math.round(Math.max(4, layout.eventFontSize * 0.12));
 
-    case 'card': {
-      const fill = textIsLight ? 'rgba(22,22,26,0.88)' : 'rgba(250,248,242,0.94)';
-      const innerStroke = textIsLight ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
-      const innerInset = Math.round(Math.max(4, layout.eventFontSize * 0.12));
-      const shadowFilter = `<filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="0" dy="${Math.max(2, Math.round(layout.eventFontSize * 0.08))}" stdDeviation="${Math.max(4, Math.round(layout.eventFontSize * 0.18))}" flood-color="rgba(0,0,0,0.22)" />
-      </filter>`;
-      const outerRect = `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" filter="url(#cardShadow)" />`;
-      const innerRect = `<rect x="${x + innerInset}" y="${y + innerInset}" width="${Math.max(1, w - innerInset * 2)}" height="${Math.max(1, h - innerInset * 2)}" fill="none" stroke="${innerStroke}" stroke-width="1" />`;
-      return { defs: shadowFilter, backing: `${outerRect}${innerRect}` };
-    }
+    // Drop shadow via canvas's per-draw shadow API. The SVG version
+    // used feDropShadow with offset+blur; canvas's ctx.shadow* applies
+    // identically when set BEFORE fillRect. Reset after the fill so
+    // subsequent draws (text, inner stroke) don't inherit it.
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.22)';
+    ctx.shadowOffsetY = Math.max(2, Math.round(layout.eventFontSize * 0.08));
+    ctx.shadowBlur = Math.max(4, Math.round(layout.eventFontSize * 0.18));
+    ctx.fillStyle = fill;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
 
-    case 'frame': {
-      const outerStroke = textIsLight ? 'rgba(255,255,255,0.75)' : 'rgba(30,28,24,0.75)';
-      const innerStroke = textIsLight ? 'rgba(255,255,255,0.45)' : 'rgba(30,28,24,0.45)';
-      const innerInset = Math.round(Math.max(4, layout.eventFontSize * 0.14));
-      const outerRect = `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${outerStroke}" stroke-width="1.5" />`;
-      const innerRect = `<rect x="${x + innerInset}" y="${y + innerInset}" width="${Math.max(1, w - innerInset * 2)}" height="${Math.max(1, h - innerInset * 2)}" fill="none" stroke="${innerStroke}" stroke-width="1" />`;
-      return { defs: '', backing: `${outerRect}${innerRect}` };
-    }
+    // Inner border (no shadow).
+    ctx.save();
+    ctx.strokeStyle = innerStroke;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+      x + innerInset,
+      y + innerInset,
+      Math.max(1, w - innerInset * 2),
+      Math.max(1, h - innerInset * 2),
+    );
+    ctx.restore();
+    return;
+  }
+
+  if (treatment === 'frame') {
+    const outerStroke = textIsLight ? 'rgba(255,255,255,0.75)' : 'rgba(30,28,24,0.75)';
+    const innerStroke = textIsLight ? 'rgba(255,255,255,0.45)' : 'rgba(30,28,24,0.45)';
+    const innerInset = Math.round(Math.max(4, layout.eventFontSize * 0.14));
+
+    ctx.save();
+    ctx.strokeStyle = outerStroke;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, w, h);
+    ctx.strokeStyle = innerStroke;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+      x + innerInset,
+      y + innerInset,
+      Math.max(1, w - innerInset * 2),
+      Math.max(1, h - innerInset * 2),
+    );
+    ctx.restore();
+    return;
   }
 }
 
@@ -294,14 +350,15 @@ const SHADOW_INTENSITY_MULT: Record<STDTextIntensity, number> = {
   intense: 1.85,
 };
 
-function buildTextGroup(
+function drawTreatmentText(
+  ctx: SKRSContext2D,
   layout: TextLayout,
   fontFamily: string,
   color: string,
   treatment: STDTextTreatment,
   textIsLight: boolean,
   intensity: STDTextIntensity,
-): string {
+): void {
   const {
     eventLines,
     dateText,
@@ -314,56 +371,140 @@ function buildTextGroup(
     textAnchor,
   } = layout;
 
-  const strokeColor = textIsLight ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
-  const outlineAttrs =
-    treatment === 'outline'
-      ? ` stroke="${strokeColor}" stroke-width="${Math.max(1, Math.round(eventFontSize * 0.045))}" paint-order="stroke fill"`
-      : '';
-  const dateOutlineAttrs =
-    treatment === 'outline'
-      ? ` stroke="${strokeColor}" stroke-width="${Math.max(1, Math.round(dateFontSize * 0.045))}" paint-order="stroke fill"`
-      : '';
+  // Canvas TextAlign uses 'start'|'center'|'end'; the SVG text-anchor
+  // 'middle' maps to canvas 'center'. Other values are identical.
+  const canvasAlign: 'start' | 'center' | 'end' =
+    textAnchor === 'middle' ? 'center' : textAnchor;
+  const dateBaselineY =
+    firstEventBaselineY +
+    eventLines.length * eventLineHeight +
+    gap +
+    Math.round(dateFontSize * 0.82) -
+    Math.round(eventFontSize * 0.82);
 
-  const shadowFilterId = 'stdShadow';
-  const haloFilterId = 'stdHalo';
-  const shadowFilterAttr = treatment === 'shadow' ? ` filter="url(#${shadowFilterId})"` : '';
-  const haloFilterAttr = treatment === 'halo' ? ` filter="url(#${haloFilterId})"` : '';
+  const eventLetterSpacing = Math.round(eventFontSize * 0.02);
+  const dateLetterSpacing = Math.round(dateFontSize * 0.06);
+  const strokeColor = textIsLight ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
   const mult = SHADOW_INTENSITY_MULT[intensity];
 
-  const eventTspans = eventLines
-    .map((line, i) => {
+  // Closure — draws ALL event lines + the date in the supplied state.
+  // Used by treatments that need multiple passes (shadow, halo).
+  function paintAll(passColor: string, passOpacity = 1): void {
+    ctx.save();
+    ctx.textAlign = canvasAlign;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = passColor;
+    ctx.globalAlpha = passOpacity;
+    // Event lines
+    ctx.font = `${eventFontSize}px ${fontFamily}`;
+    ctx.letterSpacing = `${eventLetterSpacing}px`;
+    eventLines.forEach((line, i) => {
       const y = firstEventBaselineY + i * eventLineHeight;
-      return `<tspan x="${textX}" y="${y}">${escapeXml(line)}</tspan>`;
-    })
-    .join('');
+      ctx.fillText(line, textX, y);
+    });
+    // Date line
+    if (dateText) {
+      ctx.font = `${dateFontSize}px ${fontFamily}`;
+      ctx.letterSpacing = `${dateLetterSpacing}px`;
+      ctx.globalAlpha = passOpacity * 0.92;
+      ctx.fillText(dateText, textX, dateBaselineY);
+    }
+    ctx.restore();
+  }
 
-  const eventEl = `<text font-family="${fontFamily}" font-size="${eventFontSize}" fill="${color}" text-anchor="${textAnchor}" letter-spacing="${Math.round(eventFontSize * 0.02)}"${outlineAttrs}>${eventTspans}</text>`;
-
-  const dateBaselineY =
-    firstEventBaselineY + eventLines.length * eventLineHeight + gap + Math.round(dateFontSize * 0.82) - Math.round(eventFontSize * 0.82);
-  const dateEl = dateText
-    ? `<text x="${textX}" y="${dateBaselineY}" font-family="${fontFamily}" font-size="${dateFontSize}" fill="${color}" text-anchor="${textAnchor}" letter-spacing="${Math.round(dateFontSize * 0.06)}" opacity="0.92"${dateOutlineAttrs}>${escapeXml(dateText)}</text>`
-    : '';
-
+  // 'shadow' — two stacked drop shadows (drop + ambient) baked into
+  // canvas's per-draw shadow state. SVG version stacked two
+  // <feDropShadow> elements; canvas re-renders the text twice with
+  // different shadow params. The text glyphs from the second pass
+  // overlap pixel-for-pixel with the first; the visual effect is the
+  // text in `color` over the union of both shadows.
   if (treatment === 'shadow') {
     const dy = Math.max(2, Math.round(eventFontSize * 0.06 * mult));
     const blurBig = Math.max(3, Math.round(eventFontSize * 0.12 * mult));
     const blurSmall = Math.max(1, Math.round(eventFontSize * 0.04 * mult));
-    return `<defs><filter id="${shadowFilterId}" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="${dy}" stdDeviation="${blurBig}" flood-color="rgba(0,0,0,${Math.min(0.9, 0.55 + 0.12 * mult).toFixed(2)})" />
-      <feDropShadow dx="0" dy="0" stdDeviation="${blurSmall}" flood-color="rgba(0,0,0,${Math.min(0.7, 0.35 + 0.08 * mult).toFixed(2)})" />
-    </filter></defs><g${shadowFilterAttr}>${eventEl}${dateEl}</g>`;
+    const shadowColorBig = `rgba(0,0,0,${Math.min(0.9, 0.55 + 0.12 * mult).toFixed(2)})`;
+    const shadowColorSmall = `rgba(0,0,0,${Math.min(0.7, 0.35 + 0.08 * mult).toFixed(2)})`;
+
+    // Pass 1: drop shadow (offset + larger blur).
+    ctx.save();
+    ctx.shadowColor = shadowColorBig;
+    ctx.shadowOffsetY = dy;
+    ctx.shadowBlur = blurBig;
+    paintAll(color);
+    ctx.restore();
+
+    // Pass 2: ambient shadow (no offset, smaller blur). Text re-renders
+    // at the same position so the user-color text wins; only the new
+    // ambient shadow is added under the existing pass-1 output.
+    ctx.save();
+    ctx.shadowColor = shadowColorSmall;
+    ctx.shadowOffsetY = 0;
+    ctx.shadowBlur = blurSmall;
+    paintAll(color);
+    ctx.restore();
+    return;
   }
 
+  // 'halo' — render text in halo color through two blur radii, then
+  // sharp text on top. ctx.filter='blur(Npx)' affects subsequent draws;
+  // reset between passes.
   if (treatment === 'halo') {
     const haloFlood = textIsLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)';
     const innerBlur = Math.max(4, Math.round(eventFontSize * 0.1 * mult));
     const outerBlur = Math.max(8, Math.round(eventFontSize * 0.22 * mult));
-    return `<defs><filter id="${haloFilterId}" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="0" stdDeviation="${innerBlur}" flood-color="${haloFlood}" />
-      <feDropShadow dx="0" dy="0" stdDeviation="${outerBlur}" flood-color="${haloFlood}" />
-    </filter></defs><g${haloFilterAttr}>${eventEl}${dateEl}</g>`;
+
+    ctx.save();
+    ctx.filter = `blur(${outerBlur}px)`;
+    paintAll(haloFlood);
+    ctx.restore();
+    ctx.save();
+    ctx.filter = `blur(${innerBlur}px)`;
+    paintAll(haloFlood);
+    ctx.restore();
+    // Sharp text on top.
+    paintAll(color);
+    return;
   }
 
-  return `<g>${eventEl}${dateEl}</g>`;
+  // 'outline' — strokeText + fillText. paint-order: stroke fill in the
+  // SVG version puts the stroke UNDER the fill; canvas does the same
+  // when strokeText is called before fillText.
+  if (treatment === 'outline') {
+    const eventStrokeWidth = Math.max(1, Math.round(eventFontSize * 0.045));
+    const dateStrokeWidth = Math.max(1, Math.round(dateFontSize * 0.045));
+
+    ctx.save();
+    ctx.textAlign = canvasAlign;
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+
+    // Event lines: stroke under fill.
+    ctx.font = `${eventFontSize}px ${fontFamily}`;
+    ctx.letterSpacing = `${eventLetterSpacing}px`;
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = eventStrokeWidth;
+    ctx.fillStyle = color;
+    eventLines.forEach((line, i) => {
+      const y = firstEventBaselineY + i * eventLineHeight;
+      ctx.strokeText(line, textX, y);
+      ctx.fillText(line, textX, y);
+    });
+
+    // Date line: same pattern, smaller stroke + fixed opacity 0.92.
+    if (dateText) {
+      ctx.font = `${dateFontSize}px ${fontFamily}`;
+      ctx.letterSpacing = `${dateLetterSpacing}px`;
+      ctx.lineWidth = dateStrokeWidth;
+      ctx.globalAlpha = 0.92;
+      ctx.strokeText(dateText, textX, dateBaselineY);
+      ctx.fillText(dateText, textX, dateBaselineY);
+    }
+    ctx.restore();
+    return;
+  }
+
+  // 'none' / 'card' / 'frame' — plain text on top (backing already
+  // drawn by drawTreatmentBacking).
+  paintAll(color);
 }

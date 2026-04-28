@@ -125,11 +125,17 @@ export function OrderDetailContent({ orderId }: OrderDetailContentProps) {
     ? [order.customer.firstName, order.customer.lastName].filter(Boolean).join(' ')
     : null;
 
-  // Extract custom attributes from first line item
+  // Phase 5 (Appendix I): admin print-files now keyed on the SHOPIFY
+  // ORDER ID (not a per-line `printJobId`). The route reads the
+  // order's pipeline metafields and returns ALL line items' tiles.
+  // We still need a presence check to decide whether to render the
+  // `<PrintFilesGrid>` at all — if no line has a `_photo_url`, the
+  // order has no customized lines and there's nothing to download.
   const lineItems = order.lineItems.edges.map((e) => e.node);
-  const printJobId = lineItems[0]?.customAttributes.find((a) => a.key === '_photo_url')
-    ? `order-${order.id.replace('gid://shopify/Order/', '')}-item-${lineItems[0].id.replace('gid://shopify/LineItem/', '')}`
-    : null;
+  const hasCustomizedLine = lineItems.some((li) =>
+    li.customAttributes.some((a) => a.key === '_photo_url'),
+  );
+  const shopifyOrderId = order.id.replace('gid://shopify/Order/', '');
 
   const currentStatusIndex = STATUS_FLOW.indexOf(currentStatus);
 
@@ -214,8 +220,11 @@ export function OrderDetailContent({ orderId }: OrderDetailContentProps) {
             </h3>
             <div className="flex flex-col gap-4">
               {lineItems.map((item) => {
-                const previewUrl = item.customAttributes.find((a) => a.key === 'preview_image_url')?.value;
-                const gridType = item.customAttributes.find((a) => a.key === 'grid_type')?.value;
+                // `_`-prefixed keys per Phase 3.4 attr-naming reconciliation
+                // (matches the cart-attribute convention so the webhook's
+                // extractCustomizedLineItems filter keeps them).
+                const previewUrl = item.customAttributes.find((a) => a.key === '_preview_image_url')?.value;
+                const gridType = item.customAttributes.find((a) => a.key === '_grid_type')?.value;
                 const category = item.customAttributes.find((a) => a.key === 'category')?.value;
 
                 return (
@@ -352,8 +361,8 @@ export function OrderDetailContent({ orderId }: OrderDetailContentProps) {
             <h3 className="mb-4 font-semibold text-charcoal" style={{ fontFamily: 'var(--font-cormorant), Georgia, serif' }}>
               Archivos de impresión
             </h3>
-            {printJobId ? (
-              <PrintFilesGrid orderId={printJobId} />
+            {hasCustomizedLine ? (
+              <PrintFilesGrid orderId={shopifyOrderId} />
             ) : (
               <div className="rounded-lg bg-cream p-4 text-center text-sm text-warm-gray">
                 Archivos pendientes de generación.

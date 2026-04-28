@@ -24,12 +24,20 @@ export interface SingleImagePrintJob {
  * Multi-image print job for Tonos. Holds 3 image buffers + 3 crop areas,
  * aligned positionally: buffer[i] goes with cropArea[i]. Optional rotations
  * are applied to each image before cropping (degrees, multiples of 90).
+ *
+ * `fitModes` controls per-slot crop semantics:
+ *   - `'fill'`    → Sharp `fit: 'cover'`   (crop to fill 827×827; default)
+ *   - `'fit'`     → Sharp `fit: 'contain'` + cream letterbox
+ *   - `'stretch'` → Sharp `fit: 'fill'`    (non-uniform stretch)
+ * Optional: when undefined, processor defaults to `['fill','fill','fill']`
+ * for backward compat with pre-fitMode webhook payloads.
  */
 export interface TonosPrintJob {
   imageBuffers: [Buffer, Buffer, Buffer];
   customization: TonosCustomization;
   cropAreas: [CropArea, CropArea, CropArea];
   rotations?: [number, number, number];
+  fitModes?: ['fill' | 'fit' | 'stretch', 'fill' | 'fit' | 'stretch', 'fill' | 'fit' | 'stretch'];
   jobId: string;
 }
 

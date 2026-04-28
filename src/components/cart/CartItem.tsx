@@ -1,9 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
+import { Link } from '@/i18n/navigation';
 import { useCartStore, type CartItem as CartItemType } from '@/lib/cart-store';
 import { formatPrice } from '@/lib/grid-config';
+import { CATEGORY_REGISTRY } from '@/lib/customization-types';
+import { CustomizationSummary } from './CustomizationSummary';
 
 interface CartItemProps {
   item: CartItemType;
@@ -14,9 +18,21 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
   const t = useTranslations('cart');
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const closeDrawer = useCartStore((s) => s.closeDrawer);
+  const [imgFailed, setImgFailed] = useState(false);
 
-  const thumbnailSize = size === 'full' ? 'h-24 w-24 sm:h-28 sm:w-28' : 'h-20 w-20';
-  const displayName = item.type === 'custom' ? t('customDesign') : item.name;
+  // Bigger thumbnail on mobile for the drawer variant (compact) so the
+  // buyer gets a clearer visual confirmation of what's in the cart —
+  // Codex flagged "product preview + quantity + price clarity" as the
+  // cart's job, not decoration.
+  const thumbnailSize = size === 'full' ? 'h-24 w-24 sm:h-28 sm:w-28' : 'h-24 w-24';
+  const displayName =
+    item.type === 'custom'
+      ? item.customizations
+        ? CATEGORY_REGISTRY[item.customizations.categoryType].label
+        : t('customDesign')
+      : item.name;
+  const hasImage = Boolean(item.previewUrl) && !imgFailed;
 
   return (
     <motion.div
@@ -27,18 +43,29 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
       className="relative flex gap-3 rounded-xl bg-white p-3 shadow-sm"
     >
-      {/* Thumbnail */}
-      <div
-        className={`${thumbnailSize} flex-shrink-0 overflow-hidden rounded-lg bg-cream-dark`}
+      {/* Thumbnail — link to fridge-style detail view at /carrito/{id}.
+          Closes the drawer on click so the detail page isn't covered by
+          the drawer overlay. closeDrawer is a no-op when CartItem is
+          rendered inside /carrito (drawer isn't open). */}
+      <Link
+        href={{ pathname: '/carrito/[itemId]', params: { itemId: item.id } }}
+        onClick={closeDrawer}
+        aria-label={t('viewItemDetail')}
+        className={`${thumbnailSize} group flex-shrink-0 overflow-hidden rounded-lg bg-cream-dark cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta`}
       >
-        {item.previewUrl ? (
+        {hasImage ? (
           <img
             src={item.previewUrl}
             alt={displayName}
-            className="h-full w-full object-cover"
+            onError={() => setImgFailed(true)}
+            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.04]"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
+          <div
+            className="flex h-full w-full items-center justify-center"
+            role="img"
+            aria-label={t('imageMissing')}
+          >
             <svg
               width="32"
               height="32"
@@ -46,16 +73,17 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
               fill="none"
               stroke="currentColor"
               strokeWidth="1.5"
-              className="text-warm-gray"
+              className="text-warm-gray/60"
               aria-hidden="true"
             >
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
             </svg>
           </div>
         )}
-      </div>
+      </Link>
 
       {/* Details */}
       <div className="flex min-w-0 flex-1 flex-col justify-between">
@@ -68,12 +96,15 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
             <p className="mt-0.5 text-xs text-warm-gray">
               {t('pieces', { count: item.gridSize })}
             </p>
+            {item.type === 'custom' && (
+              <CustomizationSummary customizations={item.customizations} />
+            )}
           </div>
 
-          {/* Remove button */}
+          {/* Remove button — 48 px touch target (WCAG / CLAUDE.md). */}
           <button
             onClick={() => removeItem(item.id)}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-warm-gray transition-colors hover:bg-error/10 hover:text-error cursor-pointer"
+            className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md text-warm-gray transition-colors hover:bg-error/10 hover:text-error cursor-pointer"
             aria-label={t('remove')}
           >
             <svg
@@ -97,12 +128,14 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
 
         {/* Bottom row: Quantity + Price */}
         <div className="flex items-center justify-between">
-          {/* Quantity controls */}
+          {/* Quantity controls — 44 px minimum per WCAG; cells are 44×44 so
+              the three-part pill fits in the compact cart-drawer row
+              without wrapping the name/price column. */}
           <div className="flex items-center gap-0">
             <button
               onClick={() => updateQuantity(item.id, item.quantity - 1)}
               disabled={item.quantity <= 1}
-              className="flex h-8 w-8 items-center justify-center rounded-l-lg border border-light-gray text-charcoal transition-colors hover:bg-cream-dark disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="flex h-11 w-11 items-center justify-center rounded-l-lg border border-light-gray text-charcoal transition-colors hover:bg-cream-dark disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               aria-label="Reducir cantidad"
             >
               <svg
@@ -117,12 +150,12 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <span className="flex h-8 w-10 items-center justify-center border-y border-light-gray bg-white text-sm font-medium text-charcoal">
+            <span className="flex h-11 w-11 items-center justify-center border-y border-light-gray bg-white text-sm font-medium text-charcoal">
               {item.quantity}
             </span>
             <button
               onClick={() => updateQuantity(item.id, item.quantity + 1)}
-              className="flex h-8 w-8 items-center justify-center rounded-r-lg border border-light-gray text-charcoal transition-colors hover:bg-cream-dark cursor-pointer"
+              className="flex h-11 w-11 items-center justify-center rounded-r-lg border border-light-gray text-charcoal transition-colors hover:bg-cream-dark cursor-pointer"
               aria-label="Aumentar cantidad"
             >
               <svg

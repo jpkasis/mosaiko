@@ -21,10 +21,20 @@ export function MosaikoLogo({ variant = 'dark', size = 28, className }: MosaikoL
   const textSize = Math.round(size * 0.71); // ~20px at 28px icon
 
   return (
-    <span className={['inline-flex items-end', className].filter(Boolean).join(' ')} style={{ gap: `${size * 0.07}px` }}>
+    // The M icon + visible "osaiko" text together form the wordmark.
+    // Screen readers only need to announce "Mosaiko" once, so the image
+    // is marked decorative (alt="") and the wrapper carries the
+    // accessible label + the visible "osaiko" text via aria-hidden so
+    // AT reads the label, not both.
+    <span
+      className={['inline-flex items-end', className].filter(Boolean).join(' ')}
+      style={{ gap: `${size * 0.07}px` }}
+      role="img"
+      aria-label="Mosaiko"
+    >
       <Image
         src={src}
-        alt="Mosaiko"
+        alt=""
         width={size}
         height={size}
         className="shrink-0"
@@ -33,6 +43,7 @@ export function MosaikoLogo({ variant = 'dark', size = 28, className }: MosaikoL
         unoptimized
       />
       <span
+        aria-hidden="true"
         className={`font-bold font-brand tracking-tight leading-none ${textColor}`}
         style={{ fontSize: `${textSize}px`, marginBottom: `${size * 0.04}px` }}
       >

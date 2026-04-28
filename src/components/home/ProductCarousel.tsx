@@ -6,10 +6,20 @@ import { useTranslations } from 'next-intl';
 import Image from 'next/image';
 import useEmblaCarousel from 'embla-carousel-react';
 import AutoScroll from 'embla-carousel-auto-scroll';
+import { Link } from '@/i18n/navigation';
+import type { CategoryType } from '@/lib/customization-types';
+import type { GridSize } from '@/lib/grid-config';
 
 /* ── Product data ── */
 type Badge = 'bestseller' | 'new' | 'limited';
 
+/**
+ * Each carousel card resolves to either:
+ *   - `productId`: a predesigned catalog entry that has its own detail page
+ *     at `/catalogo/[productId]` (Studio, Arte, Save the Date, Tonos);
+ *   - `categoryKey` + `gridSize`: a buildable category (Mosaicos, Polaroid)
+ *     that routes straight to the builder with that preselection.
+ */
 interface Product {
   src: string;
   alt: string;
@@ -18,6 +28,11 @@ interface Product {
   pieces: number;
   price: number;
   badge?: Badge;
+  /** Catalog product id for predesigned items. */
+  productId?: string;
+  /** Builder preselection for non-predesigned items. */
+  categoryKey?: CategoryType;
+  gridSize?: GridSize;
 }
 
 const products: Product[] = [
@@ -29,6 +44,8 @@ const products: Product[] = [
     pieces: 9,
     price: 480,
     badge: 'bestseller',
+    categoryKey: 'mosaicos',
+    gridSize: 9,
   },
   {
     src: '/products/studio-chihiro.png',
@@ -38,6 +55,7 @@ const products: Product[] = [
     pieces: 6,
     price: 360,
     badge: 'new',
+    productId: 'stu-1',
   },
   {
     src: '/products/arte-noche-estrellada.png',
@@ -46,6 +64,7 @@ const products: Product[] = [
     grid: '4×2+1',
     pieces: 9,
     price: 480,
+    productId: 'art-1',
   },
   {
     src: '/products/tonos-9.png',
@@ -54,6 +73,7 @@ const products: Product[] = [
     grid: '3×3',
     pieces: 9,
     price: 480,
+    productId: 'ton-1',
   },
   {
     src: '/products/polaroid-sunset.png',
@@ -62,6 +82,8 @@ const products: Product[] = [
     grid: '2×2',
     pieces: 4,
     price: 280,
+    categoryKey: 'polaroid',
+    gridSize: 4,
   },
   {
     src: '/products/save-the-date-9.png',
@@ -71,6 +93,7 @@ const products: Product[] = [
     pieces: 9,
     price: 480,
     badge: 'bestseller',
+    productId: 'std-1',
   },
   {
     src: '/products/arte-mona-lisa.png',
@@ -79,6 +102,7 @@ const products: Product[] = [
     grid: '4×2+1',
     pieces: 9,
     price: 480,
+    productId: 'art-2',
   },
   {
     src: '/products/studio-totoro.png',
@@ -88,6 +112,7 @@ const products: Product[] = [
     pieces: 6,
     price: 360,
     badge: 'new',
+    productId: 'stu-2',
   },
   {
     src: '/products/arte-el-beso.png',
@@ -97,6 +122,7 @@ const products: Product[] = [
     pieces: 9,
     price: 480,
     badge: 'limited',
+    productId: 'art-3',
   },
   {
     src: '/products/studio-mononoke.png',
@@ -105,6 +131,7 @@ const products: Product[] = [
     grid: '2×3',
     pieces: 6,
     price: 360,
+    productId: 'stu-3',
   },
   {
     src: '/products/mosaico-6-family.png',
@@ -113,6 +140,8 @@ const products: Product[] = [
     grid: '2×3',
     pieces: 6,
     price: 360,
+    categoryKey: 'mosaicos',
+    gridSize: 6,
   },
   {
     src: '/products/mosaico-3-panoramic.png',
@@ -121,8 +150,33 @@ const products: Product[] = [
     grid: '1×3',
     pieces: 3,
     price: 200,
+    categoryKey: 'mosaicos',
+    gridSize: 3,
   },
 ];
+
+/**
+ * Resolve the click destination for a carousel product. Predesigned items
+ * go to their detail page; buildable categories go to the builder with the
+ * right preselection so the user lands on the upload step immediately.
+ */
+type CarouselHref =
+  | { pathname: '/catalogo/[productId]'; params: { productId: string } }
+  | { pathname: '/personalizar'; query: { category: CategoryType; grid: string } }
+  | { pathname: '/catalogo' };
+
+function hrefForProduct(product: Product): CarouselHref {
+  if (product.productId) {
+    return { pathname: '/catalogo/[productId]', params: { productId: product.productId } };
+  }
+  if (product.categoryKey && product.gridSize) {
+    return {
+      pathname: '/personalizar',
+      query: { category: product.categoryKey, grid: String(product.gridSize) },
+    };
+  }
+  return { pathname: '/catalogo' };
+}
 
 const badgeStyles: Record<Badge, { label: string; bg: string }> = {
   bestseller: { label: 'Mas vendido', bg: 'bg-gold text-charcoal' },
@@ -175,22 +229,40 @@ export function ProductCarousel() {
   const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
   const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
 
-  // Respect prefers-reduced-motion
+  // Respect prefers-reduced-motion AND disable AutoScroll on mobile
+  // (< sm / 640 px). Mobile users arrive on touch devices where a
+  // constantly-scrolling carousel hijacks the swipe gesture for page
+  // scroll and creates dead-zone interactions. Desktop can keep the
+  // editorial motion.
   useEffect(() => {
     if (!emblaApi) return;
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (mq.matches) {
-      const autoScroll = emblaApi.plugins()?.autoScroll;
-      if (autoScroll && 'stop' in autoScroll) {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const isMobile = window.matchMedia('(max-width: 639px)');
+
+    const autoScroll = emblaApi.plugins()?.autoScroll;
+    if (!autoScroll || !('stop' in autoScroll) || !('play' in autoScroll)) return;
+
+    const apply = () => {
+      if (reducedMotion.matches || isMobile.matches) {
         (autoScroll as { stop: () => void }).stop();
+      } else {
+        (autoScroll as { play: () => void }).play();
       }
-    }
+    };
+
+    apply();
+    reducedMotion.addEventListener('change', apply);
+    isMobile.addEventListener('change', apply);
+    return () => {
+      reducedMotion.removeEventListener('change', apply);
+      isMobile.removeEventListener('change', apply);
+    };
   }, [emblaApi]);
 
   return (
     <section
       ref={sectionRef}
-      className="carousel-section relative overflow-hidden py-20 sm:py-24 lg:py-32"
+      className="carousel-section relative overflow-hidden py-12 sm:py-20 lg:py-28"
       aria-roledescription="carousel"
       aria-label={t('title')}
     >
@@ -250,10 +322,12 @@ export function ProductCarousel() {
         <div ref={emblaRef} className="carousel-track cursor-grab overflow-hidden active:cursor-grabbing">
           <div className="flex items-center gap-3 sm:gap-4">
             {products.map((product) => (
-              <div
+              <Link
                 key={product.src}
-                className="group relative min-w-0 flex-[0_0_280px] sm:flex-[0_0_340px] lg:flex-[0_0_380px]"
+                href={hrefForProduct(product)}
+                className="group relative block min-w-0 flex-[0_0_280px] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-terracotta focus-visible:ring-offset-2 sm:flex-[0_0_340px] lg:flex-[0_0_380px]"
                 aria-roledescription="slide"
+                aria-label={`${product.alt} — ${product.category} ${product.grid}, ${formatPrice(product.price)}`}
               >
                 {/* The image itself — no card container, just the product */}
                 <div className="relative overflow-hidden rounded-xl transition-transform duration-500 ease-out group-hover:scale-[1.03]">
@@ -279,12 +353,12 @@ export function ProductCarousel() {
                   </div>
 
                   {/* Hover overlay — elegant info reveal from bottom */}
-                  <div className="absolute inset-0 z-10 flex flex-col justify-end opacity-0 transition-opacity duration-400 group-hover:opacity-100">
+                  <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-end opacity-0 transition-opacity duration-400 group-hover:opacity-100 group-focus-visible:opacity-100">
                     {/* Gradient scrim */}
                     <div className="absolute inset-0 bg-gradient-to-t from-charcoal/80 via-charcoal/30 to-transparent" />
 
                     {/* Info content */}
-                    <div className="relative translate-y-3 px-5 pb-5 pt-16 transition-transform duration-400 ease-out group-hover:translate-y-0">
+                    <div className="relative translate-y-3 px-5 pb-5 pt-16 transition-transform duration-400 ease-out group-hover:translate-y-0 group-focus-visible:translate-y-0">
                       <span className="inline-block rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/80 backdrop-blur-sm">
                         {product.category} · {product.grid}
                       </span>
@@ -309,7 +383,7 @@ export function ProductCarousel() {
                     </div>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>

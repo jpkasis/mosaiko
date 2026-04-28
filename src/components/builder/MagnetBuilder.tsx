@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -10,16 +10,21 @@ import {
   CATEGORY_REGISTRY,
   type CategoryType,
   type TonosIntensity,
+  type TonosSlotConfigs,
 } from '@/lib/customization-types';
+import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
+import { deriveCropperOverlay } from '@/lib/category-layouts/derive';
 import type { CropArea } from '@/lib/canvas-utils';
 import { useCartStore } from '@/lib/cart-store';
-import { createPreviewCanvas, getCroppedCanvas, loadImage } from '@/lib/canvas-utils';
+import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
+import { buildPrintCustomization } from '@/lib/shopify/customization-serializer';
 import {
   useBuilderFlow,
   STEP_I18N_MAP,
   type StepId,
   type TonosIndex,
 } from './useBuilderFlow';
+import { useKeyboardInset } from './useKeyboardInset';
 import { CategorySelector } from './CategorySelector';
 import { GridSelector } from './GridSelector';
 import { PhotoUploader } from './PhotoUploader';
@@ -27,6 +32,7 @@ import { PhotoUploaderMulti } from './PhotoUploaderMulti';
 import { ImageCropper } from './ImageCropper';
 import { ImageCropperMulti } from './ImageCropperMulti';
 import { MagnetPreview } from './MagnetPreview';
+import { Overlay, OverlayTitle } from '@/components/ui/Overlay';
 
 const CustomizationEditor = dynamic(
   () => import('./CustomizationEditor').then((m) => m.CustomizationEditor),
@@ -57,6 +63,77 @@ async function uploadPhoto(file: File): Promise<string> {
   return publicUrl as string;
 }
 
+/**
+ * Attempts to upload the user's photo to R2. On failure (common in local
+ * dev without live R2 creds), falls back to a base64 data URL so the
+ * add-to-cart flow still completes. The composite endpoint accepts either.
+ * For production the URL path is preferred (smaller request body).
+ */
+async function uploadOrEncode(file: File): Promise<
+  { kind: 'url'; url: string } | { kind: 'data'; data: string }
+> {
+  try {
+    const url = await uploadPhoto(file);
+    return { kind: 'url', url };
+  } catch (uploadError) {
+    // Production gate (Phase 3.2): data-URL fallback can produce
+    // non-printable orders (empty `_photo_url` reaches the webhook,
+    // which then has no source photo to render from). Throw in
+    // production so the photo-uploader retry UI surfaces the failure
+    // instead of silently advancing to a broken cart item. Dev
+    // environments keep the fallback for offline iteration.
+    if (process.env.NODE_ENV === 'production') {
+      throw uploadError instanceof Error
+        ? uploadError
+        : new Error('Photo upload failed');
+    }
+    const data = await fileToDataUrl(file);
+    return { kind: 'data', data };
+  }
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader error'));
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(file);
+  });
+}
+
+interface CartCompositeResponse {
+  jobId: string;
+  categoryType: CategoryType;
+  compositeKey: string;
+  compositeUrl: string;
+  thumbKey: string;
+  thumbUrl: string;
+  width: number;
+  height: number;
+  /** Pipeline version stamped at composite-creation time; webhook uses
+   *  this to invalidate stale composites after a renderer change. */
+  pipelineVersion: string;
+}
+
+/**
+ * Asks the server to assemble the canonical magnet composite for the
+ * current builder state and returns the R2 URLs of the full-res PNG + the
+ * JPEG thumbnail. Runs the same Sharp pipeline the order webhook uses, so
+ * the cart thumbnail is a faithful preview of what will be printed.
+ */
+async function requestCartComposite(body: Record<string, unknown>): Promise<CartCompositeResponse> {
+  const res = await fetch('/api/cart-composite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `cart-composite request failed (${res.status})`);
+  }
+  return (await res.json()) as CartCompositeResponse;
+}
+
 export function MagnetBuilder() {
   const t = useTranslations('builder');
   const tc = useTranslations('common');
@@ -67,13 +144,33 @@ export function MagnetBuilder() {
   const initialGrid = searchParams.get('grid') ? (Number(searchParams.get('grid')) as GridSize) : null;
 
   const flow = useBuilderFlow({ initialCategory, initialGrid });
+  // Phase 6.1 — sticky CTA must ride above iOS soft keyboard. The hook
+  // returns 0 on desktop / older browsers / SSR, so the math degrades
+  // to "zero offset" → no visual change. iOS Safari + Android Chrome
+  // populate `window.visualViewport`.
+  const keyboardInset = useKeyboardInset();
+
+  // Listen for the top-nav "Personalizar" click-while-already-here signal.
+  // The header dispatches BUILDER_RESET_EVENT so we can reset to step 1
+  // without a URL change. flow.handleReset is a stable useCallback, so
+  // rebinding on every render would be wasteful — empty-deps is correct.
+  useEffect(() => {
+    const onReset = () => flow.handleReset();
+    window.addEventListener(BUILDER_RESET_EVENT, onReset);
+    return () => window.removeEventListener(BUILDER_RESET_EVENT, onReset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAddToCart = useCallback(async () => {
     if (!flow.gridConfig || !flow.selectedCategory) return;
+    if (flow.isUploading) return; // guard against double-clicks
 
+    flow.setAddToCartError(null);
     flow.setIsUploading(true);
 
     try {
+      const meta = CATEGORY_REGISTRY[flow.selectedCategory];
+
       if (flow.selectedCategory === 'tonos') {
         // Tonos: 3 images, 3 crops, intensity.
         const srcs = flow.tonos.imageSrcs;
@@ -84,43 +181,51 @@ export function MagnetBuilder() {
           return;
         }
 
-        // Build a small composed preview by rendering each source at its crop.
-        const previewCanvas = document.createElement('canvas');
-        const previewSize = 360;
-        previewCanvas.width = previewSize;
-        previewCanvas.height = previewSize;
-        const ctx = previewCanvas.getContext('2d')!;
-
-        const cols = flow.gridConfig.cols;
-        const rows = flow.gridConfig.rows;
-        const cellW = previewSize / cols;
-        const cellH = previewSize / rows;
-
-        await Promise.all(
-          srcs.map(async (src, i) => {
-            const area = cropAreas[i]!;
-            const image = await loadImage(src!);
-            const tileCanvas = getCroppedCanvas(image, area, Math.ceil(cellW), Math.ceil(cellH), 0);
-            // Draw into all tiles where sourceImageIndex === i.
-            if (flow.gridConfig!.size === 9) {
-              for (let c = 0; c < 3; c++) {
-                ctx.drawImage(tileCanvas, c * cellW, i * cellH, cellW, cellH);
-              }
-            } else {
-              ctx.drawImage(tileCanvas, i * cellW, 0, cellW, cellH);
-            }
-            tileCanvas.width = 0;
-            tileCanvas.height = 0;
-          }),
+        const uploaded = await Promise.all(
+          (files as File[]).map(uploadOrEncode),
         );
+        // If ANY upload failed (falling back to data URL), re-encode all 3 so
+        // the endpoint receives a homogeneous shape. Mixing URL/data in a
+        // 3-slot array would force the endpoint to branch per slot, which is
+        // strictly worse than paying the re-encode cost for the 1-2 that
+        // already succeeded.
+        const anyFailed = uploaded.some((u) => u.kind !== 'url');
+        const photoStorageUrls = uploaded.map((u) => (u.kind === 'url' ? u.url : '')) as [
+          string, string, string,
+        ];
 
-        const previewUrl = previewCanvas.toDataURL('image/jpeg', 0.85);
-        previewCanvas.width = 0;
-        previewCanvas.height = 0;
+        const tonosSlots: TonosSlotConfigs = [
+          { fitMode: flow.tonos.slots[0].fitMode, rotation: flow.tonos.slots[0].rotation },
+          { fitMode: flow.tonos.slots[1].fitMode, rotation: flow.tonos.slots[1].rotation },
+          { fitMode: flow.tonos.slots[2].fitMode, rotation: flow.tonos.slots[2].rotation },
+        ];
 
-        const urls = await Promise.all((files as File[]).map(uploadPhoto));
+        const customization = buildPrintCustomization({
+          categoryType: 'tonos',
+          gridSize: flow.gridConfig.size,
+          tonosIntensity: flow.tonos.intensity,
+          tonosSlots,
+        });
 
-        const meta = CATEGORY_REGISTRY[flow.selectedCategory];
+        const compositeBody: Record<string, unknown> = {
+          cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
+          customization,
+          rotations: tonosSlots.map((s) => s.rotation) as [number, number, number],
+        };
+        if (anyFailed) {
+          // Encode every slot as a data URL so the endpoint gets a
+          // consistent 3-tuple. Re-read already-succeeded uploads from the
+          // original File handles — a few MB of base64 on a local fallback
+          // path is preferable to mixing URL/data and complicating the API.
+          const allDataUrls = (await Promise.all(
+            (files as File[]).map((f) => fileToDataUrl(f)),
+          )) as [string, string, string];
+          compositeBody.photoDataUrls = allDataUrls;
+        } else {
+          compositeBody.photoUrls = photoStorageUrls;
+        }
+        const composite = await requestCartComposite(compositeBody);
+
         addItem({
           type: 'custom',
           name: `Mosaico ${meta.label} ${flow.gridConfig.size} piezas`,
@@ -128,19 +233,19 @@ export function MagnetBuilder() {
           gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
           price: flow.gridConfig.price,
           quantity: 1,
-          previewUrl,
+          previewUrl: composite.thumbUrl,
           tileUrls: [],
           customizations: {
             categoryType: 'tonos',
-            photoStorageUrls: [urls[0], urls[1], urls[2]],
+            photoStorageUrls,
             cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
             tonosIntensity: flow.tonos.intensity,
-            tonosSlots: [
-              { fitMode: flow.tonos.slots[0].fitMode, rotation: flow.tonos.slots[0].rotation },
-              { fitMode: flow.tonos.slots[1].fitMode, rotation: flow.tonos.slots[1].rotation },
-              { fitMode: flow.tonos.slots[2].fitMode, rotation: flow.tonos.slots[2].rotation },
-            ],
+            tonosSlots,
             layoutRotated: flow.layoutRotated,
+            compositeJobId: composite.jobId,
+            compositeKey: composite.compositeKey,
+            compositeUrl: composite.compositeUrl,
+            compositePipelineVersion: composite.pipelineVersion,
           },
         });
         return;
@@ -149,23 +254,29 @@ export function MagnetBuilder() {
       // Single-image categories.
       if (!flow.imageSrc || !flow.cropAreaPixels) return;
 
-      const image = await loadImage(flow.imageSrc);
-      const previewCanvas = createPreviewCanvas(
-        image, flow.cropAreaPixels, flow.gridConfig, 120, 4, 0,
-      );
-      const previewUrl = previewCanvas.toDataURL('image/jpeg', 0.85);
-
-      let photoStorageUrl = '';
       const file = flow.imageFileRef.current;
-      if (file) {
-        try {
-          photoStorageUrl = await uploadPhoto(file);
-        } catch {
-          // upload failed — proceed without a storage URL
-        }
+      if (!file) {
+        throw new Error('Missing original photo file');
       }
+      const uploaded = await uploadOrEncode(file);
+      const photoStorageUrl = uploaded.kind === 'url' ? uploaded.url : '';
 
-      const meta = CATEGORY_REGISTRY[flow.selectedCategory];
+      const customization = buildPrintCustomization({
+        categoryType: flow.selectedCategory,
+        gridSize: flow.gridConfig.size,
+        layoutRotated: flow.layoutRotated,
+        textFields:
+          Object.keys(flow.customizationValues).length > 0
+            ? flow.customizationValues
+            : undefined,
+      });
+
+      const composite = await requestCartComposite(
+        uploaded.kind === 'url'
+          ? { photoUrl: uploaded.url, cropArea: flow.cropAreaPixels, customization }
+          : { photoData: uploaded.data, cropArea: flow.cropAreaPixels, customization },
+      );
+
       addItem({
         type: 'custom',
         name: `Mosaico ${meta.label} ${flow.gridConfig.size} piezas`,
@@ -173,31 +284,28 @@ export function MagnetBuilder() {
         gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
         price: flow.gridConfig.price,
         quantity: 1,
-        previewUrl,
+        previewUrl: composite.thumbUrl,
         tileUrls: [],
         customizations: {
           categoryType: flow.selectedCategory,
-          textFields: Object.keys(flow.customizationValues).length > 0
-            ? flow.customizationValues
-            : undefined,
+          textFields:
+            Object.keys(flow.customizationValues).length > 0
+              ? flow.customizationValues
+              : undefined,
           photoStorageUrl,
           cropArea: flow.cropAreaPixels,
           layoutRotated: flow.layoutRotated,
+          compositeJobId: composite.jobId,
+          compositeKey: composite.compositeKey,
+          compositeUrl: composite.compositeUrl,
+          compositePipelineVersion: composite.pipelineVersion,
         },
       });
-    } catch {
-      if (flow.gridConfig) {
-        addItem({
-          type: 'custom',
-          name: `Mosaico ${flow.gridConfig.size} piezas`,
-          gridSize: flow.gridConfig.size,
-          gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
-          price: flow.gridConfig.price,
-          quantity: 1,
-          previewUrl: '',
-          tileUrls: [],
-        });
-      }
+    } catch (error) {
+      console.error('[MagnetBuilder] add-to-cart failed:', error);
+      flow.setAddToCartError(
+        error instanceof Error ? error.message : 'No se pudo preparar tu mosaico. Intenta de nuevo.',
+      );
     } finally {
       flow.setIsUploading(false);
     }
@@ -210,17 +318,160 @@ export function MagnetBuilder() {
 
   const isTonos = flow.selectedCategory === 'tonos';
 
+  // Mobile-only live-preview drawer. Desktop keeps the sticky sidebar.
+  const [previewDrawerOpen, setPreviewDrawerOpen] = useState(false);
+
+  // Phase 6.3 — upload-step sticky CTA. Single-image uploader emits the
+  // ready file via `onReadyChange`; parent stores it here so the sticky
+  // CTA can advance from outside the PhotoUploader component without
+  // lifting the rest of its phase state. Tonos derives readiness from
+  // `flow.tonos.imageSrcs` directly (already in `useBuilderFlow`).
+  const [uploadReadyFile, setUploadReadyFile] = useState<File | null>(null);
+  // Only show the FAB once the user is past the category pick — the preview
+  // has nothing to render before a category + image exist. Hide on the
+  // preview step since that page *is* the preview (FAB would be redundant)
+  // and hide while the drawer is open (the FAB would stack on top of it —
+  // the drawer has its own close affordance).
+  //
+  // Per Codex: `showPreviewFab` must gate on whether the preview
+  // drawer would actually have content to render. For single-image
+  // categories that means `imageSrc` + a crop area; for Tonos it means
+  // all 3 slots have images AND crop areas. Without this gate, the FAB
+  // shows on the upload step and clicking it opens an empty drawer or
+  // (worse) dismisses silently.
+  const canPreview = useMemo(() => {
+    if (flow.selectedCategory === null) return false;
+    const step = flow.currentStepId;
+    // The preview drawer only makes sense once the user has real
+    // content to see — crop and customize steps, nothing before.
+    if (step !== 'crop' && step !== 'customize') return false;
+    if (isTonos) {
+      return (
+        flow.tonos.imageSrcs.every((s) => Boolean(s)) &&
+        flow.tonos.cropAreas.every((c) => Boolean(c))
+      );
+    }
+    return Boolean(flow.imageSrc) &&
+      Boolean(flow.liveCropArea ?? flow.cropAreaPixels);
+  }, [
+    flow.selectedCategory,
+    flow.currentStepId,
+    isTonos,
+    flow.imageSrc,
+    flow.liveCropArea,
+    flow.cropAreaPixels,
+    flow.tonos.imageSrcs,
+    flow.tonos.cropAreas,
+  ]);
+
+  const showPreviewFab = canPreview && !previewDrawerOpen;
+
+  // Mobile sticky bottom CTA. Keeps the primary action anchored so it never
+  // drifts out of the thumb zone as step content changes. Rendered on
+  // steps where the `useBuilderFlow` hook already owns the advance action:
+  //   - upload    → flow.handleImageSelected / flow.handleTonosImagesSelected
+  //                 (Phase 6.3: PhotoUploader emits readiness via
+  //                 onReadyChange; Tonos derives from imageSrcs)
+  //   - customize → flow.handleCustomizeComplete (always eligible to advance)
+  //   - preview   → handleAddToCart (disabled while upload is in flight)
+  // Crop step keeps its inline CTA — proceed lives inside the cropper.
+  const stickyCta = useMemo<
+    | { visible: false }
+    | {
+        visible: true;
+        label: string;
+        canAdvance: boolean;
+        onAdvance: () => void | Promise<void>;
+      }
+  >(() => {
+    if (flow.currentStepId === 'upload' && flow.gridConfig) {
+      if (isTonos) {
+        const allReady = flow.tonos.imageSrcs.every((s) => s !== null);
+        return {
+          visible: true,
+          label: tc('next'),
+          canAdvance: allReady,
+          onAdvance: () => {
+            const files = flow.tonos.fileRefs.current;
+            if (files.every((f) => f != null)) {
+              flow.handleTonosImagesSelected(
+                files as [File, File, File],
+              );
+            }
+          },
+        };
+      }
+      return {
+        visible: true,
+        label: tc('next'),
+        canAdvance: !!uploadReadyFile,
+        onAdvance: () => {
+          if (uploadReadyFile) flow.handleImageSelected(uploadReadyFile);
+        },
+      };
+    }
+    if (flow.currentStepId === 'customize') {
+      return {
+        visible: true,
+        label: tc('next'),
+        canAdvance: true,
+        onAdvance: flow.handleCustomizeComplete,
+      };
+    }
+    if (flow.currentStepId === 'preview' && flow.gridConfig) {
+      return {
+        visible: true,
+        label: flow.isUploading
+          ? 'Preparando tu mosaico...'
+          : t('addToCart', { price: formatPrice(flow.gridConfig.price) }),
+        canAdvance: !flow.isUploading,
+        onAdvance: handleAddToCart,
+      };
+    }
+    return { visible: false };
+  }, [
+    flow.currentStepId,
+    flow.gridConfig,
+    flow.isUploading,
+    flow.handleCustomizeComplete,
+    flow.handleImageSelected,
+    flow.handleTonosImagesSelected,
+    flow.tonos.imageSrcs,
+    flow.tonos.fileRefs,
+    handleAddToCart,
+    isTonos,
+    uploadReadyFile,
+    t,
+    tc,
+  ]);
+
+  // Cropper overlay guide is layout-defined: each category publishes its
+  // overlay rows / cols / row-splits via the contract.
+  const cropperOverlay = useMemo(() => {
+    if (!flow.selectedCategory || flow.selectedGrid == null) return null;
+    return deriveCropperOverlay(
+      CATEGORY_LAYOUTS[flow.selectedCategory],
+      flow.selectedGrid,
+    );
+  }, [flow.selectedCategory, flow.selectedGrid]);
+
   // Stable props for child MagnetPreview / sidebar. Referential identity must
   // be preserved across renders when the underlying arrays / intensity haven't
   // actually changed, otherwise MagnetPreview's effect re-fires infinitely.
   const tonosForPreview = useMemo(() => {
     if (!isTonos) return undefined;
     const rotations = flow.tonos.slots.map((s) => s.rotation) as [number, number, number];
+    const fitModes = flow.tonos.slots.map((s) => s.fitMode) as [
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+    ];
     return {
       imageSrcs: flow.tonos.imageSrcs,
       cropAreas: flow.tonos.cropAreas,
       intensity: flow.tonos.intensity,
       rotations,
+      fitModes,
     };
   }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.intensity, flow.tonos.slots]);
 
@@ -231,11 +482,36 @@ export function MagnetBuilder() {
       CropArea | null, CropArea | null, CropArea | null
     ];
     const rotations = slots.map((s) => s.rotation) as [number, number, number];
-    return { imageSrcs, cropAreas: merged, intensity, rotations };
+    const fitModes = slots.map((s) => s.fitMode) as [
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+    ];
+    return { imageSrcs, cropAreas: merged, intensity, rotations, fitModes };
   }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.liveCropAreas, flow.tonos.intensity, flow.tonos.slots]);
 
+  // On mobile, pad the bottom of the page content by the footer height plus a
+  // breathing gap so the sticky footer never covers the last interactive
+  // element. Desktop (lg+) is unpadded — sticky footer is hidden there.
+  //
+  // Additionally, add the cookie-banner offset (when the banner is visible)
+  // so first-session users on short builder steps (upload, category picker)
+  // see the primary controls above the banner instead of behind it. The var
+  // resolves to `0px` when the banner is dismissed (fallback).
+  const mobileBottomPadStyle: React.CSSProperties = stickyCta.visible
+    ? {
+        paddingBottom:
+          'calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem)',
+      }
+    : {
+        paddingBottom: 'var(--cookie-banner-offset, 0px)',
+      };
+
   return (
-    <div className="container-mosaiko py-6 md:py-10">
+    <div
+      className="container-mosaiko py-6 md:py-10"
+      style={mobileBottomPadStyle}
+    >
       <div className="mb-6 text-center md:mb-8">
         <h1 className="font-serif text-3xl font-bold text-charcoal md:text-4xl">
           {t('title')}
@@ -275,8 +551,11 @@ export function MagnetBuilder() {
             )}
           </AnimatePresence>
 
-          <div className="relative overflow-hidden">
-            <AnimatePresence custom={flow.direction} mode="wait">
+          {/* overflow-x-hidden clips the slide transition sideways but lets
+              focus rings, dropdown menus, and long select lists bleed
+              vertically without being cut off. */}
+          <div className="relative overflow-x-hidden overflow-y-visible">
+            <AnimatePresence custom={flow.direction} mode="wait" initial={false}>
               <motion.div
                 key={flow.currentStepId}
                 custom={flow.direction}
@@ -308,6 +587,7 @@ export function MagnetBuilder() {
                   <PhotoUploader
                     onImageSelected={flow.handleImageSelected}
                     gridConfig={flow.gridConfig}
+                    onReadyChange={setUploadReadyFile}
                   />
                 )}
                 {flow.currentStepId === 'upload' && flow.gridConfig && isTonos && (
@@ -332,20 +612,13 @@ export function MagnetBuilder() {
                     gridConfig={flow.gridConfig}
                     onCropComplete={flow.handleCropComplete}
                     onCropChange={flow.handleCropChange}
-                    overlayRows={
-                      flow.selectedCategory === 'arte' ? 2
-                        : flow.selectedCategory === 'spotify' ? 2
-                          : undefined
-                    }
-                    overlayCols={flow.selectedCategory === 'arte' ? 4 : undefined}
-                    overlayRowSplits={
-                      flow.selectedCategory === 'polaroid' ? [55.96]
-                        : flow.selectedCategory === 'studio' ? [43.69, 94.77]
-                          : undefined
-                    }
+                    overlayRows={cropperOverlay?.rows}
+                    overlayCols={cropperOverlay?.cols}
+                    overlayRowSplits={cropperOverlay?.rowSplits}
                     onLayoutRotate={flow.handleLayoutRotate}
                     canRotateLayout={flow.canRotateLayout}
                     layoutRotated={flow.layoutRotated}
+                    onReplacePhoto={flow.handleReplaceSingleImage}
                   />
                 )}
                 {flow.currentStepId === 'crop' && isTonos && flow.gridConfig && (
@@ -355,35 +628,69 @@ export function MagnetBuilder() {
                     cropAreas={flow.tonos.cropAreas}
                     intensity={flow.tonos.intensity}
                     slots={flow.tonos.slots}
+                    resetSeq={flow.tonos.resetSeq}
                     onCropChange={flow.handleTonosCropChange}
                     onCropComplete={flow.handleTonosCropComplete}
                     onIntensityChange={flow.setTonosIntensity}
                     onFitModeChange={flow.setTonosFitMode}
                     onToggleRotation={flow.toggleTonosRotation}
+                    onSlotReset={flow.handleTonosSlotReset}
+                    onSlotReplacePhoto={flow.handleTonosSlotReplacePhoto}
                     onAllDone={flow.advanceFromTonosCrop}
                   />
                 )}
 
                 {flow.currentStepId === 'customize' && flow.selectedCategory && (
-                  <CustomizationEditor
-                    category={flow.selectedCategory}
-                    values={flow.customizationValues}
-                    onValueChange={flow.setCustomizationValue}
-                    onComplete={flow.handleCustomizeComplete}
-                  />
+                  /* Auto-close the mobile live-preview drawer when any text
+                     input gains focus inside the customize editor. On
+                     narrow screens the soft keyboard already eats half the
+                     viewport — keeping the preview open on top of that is
+                     noise the user can't dismiss without blur. */
+                  <div
+                    onFocusCapture={(e) => {
+                      const tag = (e.target as HTMLElement).tagName;
+                      if (tag === 'INPUT' || tag === 'TEXTAREA') {
+                        setPreviewDrawerOpen(false);
+                      }
+                    }}
+                  >
+                    <CustomizationEditor
+                      category={flow.selectedCategory}
+                      values={flow.customizationValues}
+                      onValueChange={flow.setCustomizationValue}
+                      onComplete={flow.handleCustomizeComplete}
+                    />
+                  </div>
                 )}
                 {flow.currentStepId === 'preview' && flow.gridConfig && (
-                  <MagnetPreview
-                    imageSrc={isTonos ? null : flow.imageSrc}
-                    cropArea={isTonos ? null : flow.cropAreaPixels}
-                    gridConfig={flow.gridConfig}
-                    onAddToCart={handleAddToCart}
-                    onReset={flow.handleReset}
-                    isUploading={flow.isUploading}
-                    categoryType={flow.selectedCategory ?? undefined}
-                    textFields={flow.customizationValues}
-                    tonos={tonosForPreview}
-                  />
+                  <div className="flex flex-col gap-3">
+                    {flow.addToCartError && (
+                      <div
+                        role="alert"
+                        className="rounded-lg border border-error/30 bg-error/5 px-4 py-3 text-sm text-error"
+                      >
+                        {flow.addToCartError}
+                        <button
+                          type="button"
+                          onClick={() => flow.setAddToCartError(null)}
+                          className="ml-3 text-xs font-medium underline underline-offset-2"
+                        >
+                          Reintentar
+                        </button>
+                      </div>
+                    )}
+                    <MagnetPreview
+                      imageSrc={isTonos ? null : flow.imageSrc}
+                      cropArea={isTonos ? null : flow.cropAreaPixels}
+                      gridConfig={flow.gridConfig}
+                      onAddToCart={handleAddToCart}
+                      onReset={flow.handleReset}
+                      isUploading={flow.isUploading}
+                      categoryType={flow.selectedCategory ?? undefined}
+                      textFields={flow.customizationValues}
+                      tonos={tonosForPreview}
+                    />
+                  </div>
                 )}
               </motion.div>
             </AnimatePresence>
@@ -404,6 +711,96 @@ export function MagnetBuilder() {
           />
         </aside>
       </div>
+
+      {/* Mobile live-preview FAB: on <lg viewports the sidebar is hidden,
+          so the preview moves into a bottom-drawer the user opens on
+          demand. Desktop sidebar above stays untouched. When the sticky
+          CTA footer is visible the FAB lifts above it so the two don't
+          stack on top of each other. */}
+      {showPreviewFab && (
+        <>
+          <button
+            type="button"
+            onClick={() => setPreviewDrawerOpen(true)}
+            className="fixed right-4 flex h-14 w-14 items-center justify-center rounded-full bg-terracotta text-white shadow-lg transition-transform hover:scale-105 active:scale-[0.98] lg:hidden pb-safe"
+            style={{
+              ['--safe-min' as string]: '0.5rem',
+              zIndex: 'var(--z-toast)',
+              // Lift above sticky CTA (if shown) AND above the cookie banner
+              // (if visible). `--cookie-banner-offset` is set by CookieBanner
+              // on :root via ResizeObserver while the banner is onscreen.
+              // Phase 6.1: also lift above the iOS soft keyboard when open
+              // (keyboardInset is 0 on desktop / when closed).
+              bottom: stickyCta.visible
+                ? `calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`
+                : `calc(var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`,
+            }}
+            aria-label="Ver vista previa"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+
+          <Overlay
+            open={previewDrawerOpen}
+            onOpenChange={setPreviewDrawerOpen}
+            variant="drawer-bottom"
+            zLayer="drawer"
+            ariaLabel="Vista previa del mosaico"
+            contentClassName="pb-safe"
+          >
+            <OverlayTitle className="sr-only">Vista previa del mosaico</OverlayTitle>
+            <div className="overflow-y-auto p-4">
+              <div className="mx-auto w-full max-w-sm">
+                <LivePreviewSidebar
+                  currentStepId={flow.currentStepId}
+                  selectedGrid={flow.selectedGrid}
+                  imageSrc={flow.imageSrc}
+                  gridConfig={flow.gridConfig}
+                  liveCropArea={flow.liveCropArea}
+                  cropAreaPixels={flow.cropAreaPixels}
+                  selectedCategory={flow.selectedCategory}
+                  textFields={flow.customizationValues}
+                  tonos={tonosForSidebar}
+                />
+              </div>
+            </div>
+          </Overlay>
+        </>
+      )}
+
+      {/* Mobile sticky CTA footer. Single primary action anchored to the
+          bottom of the viewport so the buyer never has to scroll to find
+          the next step. Desktop keeps the inline per-step buttons. */}
+      {stickyCta.visible && (
+        <div
+          // Sticky CTA sits above base page content but below drawers/modals
+          // — if the cart drawer or mobile menu opens on top of the builder,
+          // it should cover this CTA rather than the other way around.
+          // `bottom` lifts by the cookie-banner offset so the CTA never
+          // hides behind the banner on first visit.
+          className="fixed inset-x-0 border-t border-light-gray bg-cream/95 px-4 py-3 pb-safe backdrop-blur-sm lg:hidden"
+          style={{
+            zIndex: 'var(--z-header)',
+            ['--safe-min' as string]: '0.75rem',
+            // Phase 6.1: sticky CTA rides above the iOS soft keyboard
+            // when it's open. `keyboardInset` is 0 on desktop / when
+            // the keyboard is closed → behaviour identical to pre-fix.
+            bottom: `calc(var(--cookie-banner-offset, 0px) + ${keyboardInset}px)`,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => stickyCta.onAdvance()}
+            disabled={!stickyCta.canAdvance}
+            className="flex min-h-[52px] w-full cursor-pointer items-center justify-center rounded-xl bg-cta px-6 text-base font-semibold text-[var(--cta-text)] shadow-lg shadow-cta/20 transition-colors hover:bg-[var(--cta-hover)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+          >
+            {stickyCta.label}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -421,71 +818,91 @@ function StepIndicator({
 }) {
   const t = useTranslations('builder');
   const currentIdx = stepSequence.indexOf(currentStepId);
+  const currentLabel = t(STEP_I18N_MAP[currentStepId]);
 
   return (
-    <div className="flex items-center justify-center gap-0 overflow-x-auto">
-      {stepSequence.map((stepId, index) => {
-        const isActive = stepId === currentStepId;
-        const isCompleted = index < currentIdx;
-        const isClickable = index < currentIdx;
+    <>
+      {/* Mobile progress bar: thin track + label. Replaces the horizontal
+          6-circle scroll that used to overflow on 375-px viewports. */}
+      <div className="flex flex-col items-center gap-2 sm:hidden">
+        <div className="flex w-full items-baseline justify-between text-xs font-medium text-warm-gray">
+          <span>Paso {currentIdx + 1} de {stepSequence.length}</span>
+          <span className="text-terracotta">{currentLabel}</span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-light-gray">
+          <div
+            className="h-full rounded-full bg-terracotta transition-all duration-300"
+            style={{
+              width: `${((currentIdx + 1) / stepSequence.length) * 100}%`,
+            }}
+          />
+        </div>
+      </div>
 
-        return (
-          <div key={stepId} className="flex items-center shrink-0">
-            <button
-              onClick={() => isClickable && onStepClick(stepId)}
-              disabled={!isClickable}
-              className={[
-                'flex flex-col items-center gap-1.5',
-                isClickable ? 'cursor-pointer' : 'cursor-default',
-              ].join(' ')}
-              aria-label={`${t(STEP_I18N_MAP[stepId])} — Paso ${index + 1}`}
-              aria-current={isActive ? 'step' : undefined}
-            >
-              <div
+      {/* Desktop / tablet: the classic circle indicator. */}
+      <div className="hidden items-center justify-center gap-0 overflow-x-auto sm:flex">
+        {stepSequence.map((stepId, index) => {
+          const isActive = stepId === currentStepId;
+          const isCompleted = index < currentIdx;
+          const isClickable = index < currentIdx;
+
+          return (
+            <div key={stepId} className="flex items-center shrink-0">
+              <button
+                onClick={() => isClickable && onStepClick(stepId)}
+                disabled={!isClickable}
                 className={[
-                  'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all duration-300',
-                  'md:h-10 md:w-10 md:text-sm',
-                  isActive
-                    ? 'bg-terracotta text-white shadow-md shadow-terracotta/30'
-                    : isCompleted
-                      ? 'bg-terracotta text-[#efebe0]'
-                      : 'bg-light-gray text-warm-gray',
+                  'flex flex-col items-center gap-1.5',
+                  isClickable ? 'cursor-pointer' : 'cursor-default',
                 ].join(' ')}
+                aria-label={`${t(STEP_I18N_MAP[stepId])} — Paso ${index + 1}`}
+                aria-current={isActive ? 'step' : undefined}
               >
-                {isCompleted ? (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                ) : (
-                  index + 1
-                )}
-              </div>
-              <span
-                className={[
-                  'hidden text-xs font-medium sm:block',
-                  isActive
-                    ? 'text-terracotta'
-                    : isCompleted
+                <div
+                  className={[
+                    'flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold transition-all duration-300',
+                    isActive
+                      ? 'bg-terracotta text-white shadow-md shadow-terracotta/30'
+                      : isCompleted
+                        ? 'bg-terracotta text-[#efebe0]'
+                        : 'bg-light-gray text-warm-gray',
+                  ].join(' ')}
+                >
+                  {isCompleted ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    index + 1
+                  )}
+                </div>
+                <span
+                  className={[
+                    'text-xs font-medium',
+                    isActive
                       ? 'text-terracotta'
-                      : 'text-warm-gray',
-                ].join(' ')}
-              >
-                {t(STEP_I18N_MAP[stepId])}
-              </span>
-            </button>
+                      : isCompleted
+                        ? 'text-terracotta'
+                        : 'text-warm-gray',
+                  ].join(' ')}
+                >
+                  {t(STEP_I18N_MAP[stepId])}
+                </span>
+              </button>
 
-            {index < stepSequence.length - 1 && (
-              <div
-                className={[
-                  'mx-2 h-0.5 w-8 rounded-full transition-colors duration-300 md:mx-3 md:w-12',
-                  index < currentIdx ? 'bg-terracotta' : 'bg-light-gray',
-                ].join(' ')}
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
+              {index < stepSequence.length - 1 && (
+                <div
+                  className={[
+                    'mx-3 h-0.5 w-12 rounded-full transition-colors duration-300',
+                    index < currentIdx ? 'bg-terracotta' : 'bg-light-gray',
+                  ].join(' ')}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -515,6 +932,11 @@ function LivePreviewSidebar({
     cropAreas: [CropArea | null, CropArea | null, CropArea | null];
     intensity: TonosIntensity;
     rotations: [number, number, number];
+    fitModes: [
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+      'fill' | 'fit' | 'stretch',
+    ];
   };
 }) {
   const t = useTranslations('builder');

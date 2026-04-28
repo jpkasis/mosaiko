@@ -28,13 +28,16 @@ interface OrderCardProps {
 export function OrderCard({ order }: OrderCardProps) {
   const status: OrderStatus = getOrderStatus(order);
 
-  // Extract preview image and grid type from line item attributes
+  // Extract preview image and grid type from line item attributes.
+  // Keys carry the `_` prefix per the cart-attribute convention so the
+  // webhook's `extractCustomizedLineItems` filter retains them. Phase 3.4
+  // renamed `preview_image_url`/`grid_type` → `_preview_image_url`/`_grid_type`.
   const firstLineItem = order.lineItems.edges[0]?.node;
   const previewUrl = firstLineItem?.customAttributes.find(
-    (a) => a.key === 'preview_image_url',
+    (a) => a.key === '_preview_image_url',
   )?.value;
   const gridType = firstLineItem?.customAttributes.find(
-    (a) => a.key === 'grid_type',
+    (a) => a.key === '_grid_type',
   )?.value;
 
   const customerName = order.customer

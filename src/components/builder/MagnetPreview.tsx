@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
-import { splitImageIntoTiles, getCroppedCanvas, loadImage } from '@/lib/canvas-utils';
+import { splitImageIntoTiles, getCroppedCanvas, getCroppedTileWithFit, loadImage } from '@/lib/canvas-utils';
 import type { CropArea } from '@/lib/canvas-utils';
 import { formatPrice, type GridConfig } from '@/lib/grid-config';
 import {
@@ -19,6 +19,8 @@ import {
   type STDTextTreatment,
   type STDTextIntensity,
 } from '@/lib/customization-types';
+import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
+import { deriveClientInset } from '@/lib/category-layouts/derive';
 import { getTonosColumnCSSFilter } from '@/lib/print-pipeline/utils/filter-presets';
 import { Button } from '@/components/ui/Button';
 import { MosaikoWatermark } from './MosaikoWatermark';
@@ -32,6 +34,15 @@ interface TonosInputs {
   cropAreas: [CropArea | null, CropArea | null, CropArea | null];
   intensity: TonosIntensity;
   rotations?: [number, number, number];
+  /**
+   * Per-slot fit mode. The preview's per-slot canvas mirrors the
+   * server pipeline's `cropAndResize` semantics so what the user sees
+   * in the live-preview drawer matches the printed magnet:
+   *   - `'fill'`    → cover crop (current default)
+   *   - `'fit'`     → contain on a cream canvas (letterbox)
+   *   - `'stretch'` → non-uniform stretch
+   */
+  fitModes?: ['fill' | 'fit' | 'stretch', 'fill' | 'fit' | 'stretch', 'fill' | 'fit' | 'stretch'];
 }
 
 // Stable default to avoid recreating an empty object on every render
@@ -133,7 +144,8 @@ export function MagnetPreview({
               const image = await loadImage(src);
               if (cancelled) return;
               const rotation = tonos.rotations?.[i] ?? 0;
-              const canvas = getCroppedCanvas(image, area, tileSize, tileSize, rotation);
+              const fitMode = tonos.fitModes?.[i] ?? 'fill';
+              const canvas = getCroppedTileWithFit(image, area, tileSize, fitMode, rotation);
               perSource[i] = canvas.toDataURL('image/jpeg', 0.9);
               canvas.width = 0;
               canvas.height = 0;
@@ -192,6 +204,46 @@ export function MagnetPreview({
           return;
         }
 
+        // Spotify: photo region is bordered by opaque template edges
+        // (rounded-corner card frame). Splits are at the visible-region
+        // tile boundaries — NOT equal halves — because the per-tile
+        // photo widths/heights are asymmetric: left col is 555/1109
+        // wide, right col is 554/1109; top row is 540/1152 tall, bottom
+        // row is 612/1152. Mirror the server processor's offset math.
+        if (categoryType === 'spotify') {
+          const tileSize = 200;
+          const fullCanvas = getCroppedCanvas(image, cropArea, tileSize * 2, tileSize * 2, 0);
+          const hSplit = 555 / 1109;
+          const vSplit = 540 / 1152;
+          const leftW  = Math.round(tileSize * 2 * hSplit);
+          const rightW = tileSize * 2 - leftW;
+          const topH   = Math.round(tileSize * 2 * vSplit);
+          const botH   = tileSize * 2 - topH;
+          const regions = [
+            { sx: 0,     sy: 0,    sw: leftW,  sh: topH },
+            { sx: leftW, sy: 0,    sw: rightW, sh: topH },
+            { sx: 0,     sy: topH, sw: leftW,  sh: botH },
+            { sx: leftW, sy: topH, sw: rightW, sh: botH },
+          ];
+
+          const urls: string[] = [];
+          for (const r of regions) {
+            const tc = document.createElement('canvas');
+            tc.width = r.sw;
+            tc.height = r.sh;
+            const ctx = tc.getContext('2d')!;
+            ctx.drawImage(fullCanvas, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+            urls.push(tc.toDataURL('image/jpeg', 0.9));
+            tc.width = 0;
+            tc.height = 0;
+          }
+          fullCanvas.width = 0;
+          fullCanvas.height = 0;
+          if (cancelled) return;
+          setTiles(urls);
+          return;
+        }
+
         // Studio: 2×2 photo area + 63-unit photo strip extending into
         // the top of tiles 5 & 6 (matches transparent regions of the frame PNGs
         // and the print pipeline's 1055×1204 photo buffer).
@@ -226,8 +278,9 @@ export function MagnetPreview({
           return;
         }
 
-        const photoRows = categoryType === 'spotify' || categoryType === 'arte' ? 2
-          : gridConfig.rows;
+        // Spotify is handled in its own branch above; the only remaining
+        // category that uses 2 photo rows in the generic split is Arte.
+        const photoRows = categoryType === 'arte' ? 2 : gridConfig.rows;
         const photoCols = gridConfig.cols;
 
         const splitTileCount = photoTileCount;
@@ -266,6 +319,7 @@ export function MagnetPreview({
     tonos?.imageSrcs[0], tonos?.imageSrcs[1], tonos?.imageSrcs[2],
     tonos?.cropAreas[0], tonos?.cropAreas[1], tonos?.cropAreas[2],
     tonos?.rotations?.[0], tonos?.rotations?.[1], tonos?.rotations?.[2],
+    tonos?.fitModes?.[0], tonos?.fitModes?.[1], tonos?.fitModes?.[2],
     tonos?.intensity,
   ]);
 
@@ -487,16 +541,21 @@ export function MagnetPreview({
             </span>
           </div>
 
-          <Button
-            variant="cta"
-            size="lg"
-            fullWidth
-            onClick={onAddToCart}
-            disabled={isUploading}
-            className="font-serif font-bold"
-          >
-            {isUploading ? 'Subiendo foto...' : priceText}
-          </Button>
+          {/* Inline CTA on desktop only. Mobile uses the sticky footer in
+              MagnetBuilder so the primary action never drifts off-screen as
+              the preview renders / re-renders. */}
+          <div className="hidden lg:block">
+            <Button
+              variant="cta"
+              size="lg"
+              fullWidth
+              onClick={onAddToCart}
+              disabled={isUploading}
+              className="font-serif font-bold"
+            >
+              {isUploading ? 'Preparando tu mosaico...' : priceText}
+            </Button>
+          </div>
 
           <button
             onClick={onReset}
@@ -700,13 +759,27 @@ function PhotoTile({
 
   if (categoryType === 'spotify') {
     const tileNumber = index + 1;
+    const inset = deriveClientInset(CATEGORY_LAYOUTS.spotify, index);
     return (
       <div className="relative overflow-hidden" style={{ aspectRatio: '1' }}>
-        {imgElement}
+        {inset && (
+          <img
+            src={tileSrc}
+            alt={`Pieza ${index + 1} de ${totalTiles}`}
+            className="absolute"
+            style={{
+              left: `${inset.left}%`,
+              top: `${inset.top}%`,
+              width: `${inset.width}%`,
+              height: `${inset.height}%`,
+            }}
+            draggable={false}
+          />
+        )}
         <img
           src={`/templates/spotify/${tileNumber}.png`}
           alt=""
-          className="pointer-events-none absolute inset-0 h-full w-full"
+          className="pointer-events-none relative z-10 h-full w-full"
           draggable={false}
         />
       </div>
@@ -715,22 +788,23 @@ function PhotoTile({
 
   if (categoryType === 'polaroid') {
     const tileNumber = index + 1;
-    const insets: Record<number, { left: string; top: string; width: string; height: string }> = {
-      1: { left: '9.92%', top: '10.41%', width: '90.08%', height: '89.59%' },
-      2: { left: '0%', top: '10.41%', width: '90.08%', height: '89.59%' },
-      3: { left: '9.92%', top: '0%', width: '90.08%', height: '70.52%' },
-      4: { left: '0%', top: '0%', width: '90.08%', height: '70.52%' },
-    };
-    const area = insets[tileNumber];
+    const inset = deriveClientInset(CATEGORY_LAYOUTS.polaroid, index);
     return (
       <div className="relative overflow-hidden" style={{ aspectRatio: '1' }}>
-        <img
-          src={tileSrc}
-          alt={`Pieza ${index + 1} de ${totalTiles}`}
-          className="absolute"
-          style={{ left: area.left, top: area.top, width: area.width, height: area.height }}
-          draggable={false}
-        />
+        {inset && (
+          <img
+            src={tileSrc}
+            alt={`Pieza ${index + 1} de ${totalTiles}`}
+            className="absolute"
+            style={{
+              left: `${inset.left}%`,
+              top: `${inset.top}%`,
+              width: `${inset.width}%`,
+              height: `${inset.height}%`,
+            }}
+            draggable={false}
+          />
+        )}
         <img
           src={`/templates/polaroid/${tileNumber}.png`}
           alt=""
@@ -753,22 +827,23 @@ function PhotoTile({
   if (categoryType === 'studio') {
     const tileNumber = index + 1;
     if (tileNumber > 4) return null;
-    const insets: Record<number, { left: string; top: string; width: string; height: string }> = {
-      1: { left: '14.15%', top: '14.31%', width: '85.85%', height: '85.53%' },
-      2: { left: '0%', top: '14.31%', width: '85.69%', height: '85.53%' },
-      3: { left: '14.15%', top: '0%', width: '85.85%', height: '100%' },
-      4: { left: '0%', top: '0%', width: '85.69%', height: '100%' },
-    };
-    const area = insets[tileNumber]!;
+    const inset = deriveClientInset(CATEGORY_LAYOUTS.studio, index);
     return (
       <div className="relative overflow-hidden" style={{ aspectRatio: '1' }}>
-        <img
-          src={tileSrc}
-          alt={`Pieza ${index + 1} de ${totalTiles}`}
-          className="absolute"
-          style={{ left: area.left, top: area.top, width: area.width, height: area.height }}
-          draggable={false}
-        />
+        {inset && (
+          <img
+            src={tileSrc}
+            alt={`Pieza ${index + 1} de ${totalTiles}`}
+            className="absolute"
+            style={{
+              left: `${inset.left}%`,
+              top: `${inset.top}%`,
+              width: `${inset.width}%`,
+              height: `${inset.height}%`,
+            }}
+            draggable={false}
+          />
+        )}
         <img
           src={`/templates/studio/${tileNumber}.png`}
           alt=""

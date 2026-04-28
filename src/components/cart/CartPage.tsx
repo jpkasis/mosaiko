@@ -16,8 +16,19 @@ export function CartPage() {
   const isEmpty = items.length === 0;
 
   if (isEmpty) {
+    // min-height tracks the vertical space between header and cookie
+    // banner (when visible) so the flex-center pushes CTAs into the
+    // visible region on fresh-session iOS Safari. Without the cookie
+    // subtraction, the centered "Personalizar" / "Seguir comprando"
+    // buttons land behind the banner on narrow viewports.
     return (
-      <div className="container-mosaiko flex min-h-[60vh] flex-col items-center justify-center py-20 text-center">
+      <div
+        className="container-mosaiko flex flex-col items-center justify-center py-20 text-center"
+        style={{
+          minHeight:
+            'calc(100dvh - var(--header-height) - var(--announcement-height, 0px) - var(--cookie-banner-offset, 0px) - 4rem)',
+        }}
+      >
         <div className="mb-6 flex h-32 w-32 items-center justify-center rounded-full bg-cream-dark">
           <svg
             width="56"
@@ -74,6 +85,39 @@ export function CartPage() {
               <CartItem key={item.id} item={item} size="full" />
             ))}
           </AnimatePresence>
+
+          {/* Continue shopping nudge — sits below items, above summary on mobile. */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="mt-4 flex flex-col items-center gap-2"
+          >
+            <Link
+              href="/catalogo"
+              className="group inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border-2 border-charcoal/15 bg-white px-6 py-3 text-sm font-semibold text-charcoal transition-colors hover:border-terracotta/40 hover:text-terracotta sm:w-auto"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                className="transition-transform group-hover:-translate-x-1"
+              >
+                <path d="M19 12H5" />
+                <path d="M12 19l-7-7 7-7" />
+              </svg>
+              {t('continueShopping')}
+            </Link>
+            <p className="text-center font-serif text-xs italic text-warm-gray">
+              {t('continueShoppingHint')}
+            </p>
+          </motion.div>
         </div>
 
         {/* Order summary */}
@@ -93,8 +137,11 @@ export function CartPage() {
                 <span className="text-warm-gray">{t('subtotal')}</span>
                 <span className="text-charcoal">{formatPrice(total)}</span>
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-warm-gray">{t('shipping')}</span>
+              <div className="flex items-start justify-between text-sm">
+                <span className="flex flex-col">
+                  <span className="text-warm-gray">{t('shipping')}</span>
+                  <span className="text-xs text-warm-gray/80">{t('shippingEta')}</span>
+                </span>
                 <span className="font-medium text-success">{t('free')}</span>
               </div>
               <div className="border-t border-light-gray" />

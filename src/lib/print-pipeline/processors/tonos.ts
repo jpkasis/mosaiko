@@ -21,18 +21,31 @@ const LOGO_BLANCO_PATH = join(MOSAIKO_LOGO_DIR, 'LOGO BLANCO.png');
  * 9-grid: row i → picture i; 3 columns per row → 3 tone variants.
  * 3-grid: one picture per tile in columns warm/none/cool.
  */
+/**
+ * Cream RGBA used as the letterbox background when a Tonos slot's
+ * `fitMode === 'fit'`. Matches `--cream: #efebe0` so the printed
+ * letterbox aligns with the brand palette; the cropper preview's
+ * `bg-cream` ensures preview ↔ print parity.
+ */
+const TONOS_LETTERBOX_BG = { r: 0xef, g: 0xeb, b: 0xe0, alpha: 1 };
+
 export async function processTonos(job: TonosPrintJob): Promise<TileOutput[]> {
-  const { customization, imageBuffers, cropAreas, rotations } = job;
+  const { customization, imageBuffers, cropAreas, rotations, fitModes } = job;
   const tileDescriptors = getTileLayout(customization);
 
-  // Apply rotation per image (if any), then crop each source to TILE_PRINT_SIZE.
+  // Apply rotation per image (if any), then crop each source to TILE_PRINT_SIZE
+  // honouring the per-slot fitMode. Default to `'fill'` for backward
+  // compatibility with pre-fitMode webhook payloads.
   const croppedPerSource = await Promise.all(
     imageBuffers.map(async (buf, i) => {
       const deg = rotations?.[i] ?? 0;
       const source = deg === 0
         ? buf
         : await sharp(buf).rotate(deg).png().toBuffer();
-      return cropAndResize(source, cropAreas[i], TILE_PRINT_SIZE, TILE_PRINT_SIZE);
+      return cropAndResize(source, cropAreas[i], TILE_PRINT_SIZE, TILE_PRINT_SIZE, {
+        fitMode: fitModes?.[i] ?? 'fill',
+        background: TONOS_LETTERBOX_BG,
+      });
     }),
   );
 
@@ -94,7 +107,14 @@ async function applySharpFilter(
     config.brightness !== undefined
   ) {
     pipeline = pipeline.modulate({
-      ...(config.hueRotation !== undefined && { hue: config.hueRotation }),
+      // Sharp's modulate() rejects non-integer `hue`. filter-presets
+      // scales the base rotation by the intensity factor, which
+      // produces fractional degrees for the 'strong' preset — round
+      // at this boundary so the scaling is faithful but the value
+      // libvips sees is valid.
+      ...(config.hueRotation !== undefined && {
+        hue: Math.round(config.hueRotation),
+      }),
       ...(config.saturation !== undefined && { saturation: config.saturation }),
       ...(config.brightness !== undefined && { brightness: config.brightness }),
     });

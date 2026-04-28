@@ -1,14 +1,20 @@
 import { shopifyFetch } from '../client';
 import { reshapeCart } from '../reshape';
 import { CART_FRAGMENT } from '../queries/cart';
-import type { ShopifyCart, Cart, CartLineInput, CartLineUpdateInput } from '../types';
+import type {
+  ShopifyCart,
+  Cart,
+  CartLineInput,
+  CartLineUpdateInput,
+  CartLineAttribute,
+} from '../types';
 
 // ─── Mutations ──────────────────────────────────────────────────────────────
 
 const CREATE_CART_MUTATION = /* GraphQL */ `
   ${CART_FRAGMENT}
-  mutation CreateCart {
-    cartCreate {
+  mutation CreateCart($input: CartInput) {
+    cartCreate(input: $input) {
       cart {
         ...CartFields
       }
@@ -84,9 +90,27 @@ function throwIfUserErrors(errors: UserError[], operation: string): void {
 // ─── Cart operations ────────────────────────────────────────────────────────
 
 /**
- * Creates a new empty Shopify cart and returns it.
+ * Creates a Shopify cart. Optionally pre-populate with lines and/or
+ * top-level attributes so everything ships in one round trip.
  */
-export async function createCart(): Promise<Cart> {
+export interface CreateCartOptions {
+  lines?: CartLineInput[];
+  attributes?: CartLineAttribute[];
+}
+
+export async function createCart(options: CreateCartOptions = {}): Promise<Cart> {
+  const input: Record<string, unknown> = {};
+  if (options.lines?.length) {
+    input.lines = options.lines.map((line) => ({
+      merchandiseId: line.merchandiseId,
+      quantity: line.quantity,
+      ...(line.attributes?.length ? { attributes: line.attributes } : {}),
+    }));
+  }
+  if (options.attributes?.length) {
+    input.attributes = options.attributes;
+  }
+
   const data = await shopifyFetch<{
     cartCreate: {
       cart: ShopifyCart;
@@ -94,6 +118,7 @@ export async function createCart(): Promise<Cart> {
     };
   }>({
     query: CREATE_CART_MUTATION,
+    variables: Object.keys(input).length > 0 ? { input } : { input: null },
     options: { cache: 'no-store' },
   });
 
@@ -107,10 +132,10 @@ export async function createCart(): Promise<Cart> {
  * Each line can include `attributes` for customization data:
  * ```
  * attributes: [
- *   { key: "preview_image_url", value: "https://..." },
- *   { key: "grid_type", value: "3x3" },
+ *   { key: "_preview_image_url", value: "https://..." },
+ *   { key: "_grid_type", value: "3x3" },
  *   { key: "category", value: "tonos" },
- *   { key: "_crop_config", value: "{...}" },  // underscore = hidden from customer
+ *   { key: "_crop_config", value: "{...}" },  // underscore = hidden from customer + retained by webhook filter
  * ]
  * ```
  */

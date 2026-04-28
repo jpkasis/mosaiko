@@ -4,22 +4,25 @@ import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
+import { polaroidLayout } from '../../category-layouts/polaroid';
 
 const TILE = TILE_PRINT_SIZE;
 
 const TEMPLATE_DIR = join(process.cwd(), 'mosaic-categories/polaroid/polaroid-template-PNGs');
 const LOGO_DIR = join(process.cwd(), 'MOSAIKO-logos');
 
-// Transparent area bounds per tile (measured from PNGs, in pixels at 615px tile size)
-// Scaled to TILE_PRINT_SIZE (827px) at runtime
-const PHOTO_AREAS = [
-  { left: 61, top: 64, right: 615, bottom: 615 },  // tile 1: frame on top+left
-  { left: 0, top: 64, right: 554, bottom: 615 },    // tile 2: frame on top+right
-  { left: 61, top: 0, right: 615, bottom: 433 },    // tile 3: frame on left+bottom
-  { left: 0, top: 0, right: 554, bottom: 433 },     // tile 4: frame on right+bottom
-] as const;
-
-const SRC_SIZE = 615; // template PNG source size
+// Per-tile photo cutout bounds sourced from the shared category-layouts
+// contract so the server processor and client preview derive from the same
+// coordinate table. Values are expressed in the template PNGs' native pixel
+// space and scaled to TILE_PRINT_SIZE at runtime.
+const SRC_SIZE = polaroidLayout.frame!.photo.sourceSize;
+const PHOTO_TILES = polaroidLayout.frame!.photo.tiles as Record<number, {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}>;
+const PHOTO_AREAS = Array.from({ length: 4 }, (_, i) => PHOTO_TILES[i]);
 
 /**
  * Polaroid processor — photo positioned within frame opening, frame PNG on top.

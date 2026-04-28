@@ -7,6 +7,7 @@ import type { CatalogProduct } from '@/lib/catalog-data';
 import { ProductCard } from './ProductCard';
 import { ProductWizard } from './ProductWizard';
 import { ProductDeleteDialog } from './ProductDeleteDialog';
+import { Overlay, OverlayTitle } from '@/components/ui/Overlay';
 
 type TabValue = 'todos' | string;
 
@@ -222,57 +223,65 @@ function EditProductDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+    <Overlay
+      open
+      onOpenChange={(open) => { if (!open) onClose(); }}
+      variant="modal-center"
+      zLayer="modal"
+      ariaLabel="Editar producto"
+      contentClassName="bg-white p-6 max-w-sm"
+      closeOnOverlayClick={!isSaving}
+      closeOnEscape={!isSaving}
+    >
+      <OverlayTitle asChild>
         <h3 className="text-lg font-semibold text-charcoal" style={{ fontFamily: 'var(--font-cormorant), Georgia, serif' }}>
           Editar producto
         </h3>
+      </OverlayTitle>
 
-        <div className="mt-4 flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="edit-name" className="text-xs font-medium text-warm-gray">Nombre</label>
-            <input
-              id="edit-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="rounded-lg bg-white px-3 py-2 text-sm text-charcoal"
-              style={{ border: '1px solid #e5e0d4' }}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="edit-price" className="text-xs font-medium text-warm-gray">Precio (MXN)</label>
-            <input
-              id="edit-price"
-              type="number"
-              value={price}
-              onChange={(e) => setPrice(Number(e.target.value))}
-              min={0}
-              className="rounded-lg bg-white px-3 py-2 text-sm text-charcoal"
-              style={{ border: '1px solid #e5e0d4' }}
-            />
-          </div>
-        </div>
-
-        <div className="mt-6 flex gap-3">
-          <button
-            onClick={onClose}
-            disabled={isSaving}
-            className="flex-1 rounded-lg px-4 py-2.5 text-sm font-medium text-warm-gray transition-colors hover:bg-cream"
+      <div className="mt-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="edit-name" className="text-xs font-medium text-warm-gray">Nombre</label>
+          <input
+            id="edit-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="rounded-lg bg-white px-3 py-2 text-sm text-charcoal"
             style={{ border: '1px solid #e5e0d4' }}
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving || !name.trim()}
-            className="flex-1 rounded-lg bg-terracotta px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-terracotta/90 disabled:opacity-50"
-          >
-            {isSaving ? 'Guardando...' : 'Guardar'}
-          </button>
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="edit-price" className="text-xs font-medium text-warm-gray">Precio (MXN)</label>
+          <input
+            id="edit-price"
+            type="number"
+            value={price}
+            onChange={(e) => setPrice(Number(e.target.value))}
+            min={0}
+            className="rounded-lg bg-white px-3 py-2 text-sm text-charcoal"
+            style={{ border: '1px solid #e5e0d4' }}
+          />
         </div>
       </div>
-    </div>
+
+      <div className="mt-6 flex gap-3">
+        <button
+          onClick={onClose}
+          disabled={isSaving}
+          className="flex-1 min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-medium text-warm-gray transition-colors hover:bg-cream"
+          style={{ border: '1px solid #e5e0d4' }}
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={isSaving || !name.trim()}
+          className="flex-1 min-h-[44px] rounded-lg bg-terracotta px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-terracotta/90 disabled:opacity-50"
+        >
+          {isSaving ? 'Guardando...' : 'Guardar'}
+        </button>
+      </div>
+    </Overlay>
   );
 }

@@ -32,6 +32,26 @@ export interface OrderEmailData {
   }[];
   totalAmount?: string;
   printFileDownloadUrl?: string;
+  /**
+   * Overall status of the print pipeline for this order. When omitted or
+   * 'complete', the admin email renders as before. When 'partial' or
+   * 'failed' the admin gets an explicit banner + failure list so the
+   * order can be investigated/retried instead of silently shipping with
+   * missing tiles.
+   */
+  pipelineStatus?: 'complete' | 'partial' | 'failed' | 'empty';
+  /**
+   * Per-line-item failures — present only when pipelineStatus is
+   * 'partial' or 'failed'. Admin uses these to know which lines to
+   * retry via `/api/admin/orders/[orderId]/retry-line`.
+   */
+  failedItems?: Array<{
+    lineItemId: number;
+    title: string;
+    quantity: number;
+    reason: string;
+    detail?: string;
+  }>;
 }
 
 // ─── Send order confirmation to customer ─────────────────────────────────────
@@ -134,10 +154,42 @@ export async function sendAdminNotification(data: OrderEmailData): Promise<void>
     .map((item) => `<li>${item.title} (${item.gridType}) x${item.quantity}</li>`)
     .join('');
 
+  // Pipeline-status banner: only when the print pipeline didn't cleanly
+  // produce all tiles. Drives the admin to investigate + retry instead
+  // of assuming "email arrived, everything is fine".
+  const showFailureBanner =
+    data.pipelineStatus === 'partial' || data.pipelineStatus === 'failed';
+  const failedCount = data.failedItems?.length ?? 0;
+  const totalCount = data.items.length;
+  const bannerText =
+    data.pipelineStatus === 'failed'
+      ? `⚠ Todos los artículos (${totalCount}) fallaron en el pipeline de impresión.`
+      : `⚠ ${failedCount} de ${totalCount} artículos fallaron — revisar y reintentar.`;
+
+  const failureListHtml = data.failedItems?.length
+    ? `
+      <h3 style="margin: 20px 0 8px; color: #b71c1c;">Artículos con fallas:</h3>
+      <ul style="margin: 0; padding-left: 20px; color: #555;">
+        ${data.failedItems
+          .map(
+            (f) =>
+              `<li><strong>${f.title}</strong> x${f.quantity} — <em>${f.reason}</em>${f.detail ? ` (${f.detail})` : ''}</li>`,
+          )
+          .join('')}
+      </ul>
+    `
+    : '';
+
+  const subjectPrefix = showFailureBanner
+    ? data.pipelineStatus === 'failed'
+      ? '🚨 FALLO'
+      : '⚠ PARCIAL'
+    : '🧲';
+
   await resend.emails.send({
     from: FROM_ADDRESS,
     to: ADMIN_EMAIL,
-    subject: `🧲 Nuevo pedido #${data.orderNumber}`,
+    subject: `${subjectPrefix} Nuevo pedido #${data.orderNumber}`,
     html: `
       <!DOCTYPE html>
       <html lang="es">
@@ -147,11 +199,19 @@ export async function sendAdminNotification(data: OrderEmailData): Promise<void>
           <div style="background: white; border-radius: 12px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
             <h2 style="color: #7b3f1e; margin: 0 0 16px;">Nuevo pedido #${data.orderNumber}</h2>
 
+            ${showFailureBanner ? `
+              <div style="background: #fdecea; border-left: 4px solid #b71c1c; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px;">
+                <p style="margin: 0; color: #b71c1c; font-weight: 700; font-size: 14px;">${bannerText}</p>
+              </div>
+            ` : ''}
+
             <p style="margin: 0 0 4px;"><strong>Cliente:</strong> ${data.customerEmail}</p>
             ${data.customerName ? `<p style="margin: 0 0 4px;"><strong>Nombre:</strong> ${data.customerName}</p>` : ''}
 
             <h3 style="margin: 20px 0 8px; color: #333;">Productos:</h3>
             <ul style="margin: 0; padding-left: 20px; color: #555;">${itemsList}</ul>
+
+            ${failureListHtml}
 
             ${data.totalAmount ? `<p style="margin: 16px 0 0; font-size: 16px;"><strong>Total: ${data.totalAmount}</strong></p>` : ''}
 
@@ -162,7 +222,7 @@ export async function sendAdminNotification(data: OrderEmailData): Promise<void>
               </a>
             </div>
 
-            ${data.printFileDownloadUrl ? `
+            ${data.printFileDownloadUrl && !showFailureBanner ? `
               <div style="margin-top: 16px;">
                 <a href="${data.printFileDownloadUrl}"
                    style="color: #422102; text-decoration: underline; font-size: 14px;">

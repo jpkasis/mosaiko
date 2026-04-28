@@ -92,7 +92,10 @@ export function CustomizationEditor({
           <SaveTheDateFields values={values} onChange={onValueChange} />
         )}
 
-        <motion.div variants={itemVariants}>
+        {/* Inline CTA. Hidden on mobile (< lg) because the sticky footer in
+            MagnetBuilder provides the primary action there; mobile users who
+            see both buttons get confused by the redundancy. */}
+        <motion.div variants={itemVariants} className="hidden lg:block">
           <button
             onClick={onComplete}
             className="min-h-[48px] w-full rounded-xl bg-btn-primary px-6 py-3 text-base font-semibold text-btn-text transition-colors hover:bg-btn-primary-hover cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btn-primary"
@@ -106,6 +109,22 @@ export function CustomizationEditor({
 }
 
 // ─── Field Components ─────────────────────────────────────────────────────────
+
+/**
+ * Scrolls a focused input into the middle of the visual viewport so it
+ * isn't obscured by the iOS soft keyboard. `scrollIntoView` with
+ * `block: 'center'` works even when the element is already near the
+ * bottom of the page, because the viewport shrinks as the keyboard
+ * opens. Calls after a small delay let the keyboard animation start.
+ */
+function scrollFocusedIntoView(el: HTMLElement) {
+  // Double-RAF so the layout settles after the keyboard begins opening.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  });
+}
 
 function FieldInput({
   field,
@@ -138,6 +157,7 @@ function FieldInput({
         type={type}
         value={value}
         onChange={(e) => onChange(field, e.target.value)}
+        onFocus={(e) => scrollFocusedIntoView(e.currentTarget)}
         className="min-h-[48px] rounded-lg border-2 border-light-gray bg-white px-4 py-3 text-sm text-charcoal transition-colors focus:border-terracotta focus:outline-none"
         placeholder={customPlaceholder || (type === 'date' ? '' : label)}
       />
@@ -172,6 +192,7 @@ function FieldTextarea({
         id={`field-${field}`}
         value={value}
         onChange={(e) => onChange(field, e.target.value)}
+        onFocus={(e) => scrollFocusedIntoView(e.currentTarget)}
         rows={rows}
         className="min-h-[88px] rounded-lg border-2 border-light-gray bg-white px-4 py-3 text-sm text-charcoal transition-colors focus:border-terracotta focus:outline-none resize-y"
         placeholder={customPlaceholder || label}
