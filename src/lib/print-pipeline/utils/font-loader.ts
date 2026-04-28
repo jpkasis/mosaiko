@@ -27,16 +27,26 @@
  * comfortably under.
  */
 import { GlobalFonts } from '@napi-rs/canvas';
-import { createRequire } from 'node:module';
+import path from 'node:path';
 
-// Codex Phase 4 audit MAJOR fix: use `require.resolve` instead of
-// `process.cwd()/node_modules/...` for path resolution. Static
-// require.resolve calls are picked up by Next.js's output file tracing
-// (and Vercel's serverless bundler) so the WOFF2 files actually ship
-// with the function. `process.cwd()` is fragile under serverless
-// runtimes (cwd is not the project root) and `node_modules/...` may not
-// even exist in the deployed bundle.
-const require = createRequire(import.meta.url);
+// Path resolution: build a real filesystem path at runtime via
+// `path.join(process.cwd(), 'node_modules', '@fontsource', ...)`.
+//
+// Why NOT `require.resolve('@fontsource/.../file.woff2')`: Next.js dev
+// mode (Turbopack) statically analyses `require.resolve` calls — even
+// via `createRequire(import.meta.url)` indirection — and rewrites them
+// to a synthetic asset reference like `[project]/.../file.woff2 (static
+// in ecmascript)`. That string is NOT a real path; passing it to
+// `GlobalFonts.registerFromPath` causes the underlying fs.open to fail.
+//
+// Why `process.cwd()` is safe in production: `next.config.ts`'s
+// `outputFileTracingIncludes` explicitly globs the WOFF2 files into
+// every print-pipeline route bundle (see the registry below for the
+// 17 files actually shipped). Vercel functions launch with cwd at the
+// function root, where the traced node_modules/@fontsource sits —
+// mirror of the dev-mode layout. Both environments resolve the same
+// way.
+const FONT_BASE = path.join(process.cwd(), 'node_modules', '@fontsource');
 
 interface FontEntry {
   /** The package name segment under @fontsource. */
@@ -73,12 +83,12 @@ const FONT_REGISTRY: readonly FontEntry[] = [
 
 function resolveWoff2Path(entry: FontEntry, weight: number): string {
   // @fontsource path convention: `<pkg>/files/<pkg>-<subset>-<weight>-normal.woff2`.
-  // Subset segment is `latin` for Latin scripts and `japanese` for Noto Sans JP.
-  // require.resolve walks the proper module resolution algorithm (handles
-  // monorepo hoisting, pnpm flat layouts, Vercel's traced bundle) — much
-  // safer than poking at `process.cwd()/node_modules/...` directly.
-  return require.resolve(
-    `@fontsource/${entry.pkg}/files/${entry.pkg}-${entry.subset}-${weight}-normal.woff2`,
+  // Subset is `latin` for Latin scripts, `japanese` for Noto Sans JP.
+  return path.join(
+    FONT_BASE,
+    entry.pkg,
+    'files',
+    `${entry.pkg}-${entry.subset}-${weight}-normal.woff2`,
   );
 }
 
