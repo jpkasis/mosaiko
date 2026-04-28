@@ -11,7 +11,7 @@
 
 **Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
 
-**Last updated:** 2026-04-27 (final pre-push audit clean — Codex cumulative review caught 1 MAJOR (font-glob bloat 37 MB → 1.28 MB), 1 LOW (test env-leak), 2 NITs (dangling export, trailing blank lines), all fixed. Plus post-push hot-fixes: font-loader Turbopack dev-mode resolution + Spotify geometry reconciliation (cropper aspect 1.0 → 1109/1152 to match measured transparent area in template PNGs; mirrors Phase 1c Polaroid/Studio fix). Zero open BLOCKERs. Zero open MAJORs. Zero open MINORs. Remaining items in `DEFERRED.md` require external action only: real-device iOS test, shipping-ETA product decision, push to origin, Shopify store creation by client).
+**Last updated:** 2026-04-28 (cart durability fix shipped — durable filesystem-backed dev composite cache + new `/carrito/[itemId]` detail view + shared `<TileGrid>` component extracted from catalog. Closes the cart-thumbnail placeholder bug that affected every category in dev. 2 rounds of Codex audit — caught 1 MAJOR (`.`/`..` path traversal via `BLOB_ID_PATTERN`) + 1 LOW (hydration race), both fixed. Pre-push: Codex cumulative review caught 1 MAJOR (font-glob bloat 37 MB → 1.28 MB), 1 LOW (test env-leak), 2 NITs (dangling export, trailing blank lines), all fixed. Post-push hot-fixes: font-loader Turbopack dev-mode resolution + Spotify geometry reconciliation (cropper aspect 1.0 → 1109/1152 to match measured transparent area in template PNGs; mirrors Phase 1c Polaroid/Studio fix) + cart durability. Zero open BLOCKERs. Zero open MAJORs. Zero open MINORs. Remaining items in `DEFERRED.md` require external action only: real-device iOS test, shipping-ETA product decision, Shopify store creation by client).
 
 ---
 
