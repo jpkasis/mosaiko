@@ -172,31 +172,96 @@ User photo ─► Cloudflare R2 (originals bucket)
               Admin panel ZIP download by order
 ```
 
-## Roadmap
+## Testing & Quality
 
-### Phase 1 — Storefront Foundation &#10003;
+- **`npm test`** — Vitest 144/144 passing. Integration tests under `src/__tests__/integrity/` cover the full builder → cart → webhook → print pipeline data flow with fixture-based mocks.
+- **`npm run build`** — clean Next.js production build.
+- **`tsc --noEmit`** — strict TypeScript across the codebase.
+- **Codex audits** — every architectural change ran through paired Claude + Codex review (pre-merge cumulative + per-phase rounds). Findings captured in [`INTEGRITY_AUDIT.md`](./INTEGRITY_AUDIT.md).
+
+```bash
+npm test                # Run integrity test suite
+npm run test:watch      # Watch mode
+npm run test:coverage   # With coverage report
+```
+
+## Operational scripts
+
+Located in `scripts/`. All dry-run by default; require `--apply` to mutate.
+
+- **`scripts/cleanup-stale-metafields.mts`** — removes duplicate Shopify metafield rows from the legacy REST-create loop (keeps newest per `(namespace, key)`). Uses REST DELETE-by-ID since GraphQL `metafieldsDelete` is by-tuple.
+- **`scripts/cleanup-orphan-r2-tiles.mts`** — removes R2 print-tile objects no longer referenced from any order's metafield. Fail-closed on canonical-URL parse failure (defends against env-var mismatch deleting live data).
+- **`scripts/measure-frame-templates.ts`** — measures transparent-cutout bounds in template PNGs for Polaroid/Studio/Spotify so `frame.photo.tiles` constants stay in sync with the actual artwork.
+- **`scripts/font-spike.mts`** — Phase 4.0 spike that confirmed `@napi-rs/canvas` was the only viable path for server-side font fidelity (librsvg ignores embedded `@font-face`).
+
+## Project Roadmap
+
+### Phase 1 — Storefront Foundation ✓
 - Landing page (hero, how-it-works, featured categories, trust badges, CTA)
 - Magnet builder: category → upload → crop → customize → preview
-- Seven category flows with category-specific crop aspects, overlay templates, and print pipelines
+- Seven category flows with per-category crop aspects, overlay templates, and print pipelines
 - Shopping cart with Zustand + persistence
 - Bilingual (ES/EN) mobile-first UI
 
-### Phase 2 — Checkout & Fulfillment &#10003;
+### Phase 2 — Checkout & Fulfillment ✓
 - Shopify Storefront API checkout (OXXO, SPEI, cards)
 - Cart attributes carry R2 upload URLs + crop metadata
 - Order webhook triggers Sharp print pipeline per category
 - Resend emails: order confirmation, admin notification, shipping
 
-### Phase 3 — Admin Panel &#10003; (core)
+### Phase 3 — Admin Panel ✓ (core)
 - bcrypt + JWT cookie auth (single admin user via env var)
-- Order list with status tabs, order detail with customer/product/print files
+- Order list with status tabs (Todos / Nuevos / Imprimiendo / Enviados / Entregados)
+- Order detail: customer info, product preview, status pipeline, print-file ZIP downloads
 - Onboarding overlay for non-technical client
-- **Pending:** Shopify-metaobjects CMS, analytics embed, settings, products CRUD
 
-### Phase 4 — Polish & Launch
+### Phase 4 — Foundation Refactor ✓
+- Centralized `CategoryLayout` contract (`src/lib/category-layouts/`) — single source of truth for grid dimensions, crop aspects, tile descriptors, frame geometry, and overlay specs across every category.
+- Polaroid + Studio + Spotify geometry reconciliation (cropper aspect matches measured template-PNG transparent area).
+- `<Overlay>` primitive (Radix Dialog + react-remove-scroll) replacing 8 ad-hoc body-scroll-lock implementations.
+- Platform tokens: `viewport`, safe-area utilities, z-index variables, `touch-action` on cropper.
+
+### Phase 5 — Mobile UX Polish ✓
+- Sticky bottom CTA on builder steps with iOS soft-keyboard inset (`useKeyboardInset`)
+- Explicit upload phases (idle / processing / ready / failed) with retry
+- Cropper toolbar (Restablecer / Centrar / Cambiar foto) on single + Tonos slots
+- Cart polish: 48 px touch targets, expectation copy, Shopify-explicit checkout button
+- Home + catalog rulebook compliance
+
+### Phase 6 — Pipeline Integrity ✓
+- 7 BLOCKERs + 4 MAJORs + 2 MINORs found and fixed, every finding pinned by a vitest case
+- `metafieldsSet` atomic upsert; `Promise.allSettled` + `UploadFailure`; per-line idempotency
+- Server-side font fidelity via `@napi-rs/canvas` + 10 bundled `@fontsource` WOFF2s
+- Tonos `fitMode` end-to-end (cream letterbox in preview ↔ print)
+- Composite-reuse: cart-composite skipped at webhook time when `_composite_pipeline_version` matches
+- Admin print-files R2 gate (downloads only when `print_pipeline_status === 'complete'`)
+- Cart-thumbnail durability (filesystem-backed dev composite cache)
+- New `/carrito/[itemId]` cart-item detail view with shared `<TileGrid>` extracted from catalog
+
+### Phase 7 — Shopify Integration (next)
+- Client provisions Shopify store + custom app + webhook secret (see [`SHOPIFY_SETUP.md`](./SHOPIFY_SETUP.md))
+- Run end-to-end test order
+- Iterate on admin from real-order signal
+
+### Phase 8 — Launch Polish (post-integration)
+- Admin: retry UI, fulfillment + tracking entry, settings/health-check page
+- Shopify metaobjects as content CMS (catalog products, hero copy)
+- GA4 event helpers + analytics dashboard
 - SEO, structured data, Open Graph
-- Performance + Lighthouse tuning
-- Production deployment on Vercel
+- Custom domain on Vercel
+
+---
+
+## Documentation
+
+| File | Purpose |
+|---|---|
+| [`README.md`](./README.md) | This file — overview + quickstart |
+| [`SHOPIFY_SETUP.md`](./SHOPIFY_SETUP.md) | Step-by-step client checklist for connecting a Shopify store |
+| [`CLAUDE.md`](./CLAUDE.md) | Project instructions for AI-assisted development |
+| [`INTEGRITY_AUDIT.md`](./INTEGRITY_AUDIT.md) | Full pipeline-integrity audit report with severity-sorted findings + test coverage map |
+| [`DEFERRED.md`](./DEFERRED.md) | Intentionally-scoped-out work; what's waiting on the client vs post-launch roadmap |
+| [`COSTOS-MENSUALES.md`](./COSTOS-MENSUALES.md) | Estimated monthly costs (Shopify, Cloudflare R2, Resend, Vercel) |
 
 ---
 
