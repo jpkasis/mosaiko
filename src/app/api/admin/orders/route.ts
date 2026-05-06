@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifySession } from '@/lib/admin/auth';
+import { isAdminConfigured } from '@/lib/shopify/client';
 
 // ─── GET /api/admin/orders ──────────────────────────────────────────────────
 //
@@ -13,7 +14,10 @@ export async function GET() {
   }
 
   // Check if Shopify is configured
-  if (!process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ADMIN_API_TOKEN) {
+  const storeDomain =
+    process.env.SHOPIFY_STORE_DOMAIN ??
+    process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN;
+  if (!storeDomain || !isAdminConfigured()) {
     return NextResponse.json({
       orders: [],
       message: 'Shopify no está configurado. Los pedidos aparecerán aquí cuando la tienda esté conectada.',

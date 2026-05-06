@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/admin/auth';
 import { updateOrderMetafield, createFulfillment } from '@/lib/shopify/mutations/orders';
-import { sendShippingNotification } from '@/lib/email/resend-client';
 
 // ─── PATCH /api/admin/orders/[orderId]/status ───────────────────────────────
 //
-// Updates order fulfillment status metafield.
-// If status is "enviado", also creates Shopify fulfillment and sends shipping email.
+// Updates order fulfillment status metafield. When status flips to
+// "enviado", also creates a Shopify fulfillment with `notifyCustomer:
+// true` — Shopify sends its native shipping-notification email
+// directly. (No Resend dependency post-Shopify-Files migration.)
 
 export async function PATCH(
   request: NextRequest,
@@ -30,7 +31,7 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { status, trackingNumber, trackingCompany, customerEmail, customerName, orderNumber } = body;
+    const { status, trackingNumber, trackingCompany } = body;
 
     const validStatuses = ['nuevo', 'imprimiendo', 'enviado', 'entregado'];
     if (!validStatuses.includes(status)) {
@@ -43,26 +44,31 @@ export async function PATCH(
     // Update metafield
     await updateOrderMetafield(orderId, 'mosaiko', 'fulfillment_status', status);
 
-    // If shipping, create fulfillment and send email
+    // If shipping, create fulfillment. `notifyCustomer: true` (set in
+    // `createFulfillment`) tells Shopify to send the native shipping
+    // email directly — no Resend round-trip.
+    //
+    // Codex audit (high): we now SURFACE fulfillment errors to the
+    // caller. Pre-fix the catch swallowed the error and returned 200,
+    // which (with Resend removed) would silently mark the order
+    // shipped without ever actually fulfilling it or emailing the
+    // customer.
     if (status === 'enviado' && trackingNumber) {
       try {
         await createFulfillment(orderId, trackingNumber, trackingCompany);
       } catch (error) {
-        console.error('[api/admin/orders/status] Fulfillment creation failed:', error);
-      }
-
-      if (customerEmail) {
-        try {
-          await sendShippingNotification({
-            customerEmail,
-            customerName,
-            orderNumber: orderNumber || orderId,
-            trackingNumber,
-            trackingCompany,
-          });
-        } catch (error) {
-          console.error('[api/admin/orders/status] Shipping email failed:', error);
-        }
+        console.error(
+          '[api/admin/orders/status] Fulfillment creation failed:',
+          error,
+        );
+        return NextResponse.json(
+          {
+            error: 'fulfillment_failed',
+            detail: error instanceof Error ? error.message : String(error),
+            statusMetafield: status,
+          },
+          { status: 502 },
+        );
       }
     }
 

@@ -12,6 +12,54 @@
  */
 import type { WebhookOrderResult } from './webhook-processor';
 import type { OrderMetafieldWrite } from './mutations/orders';
+import { shopifyCdnUrlFilename } from './files';
+import { addOrderTags, removeOrderTags } from './mutations/orders';
+
+// ─── Order-tag conventions ──────────────────────────────────────────────────
+//
+// The two tags used as "failure visibility" markers on orders. Listed
+// together so the retry path can ALWAYS-remove both (it doesn't have to
+// know which one a previous run set).
+
+export const PIPELINE_FAILED_TAG = 'print-pipeline-failed';
+export const PIPELINE_PARTIAL_TAG = 'print-pipeline-partial';
+const ALL_PIPELINE_TAGS = [PIPELINE_FAILED_TAG, PIPELINE_PARTIAL_TAG];
+
+/**
+ * Apply or remove pipeline-status tags on an order based on the latest
+ * pipeline result. Idempotent:
+ *   - On `failed`: add PIPELINE_FAILED_TAG, remove PIPELINE_PARTIAL_TAG.
+ *   - On `partial`: add PIPELINE_PARTIAL_TAG, remove PIPELINE_FAILED_TAG.
+ *   - On `complete` or `empty`: remove both tags.
+ *
+ * Failures are surfaced as logged warnings rather than throws — the
+ * tags are an OBSERVABILITY signal, not the source of truth (the
+ * metafield is). Failing to set a tag must not roll back the
+ * pipeline result.
+ */
+export async function applyPipelineOrderTags(
+  orderGid: string,
+  status: WebhookOrderResult['status'],
+): Promise<void> {
+  try {
+    if (status === 'failed') {
+      await addOrderTags(orderGid, [PIPELINE_FAILED_TAG]);
+      await removeOrderTags(orderGid, [PIPELINE_PARTIAL_TAG]);
+    } else if (status === 'partial') {
+      await addOrderTags(orderGid, [PIPELINE_PARTIAL_TAG]);
+      await removeOrderTags(orderGid, [PIPELINE_FAILED_TAG]);
+    } else {
+      // complete / empty — clear both tags so a previously tagged
+      // order looks clean after a successful retry.
+      await removeOrderTags(orderGid, ALL_PIPELINE_TAGS);
+    }
+  } catch (error) {
+    console.warn(
+      `[pipeline-metafields] applyPipelineOrderTags failed for ${orderGid} (status=${status}):`,
+      error,
+    );
+  }
+}
 
 export function buildPipelineMetafields(
   result: WebhookOrderResult,
@@ -74,76 +122,81 @@ export function buildPipelineMetafields(
 }
 
 /**
- * Phase 5 — Admin print-files R2 gate (Codex audit decision: parse the
- * R2 key from the public URL rather than schema-bumping the metafield).
+ * Parser/binding-check for cdn.shopify.com URLs stored in the
+ * `print_pipeline_results` metafield.
  *
- * The webhook stores per-line results as `urls: string[]` where each
- * URL has the form `${R2_PUBLIC_URL}/print-files/order-<orderId>-item-<lineItemId>/tile-<index>.png`
- * (see `src/lib/storage.ts:235` + `processLineItem`'s `jobId`).
+ * Goal — defend the admin download path against tampered metafields. A
+ * compromised metafield could in theory point at:
+ *   - a wrong-host URL (attacker-controlled origin)
+ *   - a same-host URL belonging to a DIFFERENT order/line (cross-order
+ *     leak)
+ *   - a same-host URL with garbage filename
  *
- * Codex Phase 5 audit MEDIUM fix: the parser must BIND the key shape to
- * the (orderId, lineItemId) pair the caller expects — otherwise a
- * same-origin tampered metafield could redirect the admin proxy to fetch
- * another order's tiles. Without binding, the regex `/print-files/<any>/tile-N.png`
- * would accept `print-files/order-OTHER-item-1/tile-0.png` from a same-host
- * URL.
+ * Defenses:
+ *   1. Origin must be `https://cdn.shopify.com`.
+ *   2. The path must point at the `/files/<filename>` namespace.
+ *   3. The filename must match the canonical pattern produced by
+ *      `buildPrintTileFilename` in `src/lib/storage.ts`:
  *
- * Strict parser:
- *   - Compares URL origin against `process.env.R2_PUBLIC_URL`.
- *   - Validates the path against the EXACT expected key for this order+line.
- *   - Returns `{ key, index }` for `getObject` consumption + UI ordering.
- *   - Returns `null` on any parse failure (admin route MUST treat this as
- *     a tampered/missing metafield and fail closed with 409).
+ *        mosaiko-order-<orderId>-item-<lineItemId>-tile-<index>.png
+ *
+ *      with optional Shopify dedup suffix `_<n>` before the extension
+ *      (Shopify renames colliding filenames on re-upload).
+ *
+ * Returns `{ key, index }` on success; `null` on any binding mismatch.
+ * The route MUST treat `null` as a tampered/missing metafield and 409.
+ *
+ * `key` is the Shopify filename (the value the storage layer accepts as
+ * its key argument), so the route can pipe the result straight into
+ * `getObject('print-files', key)` without further translation.
  */
-export function parseR2KeyFromPublicUrl(
+export function parseShopifyFileBindingFromUrl(
   url: string,
   bindings?: { orderId: string; lineItemId: number },
 ): { key: string; index: number } | null {
   if (!url || typeof url !== 'string') return null;
+  const filename = shopifyCdnUrlFilename(url);
+  if (!filename) return null;
 
-  const r2Origin =
-    process.env.R2_PUBLIC_URL ?? 'https://r2.mosaiko.mx';
-  let parsed: URL;
-  let originExpected: URL;
-  try {
-    parsed = new URL(url);
-    originExpected = new URL(r2Origin);
-  } catch {
-    return null;
-  }
-  if (parsed.origin !== originExpected.origin) return null;
-
-  const key = parsed.pathname.replace(/^\//, '');
-
-  // Cross-order tamper guard: when bindings are supplied, the key MUST
-  // match the canonical shape for THIS order+line, not any old
-  // `print-files/<...>/tile-N.png`. Backward-compat: omitting bindings
-  // still accepts the loose shape (for tests and any non-routing
-  // consumer that just wants to extract a key).
-  //
-  // Codex Phase 5 round-2 audit MEDIUM fix: defense-in-depth — even
-  // though the route now validates `Number.isSafeInteger(lineItemId)`
-  // before calling us, escape the lineItemId stringification too so a
-  // future caller passing a raw value can't smuggle regex metacharacters.
   if (bindings) {
     if (!Number.isSafeInteger(bindings.lineItemId)) return null;
-    const expectedRegex = new RegExp(
-      `^print-files\\/order-${escapeForRegex(bindings.orderId)}-item-${escapeForRegex(String(bindings.lineItemId))}\\/tile-(\\d+)\\.png$`,
+    // Print tiles are uploaded with `duplicateResolutionMode: REPLACE`
+    // so a retry overwrites in place — we should never see a Shopify
+    // dedup suffix on a tile URL. The bounded `(?:_[A-Za-z0-9-]{1,80})?`
+    // is kept as defense-in-depth in case any code path bypasses
+    // REPLACE (Shopify's default is APPEND_UUID, which would emit a
+    // UUID suffix; matching it lets the binding still validate).
+    const escapedOrderId = escapeForRegex(bindings.orderId);
+    const escapedLineItemId = escapeForRegex(String(bindings.lineItemId));
+    const expected = new RegExp(
+      `^mosaiko-order-${escapedOrderId}-item-${escapedLineItemId}-tile-(\\d+)(?:_[A-Za-z0-9-]{1,80})?\\.png$`,
     );
-    const match = expectedRegex.exec(key);
+    const match = expected.exec(filename);
     if (!match) return null;
     const index = Number.parseInt(match[1], 10);
     if (!Number.isFinite(index) || index < 0) return null;
-    return { key, index };
+    return { key: filename, index };
   }
 
-  // Loose mode (no bindings): just match the deterministic shape.
-  const looseMatch = /^print-files\/[\w-]+\/tile-(\d+)\.png$/.exec(key);
+  // Loose mode (no bindings): match the deterministic shape WITHOUT
+  // checking which order/line it belongs to. Used by tests and the
+  // generic listing path.
+  const looseMatch =
+    /^mosaiko-order-[\w-]+-item-\d+-tile-(\d+)(?:_[A-Za-z0-9-]{1,80})?\.png$/.exec(
+      filename,
+    );
   if (!looseMatch) return null;
   const index = Number.parseInt(looseMatch[1], 10);
   if (!Number.isFinite(index) || index < 0) return null;
-  return { key, index };
+  return { key: filename, index };
 }
+
+/**
+ * @deprecated Renamed to `parseShopifyFileBindingFromUrl` after the
+ * R2 → Shopify Files migration. Re-exported here so any straggler
+ * imports keep compiling; new code should use the new name.
+ */
+export const parseR2KeyFromPublicUrl = parseShopifyFileBindingFromUrl;
 
 function escapeForRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { CatalogContent } from '@/components/catalog/CatalogContent';
-import { getAllProducts } from '@/lib/catalog-data';
+import { getAllProducts } from '@/lib/catalog-data.server';
 
 export async function generateMetadata({
   params,

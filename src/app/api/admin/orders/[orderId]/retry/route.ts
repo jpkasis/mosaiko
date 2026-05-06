@@ -8,21 +8,25 @@ import {
 } from '@/lib/shopify/webhook-processor';
 import type { ShopifyOrderWebhook } from '@/lib/shopify/webhook-parser';
 import { setOrderMetafields } from '@/lib/shopify/mutations/orders';
-import { buildPipelineMetafields } from '@/lib/shopify/pipeline-metafields';
+import {
+  buildPipelineMetafields,
+  applyPipelineOrderTags,
+} from '@/lib/shopify/pipeline-metafields';
+import {
+  getAdminAccessToken,
+  isAdminConfigured,
+  SHOPIFY_API_VERSION,
+} from '@/lib/shopify/client';
 
 // ─── Env ────────────────────────────────────────────────────────────────────
 
-const SHOPIFY_ADMIN_API_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN!;
 const SHOPIFY_STORE_DOMAIN =
   process.env.SHOPIFY_STORE_DOMAIN ??
   process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN ??
   '';
 
-const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_URL
-  ? new URL(process.env.R2_PUBLIC_URL).hostname
-  : 'r2.mosaiko.mx';
-
-const ALLOWED_PHOTO_HOSTS = new Set([R2_PUBLIC_DOMAIN, 'cdn.shopify.com']);
+// Post-Shopify-Files migration: only cdn.shopify.com is trusted.
+const ALLOWED_PHOTO_HOSTS = new Set(['cdn.shopify.com']);
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
@@ -59,10 +63,10 @@ async function fetchPhotoBuffer(url: string): Promise<Buffer | null> {
 async function fetchOrderFromShopify(
   orderId: string,
 ): Promise<ShopifyOrderWebhook | null> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) return null;
-  const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}.json`;
+  if (!SHOPIFY_STORE_DOMAIN || !isAdminConfigured()) return null;
+  const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderId}.json`;
   const res = await fetch(url, {
-    headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
+    headers: { 'X-Shopify-Access-Token': await getAdminAccessToken() },
   });
   if (!res.ok) return null;
   const data = (await res.json()) as { order?: ShopifyOrderWebhook };
@@ -72,10 +76,10 @@ async function fetchOrderFromShopify(
 async function readPriorSuccesses(
   orderId: string,
 ): Promise<PriorLineResult[]> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) return [];
-  const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json?namespace=mosaiko&key=print_pipeline_results`;
+  if (!SHOPIFY_STORE_DOMAIN || !isAdminConfigured()) return [];
+  const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderId}/metafields.json?namespace=mosaiko&key=print_pipeline_results`;
   const res = await fetch(url, {
-    headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
+    headers: { 'X-Shopify-Access-Token': await getAdminAccessToken() },
   });
   if (!res.ok) return [];
   const data = (await res.json()) as {
@@ -97,6 +101,9 @@ async function writePipelineMetafields(
 ): Promise<void> {
   const orderGid = `gid://shopify/Order/${orderId}`;
   await setOrderMetafields(orderGid, buildPipelineMetafields(result));
+  // Tag housekeeping: a successful retry clears prior failed/partial
+  // tags; a still-bad retry refreshes them. Best-effort.
+  await applyPipelineOrderTags(orderGid, result.status);
 }
 
 // ─── POST /api/admin/orders/[orderId]/retry ─────────────────────────────────

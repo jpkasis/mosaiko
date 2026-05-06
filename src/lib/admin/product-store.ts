@@ -1,4 +1,4 @@
-import { getJsonObject, putJsonObject, deleteFile, getPublicUrl, uploadBuffer, copyObject } from '@/lib/storage';
+import { getJsonObject, putJsonObject, deleteFile, uploadBuffer, copyObject, getSignedUrl } from '@/lib/storage';
 import type { CatalogProduct, SeamData } from '@/lib/catalog-data';
 import type { CategoryType } from '@/lib/customization-types';
 import type { GridSize } from '@/lib/grid-config';
@@ -73,25 +73,35 @@ export async function addProduct(input: {
   const ext = input.contentType === 'image/png' ? 'png'
     : input.contentType === 'image/webp' ? 'webp' : 'jpg';
 
-  // Move temp image to permanent key
+  // Move temp image to permanent key. Shopify Files has no native copy
+  // — copyObject downloads + re-uploads. We then resolve the display URL
+  // by filename lookup; with the legacy R2 backend this used the
+  // synchronous `getPublicUrl(key)` mapping, which Shopify Files does
+  // not expose.
   const displayKey = `${CATALOG_IMAGES_PREFIX}${id}-display.${ext}`;
   await copyObject('uploads', input.tempImageKey, displayKey);
   await deleteFile('uploads', input.tempImageKey);
+  const displayUrl = await getSignedUrl(displayKey);
 
   // Upload clean original for print pipeline
   const originalKey = `${CATALOG_IMAGES_PREFIX}${id}-original.png`;
-  await uploadBuffer('uploads', originalKey, input.originalBuffer, 'image/png');
+  const originalUpload = await uploadBuffer(
+    'uploads',
+    originalKey,
+    input.originalBuffer,
+    'image/png',
+  );
 
   const product: DynamicProduct = {
     id,
     category: input.category,
     name: input.name,
     price: input.price,
-    image: getPublicUrl(displayKey),
+    image: displayUrl,
     pieces: input.pieces,
     grid: input.grid,
     gridSize: input.gridSize,
-    originalImage: getPublicUrl(originalKey),
+    originalImage: originalUpload.publicUrl,
     isPredesigned: true,
     seamData: input.seamData,
     isDynamic: true,

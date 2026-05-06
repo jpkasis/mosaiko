@@ -2,8 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import archiver from 'archiver';
 import { Readable } from 'node:stream';
 import { verifySession } from '@/lib/admin/auth';
-import { getObject } from '@/lib/storage';
-import { parseR2KeyFromPublicUrl } from '@/lib/shopify/pipeline-metafields';
+import { parseShopifyFileBindingFromUrl } from '@/lib/shopify/pipeline-metafields';
+import {
+  getAdminAccessToken,
+  isAdminConfigured,
+  SHOPIFY_API_VERSION,
+} from '@/lib/shopify/client';
+
+async function fetchTileBytes(publicUrl: string): Promise<Buffer> {
+  const res = await fetch(publicUrl);
+  if (!res.ok) {
+    throw new Error(
+      `[admin/print-files] fetch ${publicUrl} → HTTP ${res.status}`,
+    );
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
 
 // ─── GET /api/admin/print-files ─────────────────────────────────────────────
 //
@@ -29,8 +43,9 @@ import { parseR2KeyFromPublicUrl } from '@/lib/shopify/pipeline-metafields';
 //   lineItemId   (optional)  — single-tile download scope
 //   tile         (optional)  — single tile index within `lineItemId`
 
-const SHOPIFY_STORE_DOMAIN = process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN;
-const SHOPIFY_ADMIN_API_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN;
+const SHOPIFY_STORE_DOMAIN =
+  process.env.SHOPIFY_STORE_DOMAIN ??
+  process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN;
 const ORDER_ID_PATTERN = /^[0-9]+$/;
 
 interface OkLineResult {
@@ -52,19 +67,20 @@ interface MetafieldRead {
 }
 
 async function readPipelineMetafields(orderId: string): Promise<MetafieldRead | null> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) return null;
-  const baseUrl = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json`;
+  if (!SHOPIFY_STORE_DOMAIN || !isAdminConfigured()) return null;
+  const baseUrl = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderId}/metafields.json`;
+  const token = await getAdminAccessToken();
 
   // Two parallel reads (status + results) by namespace+key. Other
   // metafields (errors, files) are written by the same atomic mutation,
   // so trusting status + results is sufficient for the gating logic.
   const [statusRes, resultsRes] = await Promise.all([
     fetch(`${baseUrl}?namespace=mosaiko&key=print_pipeline_status`, {
-      headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
+      headers: { 'X-Shopify-Access-Token': token },
       cache: 'no-store',
     }),
     fetch(`${baseUrl}?namespace=mosaiko&key=print_pipeline_results`, {
-      headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
+      headers: { 'X-Shopify-Access-Token': token },
       cache: 'no-store',
     }),
   ]);
@@ -151,7 +167,7 @@ function buildLines(
 
     const tiles: TileDescriptor[] = [];
     for (const url of r.urls) {
-      const parsed = parseR2KeyFromPublicUrl(url, {
+      const parsed = parseShopifyFileBindingFromUrl(url, {
         orderId,
         lineItemId: r.lineItemId,
       });
@@ -326,13 +342,8 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const obj = await getObject('print-files', tile.key);
-      const body = obj.Body;
-      if (!body) {
-        return NextResponse.json({ error: 'Archivo vacío.' }, { status: 500 });
-      }
-      const byteArray = await body.transformToByteArray();
-      return new NextResponse(Buffer.from(byteArray), {
+      const bytes = await fetchTileBytes(tile.publicUrl);
+      return new NextResponse(new Uint8Array(bytes), {
         headers: {
           'Content-Type': 'image/png',
           'Content-Disposition': `attachment; filename="line-${lineItemId}-tile-${tileIndex}.png"`,
@@ -345,16 +356,13 @@ export async function GET(request: NextRequest) {
       const archive = archiver('zip', { zlib: { level: 5 } });
       for (const line of lines) {
         for (const tile of line.tiles) {
-          const obj = await getObject('print-files', tile.key);
-          if (obj.Body) {
-            const byteArray = await obj.Body.transformToByteArray();
-            // Prefix filename with line-id so multi-line orders don't
-            // collide on `tile-0.png`. Single-line orders still get
-            // sortable, descriptive filenames.
-            archive.append(Buffer.from(byteArray), {
-              name: `line-${line.lineItemId}/tile-${tile.index}.png`,
-            });
-          }
+          const bytes = await fetchTileBytes(tile.publicUrl);
+          // Prefix filename with line-id so multi-line orders don't
+          // collide on `tile-0.png`. Single-line orders still get
+          // sortable, descriptive filenames.
+          archive.append(bytes, {
+            name: `line-${line.lineItemId}/tile-${tile.index}.png`,
+          });
         }
       }
       archive.finalize();

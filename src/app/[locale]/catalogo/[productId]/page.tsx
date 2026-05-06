@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
-import { getProductById, getProductByIdAsync, PRODUCTS } from '@/lib/catalog-data';
+import { getProductById, PRODUCTS } from '@/lib/catalog-data';
+import { getProductByIdAsync } from '@/lib/catalog-data.server';
 import { PredesignedPreview } from '@/components/catalog/PredesignedPreview';
 
 // Allow dynamic product IDs (admin-uploaded) to render on-demand

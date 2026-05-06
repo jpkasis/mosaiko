@@ -138,42 +138,7 @@ export function formatPrice(price: number): string {
   }).format(price);
 }
 
-// ─── Async helpers (merge static + dynamic products) ────────────────────────
-
-export async function getAllProducts(): Promise<CatalogProduct[]> {
-  try {
-    const { getDynamicProducts } = await import('@/lib/admin/product-store');
-    const dynamic = await getDynamicProducts();
-    return [...PRODUCTS, ...dynamic];
-  } catch {
-    // R2 unavailable (e.g., during build) — return static only
-    return [...PRODUCTS];
-  }
-}
-
-export async function getAllProductsByCategory(): Promise<Map<CategoryType, CatalogProduct[]>> {
-  const all = await getAllProducts();
-  const map = new Map<CategoryType, CatalogProduct[]>();
-  for (const cat of CATALOG_CATEGORIES) {
-    map.set(cat.type, []);
-  }
-  for (const product of all) {
-    const list = map.get(product.category);
-    if (list) list.push(product);
-  }
-  return map;
-}
-
-export async function getProductByIdAsync(id: string): Promise<CatalogProduct | undefined> {
-  // Check static first (fast path)
-  const staticProduct = PRODUCTS.find((p) => p.id === id);
-  if (staticProduct) return staticProduct;
-  // Check dynamic
-  try {
-    const { getDynamicProducts } = await import('@/lib/admin/product-store');
-    const dynamic = await getDynamicProducts();
-    return dynamic.find((p) => p.id === id);
-  } catch {
-    return undefined;
-  }
-}
+// Async merge helpers (`getAllProducts` etc.) moved to
+// `catalog-data.server.ts` so the static import graph of this file stays
+// pure-data — Shopify Files / Sharp / storage code stays out of the
+// client bundle.
