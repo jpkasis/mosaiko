@@ -1,184 +1,151 @@
 # Deferred work
 
-Consolidated from two independent tracks that co-exist on `qa/integration`:
+**Last updated:** 2026-05-05 (after Phase 0–2 Shopify-integration & R2 → Shopify Files refactor; see `CHANGELOG.md`).
 
-- **Foundation refactor + mobile polish** (`polish/m6-home-catalog` and its refactor stack) — below.
-- **Pipeline integrity audit** (`fix/pipeline-integrity`) — further below under "Deferred work — pipeline integrity".
-
-Last updated: 2026-04-23 (QA integration rebuild — both tracks merged locally; each source branch keeps its own version for independent review).
+`INTEGRITY_AUDIT.md` records **zero open BLOCKERs / MAJORs / MINORs** in the pipeline-integrity findings table. Everything below is intentionally scoped-out work that does NOT block production launch.
 
 ---
 
-## From the foundation refactor + mobile polish pass
+## Where we are right now
 
-Items identified during the foundation refactor and mobile polish pass
-that were intentionally scoped out. Each entry has enough context to
-pick up cold.
+The Shopify wiring + storage refactor are DONE. `mosaiko-dev.myshopify.com` is live with the Mosaiko Backend custom app installed (mosaiko-backend-4); `Imanes Personalizados` exists with 4 variants; `scripts/smoke-shopify.mts` passes all four live checks (Storefront, Admin, `stagedUploadsCreate`, `fileCreate` → READY → CDN). All env values are in `ShopifyValues.md` and `.env.local`. The code uses the OAuth client-credentials grant for admin tokens (24h cached); R2 + Resend are removed.
 
----
+**Next gate is the integration test** (per the cheerful-knitting-swing plan):
+- Phase 3.1 — generate `ADMIN_PASSWORD_HASH` + `ADMIN_JWT_SECRET` for production.
+- Phase 3.2 — local end-to-end smoke (cart → composite → Shopify checkout → webhook → tiles).
+- Phase 4 — Vercel team setup, `mosaiko.mx` (Cloudflare Registrar), deploy.
+- Phase 5 — Bogus Gateway test order (validates plumbing, no real money).
+- Phase 6 — Mercado Pago + low-value real test order.
 
-## Pre-existing risks (base branch: `fix/cart-display-and-print-shape`)
+After Phase 6 is green, "Phase 7 cleanup" + "Phase 8 launch readiness gate" wrap things up. Vercel Hobby is OK for the test-order phase (genuinely non-commercial); Pro upgrade ($20/mo on the client's account) is required before going live.
 
-These are on the cart branch **before** any of the refactor / polish
-landed. Codex flagged them in both its foundation-refactor audit and
-its mobile-polish audits.
+### Real-device iOS test for `useKeyboardInset`
 
-(Two prior items here — empty-cart resurrect + data-URL fallback —
-were resolved in **Phase 3 of Appendix I** on `fix/cart-correctness`.
-Cookie clear + AbortController + pagehide flush + production-throw
-gate covered both.)
+The Phase 6.1 `useKeyboardInset` hook (lifts the sticky CTA + FAB above the iOS soft keyboard) is unit-tested via a fake `visualViewport`, but DevTools cannot simulate iOS Safari's keyboard. Needs a hands-on pass on:
+- iPhone Safari
+- iPhone Chrome
+- Android Chrome
 
-### Shipping ETA inconsistency across surfaces
-- **Where:** Cart drawer + cart page say `Estándar · 3–5 días hábiles` (from polish M5/M6); order-confirmation email (`src/lib/email/resend-client.ts:105`) says `5 a 10 días hábiles`.
-- **Fix direction:** Product decision — pick the true window, then standardize all surfaces (cart copy, email, order confirmation page, FAQ "shipping" section if it exists).
+Look at the `customize` step (STD / Arte / Studio / Spotify text inputs) — confirm the sticky CTA stays above the keyboard when an input gains focus.
 
----
+### Shipping ETA inconsistency (product decision)
 
-## Server-side print fidelity
+**Where:** Cart drawer + `/carrito` say `Estándar · 3–5 días hábiles`. The Resend email is gone; the customer-facing email is now whatever Shopify's native order-confirmation template says (Shopify Admin → Settings → Notifications → Order confirmation).
 
-### Google-font fidelity gap in print PNGs
-- **Where:** `src/lib/print-pipeline/processors/{arte,studio,save-the-date}.ts` — SVG strings use `font-family="Montserrat, sans-serif"` / `"Playfair Display, serif"` / etc.
-- **Symptom:** Sharp renders SVG via librsvg, which reads fonts from the OS via fontconfig. Vercel's Node runtime has no Google Fonts installed, so the printed magnet uses DejaVu / Liberation Sans instead of the brand font the user picked. Preview ↔ printed-output diverges — violates the "what you see is what you print" promise.
-- **Scope:** Affects STD + Arte + Studio print outputs. Does NOT affect mobile UX.
-- **Fix direction (pick one):**
-  - Bundle the TTF files in `public/fonts/` and embed `@font-face` data URIs inside the SVG strings, OR
-  - Migrate `src/lib/print-pipeline/utils/text-renderer.ts` to `@napi-rs/canvas` with `registerFont`.
-- **Reference:** `memory/server_font_fidelity_gap.md`.
+**Decision needed:** which window is true? Once chosen, standardize across:
+- Cart drawer + `/carrito` page copy
+- Shopify-native order-confirmation template body
+- Order-confirmation page (`/pedido-confirmado`)
+- FAQ "shipping" section if present
 
----
+### Admin "Fallidos" tab/badge on /admin/pedidos
 
-## Polish follow-ups
+**What:** Phase 2 wired `print-pipeline-failed` / `print-pipeline-partial` order tags via `applyPipelineOrderTags`. The tag drives Shopify Admin filtering, but the local admin panel at `/admin/pedidos` doesn't yet surface a "Fallidos" tab or count badge.
 
-### `visualViewport` keyboard inset for the sticky CTA
-- **Where:** `src/components/builder/MagnetBuilder.tsx` — the `stickyCta` footer.
-- **Deferred from:** PR M4 (text-customization + keyboard coexistence).
-- **Symptom today:** When the iOS soft keyboard opens over text inputs in the customize step, the sticky CTA at the bottom of the viewport is covered by the keyboard. The user can still blur the input and hit the CTA — tolerable, not optimal.
-- **Fix direction:** Add a `visualViewport.addEventListener('resize', …)` listener in `MagnetBuilder`; compute `keyboardInset = window.innerHeight - window.visualViewport.height`; apply `bottom: keyboardInset` to the sticky-CTA footer so it rides above the keyboard.
-- **Why deferred:** DevTools can't simulate the iOS soft keyboard; needs real-device testing to verify across iOS Safari / Chrome / Android Chrome.
-
-### Tonos (multi-image cropper) ergonomics toolbar
-- **Where:** `src/components/builder/ImageCropperMulti.tsx`.
-- **Deferred from:** PR M3 (cropper ergonomics).
-- **What:** The `Restablecer` / `Cambiar foto` toolbar from M3 only applies to the single-image `ImageCropper`. Tonos still lacks a per-slot reset / replace affordance; users re-pick each slot from the upload step instead.
-- **Fix direction:** Lift per-slot reset into `ImageCropperMulti`; for "replace" there's already per-slot re-pick in `PhotoUploaderMulti` via direct file-input tap on each slot, so this is a nice-to-have rather than a blocker.
+**Effort:** Low. Filter the Admin orders query by tag membership, show a count + tab.
 
 ---
 
-## Out of scope for this phase
+## Long-tail roadmap (post-launch)
 
-The plan (`/Users/ekasis/.claude/plans/expressive-scribbling-dawn.md`)
-explicitly deferred these; listing here for consolidated tracking.
+These never blocked the merge; they're the natural next phases the client may want once the storefront is live and generating signal.
 
-### Admin panel mobile UX
-- **Why deferred:** `CLAUDE.md` explicitly states admin is desktop-primary. Mobile polish of the admin dashboard wasn't part of the conversion-funnel scope.
-- **Status:** No action planned unless the client requests it.
+### Customer order-tracking page
+
+**What:** `/pedido/[orderNumber]` public page where a buyer enters their email + order number and sees fulfillment status + tracking.
+
+**Path forward:** Shopify provides this OOTB via hosted customer accounts (passwordless email-code sign-in, order history). Use Shopify's hosted accounts first; only build a custom page if branded UX becomes a marketing priority.
+
+### Admin: retry UI for failed pipeline lines
+
+**What:** The retry-line endpoint (`POST /api/admin/orders/[orderId]/retry`) exists and is tested. The admin order-detail page doesn't yet have a "Retry failed line" button.
+
+**Effort:** Low — single button per failed line, calls the existing endpoint, refreshes the page.
+
+### Admin: fulfillment + tracking entry
+
+**What:** Admin needs to mark orders shipped + paste a tracking number. The `setOrderMetafields` mutation handles writes; the order pipeline already has a `notifyCustomer: true` hook for the shipping email.
+
+**Effort:** Medium — a small form on the order detail page, plus a test of the customer-facing email.
+
+### Admin: settings / health-check page
+
+**What:** A page that surfaces "is everything wired correctly?":
+- Shopify Storefront reachable (`shopifyFetch` shop query)
+- Shopify Admin reachable (`shopifyAdminFetch` shop query — exercises the client-credentials grant)
+- Shopify Files reachable (`stagedUploadsCreate` for a 1-byte payload, no `fileCreate`)
+- Webhook secret matches Shopify (HMAC self-test)
+- All required env vars present (`SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_VARIANT_MAP`, etc.)
+
+**Effort:** Low. High value for the client to self-serve diagnose during onboarding.
+
+### Admin: products CRUD polish
+
+**What:** Predesigned product catalog (`src/lib/catalog-data.ts` today is hardcoded). Move to Shopify metaobjects so the client can edit names / images / prices without a deploy.
+
+**Effort:** Medium. Requires Shopify metaobject schema + admin UI + read-fallback to the hardcoded data while migrating.
+
+### GA4 analytics dashboard
+
+**What:** Embed Google Analytics 4 events for the conversion funnel (home → builder → cart → checkout). Surface key metrics on the admin dashboard.
+
+**Effort:** Low for events; medium for the embed.
 
 ### Content pages polish (About / FAQ / Contact / legal)
-- **Why deferred:** Conversion funnel first (home → builder → cart → catalog). Content pages don't drive purchase directly.
-- **Status:** Future "content pages pass" if the client wants consistency across the site. Low priority vs. funnel.
 
-### Visual redesign of existing components
-- **Scope cap:** "Polish + selective restructure" per user decision. The rulebook (Appendix B of the plan file) codified the spacing/typography/motion/touch rules; we did not redesign the aesthetic.
+**What:** Apply the mobile-rulebook (typography, spacing, touch-target floor) to the non-funnel content pages. Phase 6 explicitly scoped these out — conversion funnel first.
 
----
+**Effort:** Low per page.
 
-## Release pipeline
+### Hero mosaic tile alignment bug
 
-### Nothing has been pushed to `origin`
-- **Current state:** 16+ local branches (6 refactor + 6 polish + `qa/integration` + `fix/carousel-ver-detalles-link` + `fix/cart-display-and-print-shape`). None are on GitHub yet.
-- **Next step:** Push the refactor stack, the carousel fix, and the polish stack, then open PRs in order:
-  1. Cart-branch fixes (if we tackle the pre-existing risks first)
-  2. `refactor/pr0-platform-tokens` → `refactor/pr1a…pr3-builder-mobile` (6 PRs)
-  3. `fix/carousel-ver-detalles-link` (parallel; can land any time)
-  4. `polish/m1…m6` (6 PRs, stacked on the refactor)
-- **Client sign-off:** Probably wants to see the foundation refactor before the polish lands on top. Split into two review waves: foundation first, polish second.
-
-### Shopify store not created
-- **From:** `memory/phase1_progress.md`.
-- **Blocker:** Client needs to create the Shopify store with product "Imanes Personalizados" (4 variants: 3/4/6/9 piezas) and set env vars (`SHOPIFY_VARIANT_MAP`, `RESEND_API_KEY`, `ADMIN_PASSWORD_HASH`, `ADMIN_JWT_SECRET`).
-- **Status:** Not a development task; waiting on client.
+**Where:** Memory note `hero_tile_bug.md` (resolved). Listed for completeness — already fixed.
 
 ---
 
-## Long-tail (pre-existing roadmap, not from this session)
+## Operational cleanup tasks (manual, low-effort)
 
-Captured in `memory/phase1_progress.md` for reference — listed here so
-the next agent sees the full picture:
+### Stale historical metafields (pre-pipeline-integrity)
 
-- Customer order-tracking public page (`/pedido/[orderNumber]`).
-- Shopify metaobjects as CMS + admin "Contenido" section.
-- GA4 analytics dashboard + event helpers.
-- Admin settings page (shipping / notifications config).
-- Hero mosaic tile alignment bug (`memory/hero_tile_bug.md`).
+**Symptom:** Orders processed before the `metafieldsSet` upsert pattern landed may carry duplicate `(mosaiko, key)` rows from the legacy `POST /metafields.json` create loop.
 
-None of these interact with the mobile polish surface; they're
-sequenced independently by the client.
+**Tool:** `scripts/cleanup-stale-metafields.mts` (dry-run by default, `--apply` to delete via REST DELETE-by-ID; `--days=N` to scope window).
 
----
+**Urgency:** Low — every subsequent webhook upsert overwrites correctly; duplicates only matter if a future reader does prefix listing instead of exact `(namespace, key)` lookup.
 
-## From the pipeline integrity audit
+### Orphaned R2 tiles (pre-Phase-2 partial uploads)
 
-Items identified during the pipeline integrity audit (`INTEGRITY_AUDIT.md`)
-that were intentionally scoped out of the two-BLOCKER fix. Each entry has
-enough context to pick up cold.
+**Status as of 2026-05-05:** R2 is no longer the storage backend. Print tiles now live on Shopify Files via `duplicateResolutionMode: REPLACE`, and the batched `uploadShopifyFilesBatch` does best-effort `fileDelete` cleanup on every failure path. Orphans should be near-zero going forward.
 
-**Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`); Phase 2 Tonos fitMode landed on `fix/tonos-fitmode` (off `qa/integration`); Phase 3 cart correctness landed on `fix/cart-correctness` (off `fix/tonos-fitmode`).
-**Last updated:** 2026-04-25 (post Phase 3 — cart correctness: composite-reuse, attr-naming, data-URL gate, empty-cart resurrect — all resolved).
+**Tool:** `scripts/cleanup-orphan-r2-tiles.mts` is now historical — useful only if the legacy R2 bucket still has data when access is finally revoked.
 
----
+**Urgency:** Very low. Pre-migration R2 contents will be deleted with the bucket when R2 access is rotated off.
 
-## MAJORs deferred
+### Drop the `R2_*` env-var placeholders
 
-(Server-side font fidelity gap was FULLY FIXED in Phase 4 + Phase 4
-STD migration. Save-the-Date now uses a canvas-based overlay renderer
-with per-treatment canvas equivalents (ctx.shadow* for shadow + card,
-ctx.filter='blur()' for halo, strokeText for outline, strokeRect for
-frame). See `INTEGRITY_AUDIT.md` row #10 + `processor-contract.test.ts`
-finding-closures section for the 7-test STD regression fence.)
+**Symptom:** `.env.local` still has `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, etc. as placeholders even though no code path consumes them anymore.
 
-(Admin print-file R2 gate was FIXED in Phase 5 (Appendix I) — route
-rewritten to read `print_pipeline_status` + `print_pipeline_results`
-metafields, gates downloads on status==='complete', parses R2 keys via
-`parseR2KeyFromPublicUrl` with cross-order tamper protection. See
-`INTEGRITY_AUDIT.md` row #11 + `admin-print-files.test.ts` for the
-13-test regression fence.)
+**Effort:** Trivial — clean up in the next env audit.
+
+**Urgency:** Low. They're harmless placeholders; just visual noise.
 
 ---
 
-## MINORs deferred
+## Indefinitely deferred
 
-(Studio CJK font fallback was FIXED in Phase 4 — Noto Sans JP now bundled
-and pinned explicitly. See `INTEGRITY_AUDIT.md` row #13 + the
-`processor-contract.test.ts` "finding closures" Studio CJK pixel-region
-test for the regression fence.)
-
----
-
-## Codex second-pass observations (context only — not action items)
-
-- **R2 overwrite on retry is logically safe** if inputs are immutable and the Sharp render is deterministic. Cost is just extra PUT/Sharp work — acceptable for a manual-retry path.
-- **REST Admin API is legacy.** The hardcoded `2024-01` in `shopifyAdminFetch` should be bumped at some point, but not on this branch.
-- **Retry endpoint is not idempotent against a concurrent webhook.** If Shopify fires a duplicate webhook AND an admin clicks retry at the same time, both will call `metafieldsSet` — the atomic mutation means no corruption, but the last write wins. In practice the two paths converge on the same result because they operate on the same prior state.
+- **Admin panel mobile UX** — `CLAUDE.md` declares admin desktop-primary. No action planned unless the client requests it.
+- **Visual redesign of existing components** — scope cap from Phase 6 was "polish + selective restructure," not redesign. The mobile-design rulebook codified spacing/typography/motion/touch rules; aesthetic was intentionally preserved.
+- **Custom buyer auth** — Shopify customer accounts cover this OOTB. Don't build duplicate auth.
 
 ---
 
-## One-off cleanup tasks (manual, low-effort)
+## Codex observations (context only, not action items)
 
-### Clean up stale historical metafields from pre-PR REST create loop
-- **Where:** Shopify admin (UI or REST API).
-- **Symptom:** Orders processed before this branch wrote metafields via `POST /admin/api/.../metafields.json`, which always CREATES. Those orders may have 2+ rows with the same `(mosaiko, print_files)` or `(mosaiko, print_pipeline_status)` tuple. Any future code that reads `metafields[0]` can pick an arbitrary historical row.
-- **Tool:** `scripts/cleanup-stale-metafields.mts` (dry-run by default, `--apply` to delete via REST DELETE-by-ID; supports `--days=N` window).
-- **Urgency:** Low — every subsequent webhook retry upserts via `metafieldsSet` (by `(ownerId, namespace, key)`), so new runs overwrite correctly. Existing duplicates accumulate only until first upsert.
+These came out of audits during the merged phases. Keeping them here so the next agent has the full picture:
 
-### Orphaned R2 tile objects from pre-fix partial uploads
-- **Where:** R2 `mosaiko-print-files` bucket.
-- **Symptom:** Before BLOCKER #2 was fixed, a partial `Promise.all` failure left tiles with deterministic keys `print-files/order-{N}-item-{M}/tile-{k}.png` in R2 with no reference from any metafield. Storage is cheap; admin cannot see them; deterministic-key retries overwrite them eventually.
-- **Tool:** `scripts/cleanup-orphan-r2-tiles.mts` (dry-run by default, `--apply` to delete). Fail-closed on canonical-URL parse failure to prevent accidental live-tile deletion. Run AFTER `cleanup-stale-metafields.mts` so the canonical metafield row is unambiguous.
-- **Urgency:** Very low. `UploadFailure.succeeded` is now surfaced at the storage layer so a future admin cleanup endpoint could use it; not in scope for this branch.
-
----
-
-## Related docs
-
-- `INTEGRITY_AUDIT.md` — full audit report, findings table, test coverage map.
-- `/Users/ekasis/.claude/projects/-Users-ekasis-Documents-Projects-Mosaiko/memory/server_font_fidelity_gap.md` — font fidelity deep dive.
+- **Shopify Files retry overwrite is logically safe.** With `duplicateResolutionMode: REPLACE`, retrying the same `(orderId, lineItemId, tile-N)` overwrites in place — no orphans, no dedup suffix, no stale state. Codex specifically recommended this over `APPEND_UUID`.
+- **Shopify Admin API version (2026-04 as of this writing)** is bumped via the `SHOPIFY_API_VERSION` constant in `src/lib/shopify/client.ts`. Bump again on the next maintenance pass when 2026-04 ages out of support.
+- **Retry endpoint vs concurrent webhook race.** If Shopify fires a duplicate webhook AND an admin clicks retry at the same time, both call `metafieldsSet`. The atomic mutation prevents corruption, but last-write-wins. In practice both converge on the same result because they read the same prior state.
+- **`after()` is not a durable job queue.** The webhook responds 200 in <5s and runs the print pipeline in the background via Next's `after()`. Inside Vercel this is fine (function timeout 300s gives ample headroom for 9-tile orders). If we ever move off Vercel, we'd need a real queue. Add a reconciliation cron that retries `print_pipeline_status='partial'` orders if real-world failure rates surface.
+- **Shopify Files limits are 20 MB / 20 MP.** `resizeForShopifyFiles` enforces ≤ 15 MB / ≤ 16 MP via Sharp. iPhone 15+ / Samsung S24+ shoot >20 MP often; this matters.
+- **Shopify external-provider fee on Mercado Pago: 2% on Basic.** Combined with Mercado Pago's processor fee (~3.49% + $4 MXN cards), the all-in transaction cost is ~5.49% + $4 MXN. Worth the cost conversation with the client; Grow ($55/mo) drops the external-provider fee to 1%.

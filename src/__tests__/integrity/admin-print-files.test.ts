@@ -1,198 +1,167 @@
 /**
- * Phase 5 — Admin print-files R2 gate.
+ * Admin print-files binding/tamper-guard tests.
  *
- * Pre-Phase-5, /api/admin/print-files enumerated raw R2 prefixes, so a
- * partial-upload survivor would appear downloadable even though the
- * order's `print_pipeline_status` was `partial` or `failed`. Admin
- * could ship incomplete tiles thinking the order was complete.
+ * The route reads metafield URLs and exposes downloads ONLY when the URL
+ * binds to (orderId, lineItemId) via the canonical filename pattern. A
+ * tampered metafield could otherwise:
+ *   - point at a non-Shopify origin (data-exfil channel)
+ *   - point at a same-origin file belonging to a DIFFERENT order/line
+ *     (cross-order leak)
+ *   - point at a same-origin garbage filename
  *
- * Phase 5 rewrote the route to:
- *   - read order's print_pipeline_status + print_pipeline_results
- *     metafields via shopifyAdminFetch
- *   - parse R2 keys from result URLs via `parseR2KeyFromPublicUrl`
- *     (no schema bump — Codex audit decision)
- *   - return 200 only when status === 'complete'
- *   - return 409 + retryUrl payload for partial / failed /
- *     unknown_legacy / non-`complete` states
- *
- * These tests exercise the helper directly; the route's HTTP shape is
- * validated by exercising the helper + manual smoke (the route imports
- * a non-trivial slice of Next.js runtime that vitest can't easily
- * boot for a unit test).
+ * Post-Shopify-Files migration the canonical filename is
+ *   `mosaiko-order-<orderId>-item-<lineItemId>-tile-<index>.png`
+ * possibly with a Shopify dedup suffix `_<n>` in case any code path
+ * bypasses the `duplicateResolutionMode: REPLACE` we use for tile uploads.
  */
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { parseR2KeyFromPublicUrl } from '@/lib/shopify/pipeline-metafields';
+import { describe, test, expect } from 'vitest';
+import { parseShopifyFileBindingFromUrl } from '@/lib/shopify/pipeline-metafields';
 
-describe('parseR2KeyFromPublicUrl — strict R2 URL → {key, index} parser', () => {
-  // Snapshot the original env value so beforeEach resets and the
-  // 'fallback to default origin' test (which deletes the var) leaves
-  // process.env clean for any test that runs after this describe block.
-  // Codex final-audit LOW finding.
-  let originalR2PublicUrl: string | undefined;
+const SHOP_PREFIX = 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files';
 
-  beforeEach(() => {
-    originalR2PublicUrl = process.env.R2_PUBLIC_URL;
-    // Match the real producer's URL format: ${R2_PUBLIC_URL}/${key}.
-    // Tests run with a fixture host so we know what the gate expects.
-    process.env.R2_PUBLIC_URL = 'https://r2.test.mosaiko.mx';
-  });
-
-  afterEach(() => {
-    if (originalR2PublicUrl === undefined) {
-      delete process.env.R2_PUBLIC_URL;
-    } else {
-      process.env.R2_PUBLIC_URL = originalR2PublicUrl;
-    }
-  });
-
-  test('valid URL → returns key + parsed index', () => {
-    const url =
-      'https://r2.test.mosaiko.mx/print-files/order-1234-item-99/tile-7.png';
-    expect(parseR2KeyFromPublicUrl(url)).toEqual({
-      key: 'print-files/order-1234-item-99/tile-7.png',
+describe('parseShopifyFileBindingFromUrl — cdn.shopify.com URL → {key, index} parser', () => {
+  test('valid URL → returns filename + parsed index', () => {
+    const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-99-tile-7.png`;
+    expect(parseShopifyFileBindingFromUrl(url)).toEqual({
+      key: 'mosaiko-order-1234-item-99-tile-7.png',
       index: 7,
+    });
+  });
+
+  test('valid URL with cache-bust query string still parses', () => {
+    const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-99-tile-3.png?v=1778025526`;
+    expect(parseShopifyFileBindingFromUrl(url)).toEqual({
+      key: 'mosaiko-order-1234-item-99-tile-3.png',
+      index: 3,
     });
   });
 
   test('mismatched origin → null (defends against tampered metafield)', () => {
     // Metafield could in theory be edited to point at any URL. The gate
-    // must reject anything not on the configured R2 origin so a tampered
-    // entry can't redirect the admin proxy to fetch arbitrary content.
+    // must reject anything not on cdn.shopify.com so a tampered entry
+    // can't redirect the admin proxy to fetch arbitrary content.
     const url =
-      'https://attacker.example.com/print-files/order-1234-item-99/tile-0.png';
-    expect(parseR2KeyFromPublicUrl(url)).toBeNull();
+      'https://attacker.example.com/files/mosaiko-order-1234-item-99-tile-0.png';
+    expect(parseShopifyFileBindingFromUrl(url)).toBeNull();
   });
 
-  test('valid origin but invalid path shape → null', () => {
-    // Wrong prefix.
+  test('cdn.shopify.com origin but path is not /files/* → null', () => {
     expect(
-      parseR2KeyFromPublicUrl(
-        'https://r2.test.mosaiko.mx/cart-composites/abc.png',
+      parseShopifyFileBindingFromUrl(
+        'https://cdn.shopify.com/products/mosaiko-order-1-item-1-tile-0.png',
       ),
     ).toBeNull();
-    // Right prefix, wrong filename.
+  });
+
+  test('valid origin but invalid filename shape → null', () => {
     expect(
-      parseR2KeyFromPublicUrl(
-        'https://r2.test.mosaiko.mx/print-files/order-1/abc.png',
+      parseShopifyFileBindingFromUrl(`${SHOP_PREFIX}/something-random.png`),
+    ).toBeNull();
+    expect(
+      parseShopifyFileBindingFromUrl(
+        `${SHOP_PREFIX}/mosaiko-order-1-item-1-tile-X.png`,
       ),
     ).toBeNull();
-    // Right prefix + filename, wrong tile-index format.
     expect(
-      parseR2KeyFromPublicUrl(
-        'https://r2.test.mosaiko.mx/print-files/order-1/tile-X.png',
+      parseShopifyFileBindingFromUrl(
+        `${SHOP_PREFIX}/mosaiko-order-1-item-1-tile-0.jpg`,
       ),
     ).toBeNull();
   });
 
   test('malformed URL → null (does not throw)', () => {
-    expect(parseR2KeyFromPublicUrl('not a url')).toBeNull();
-    expect(parseR2KeyFromPublicUrl('')).toBeNull();
-    expect(parseR2KeyFromPublicUrl(null as unknown as string)).toBeNull();
-  });
-
-  test('R2_PUBLIC_URL missing → falls back to default origin', () => {
-    delete process.env.R2_PUBLIC_URL;
-    // Default per the helper's fallback (matches storage.ts).
+    expect(parseShopifyFileBindingFromUrl('not a url')).toBeNull();
+    expect(parseShopifyFileBindingFromUrl('')).toBeNull();
     expect(
-      parseR2KeyFromPublicUrl(
-        'https://r2.mosaiko.mx/print-files/order-9-item-1/tile-3.png',
-      ),
-    ).toEqual({
-      key: 'print-files/order-9-item-1/tile-3.png',
-      index: 3,
-    });
+      parseShopifyFileBindingFromUrl(null as unknown as string),
+    ).toBeNull();
   });
 
-  test('round-trip with Phase 4 webhook URL format', () => {
-    // The webhook stores URLs in print_pipeline_results.urls[i] in
-    // exactly this shape. Confirm the parser inverses it.
+  test('round-trip with webhook URL format', () => {
+    // The webhook stores URLs in `print_pipeline_results.urls[i]`. Confirm
+    // the parser inverses the producer pattern.
     const orderId = '123456';
     const lineItemId = 99;
     for (let tileIndex = 0; tileIndex < 9; tileIndex++) {
-      const url = `https://r2.test.mosaiko.mx/print-files/order-${orderId}-item-${lineItemId}/tile-${tileIndex}.png`;
-      const parsed = parseR2KeyFromPublicUrl(url);
+      const url = `${SHOP_PREFIX}/mosaiko-order-${orderId}-item-${lineItemId}-tile-${tileIndex}.png?v=42`;
+      const parsed = parseShopifyFileBindingFromUrl(url);
       expect(parsed).not.toBeNull();
       expect(parsed!.index).toBe(tileIndex);
       expect(parsed!.key).toContain(`tile-${tileIndex}.png`);
     }
   });
 
-  // Codex Phase 5 audit MEDIUM fix: cross-order tamper protection.
-  // Without bindings, the parser accepted any same-origin
-  // print-files/<...>/tile-N.png — a tampered metafield could redirect
-  // the admin proxy to fetch ANOTHER order's tiles. With bindings, the
-  // key MUST match the canonical shape for THIS (orderId, lineItemId).
   describe('bindings: order/line cross-tamper protection', () => {
     test('valid binding → parses', () => {
-      const url =
-        'https://r2.test.mosaiko.mx/print-files/order-1234-item-99/tile-7.png';
+      const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-99-tile-7.png`;
       expect(
-        parseR2KeyFromPublicUrl(url, { orderId: '1234', lineItemId: 99 }),
+        parseShopifyFileBindingFromUrl(url, {
+          orderId: '1234',
+          lineItemId: 99,
+        }),
       ).toEqual({
-        key: 'print-files/order-1234-item-99/tile-7.png',
+        key: 'mosaiko-order-1234-item-99-tile-7.png',
         index: 7,
       });
     });
 
     test('wrong orderId → null', () => {
-      const url =
-        'https://r2.test.mosaiko.mx/print-files/order-OTHER-item-99/tile-7.png';
+      const url = `${SHOP_PREFIX}/mosaiko-order-OTHER-item-99-tile-7.png`;
       expect(
-        parseR2KeyFromPublicUrl(url, { orderId: '1234', lineItemId: 99 }),
+        parseShopifyFileBindingFromUrl(url, {
+          orderId: '1234',
+          lineItemId: 99,
+        }),
       ).toBeNull();
     });
 
     test('wrong lineItemId → null', () => {
-      const url =
-        'https://r2.test.mosaiko.mx/print-files/order-1234-item-77/tile-7.png';
+      const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-77-tile-7.png`;
       expect(
-        parseR2KeyFromPublicUrl(url, { orderId: '1234', lineItemId: 99 }),
+        parseShopifyFileBindingFromUrl(url, {
+          orderId: '1234',
+          lineItemId: 99,
+        }),
       ).toBeNull();
     });
 
     test('regex-meaningful chars in orderId are escaped (no false-accept)', () => {
       // Defense against an orderId like '.+' creating a permissive regex
-      // that matches any path segment. Should match itself only.
-      const url =
-        'https://r2.test.mosaiko.mx/print-files/order-1.+-item-99/tile-7.png';
-      const otherUrl =
-        'https://r2.test.mosaiko.mx/print-files/order-XYZ-item-99/tile-7.png';
+      // that matches any path segment.
+      const url = `${SHOP_PREFIX}/mosaiko-order-1.+-item-99-tile-7.png`;
+      const otherUrl = `${SHOP_PREFIX}/mosaiko-order-XYZ-item-99-tile-7.png`;
       expect(
-        parseR2KeyFromPublicUrl(url, { orderId: '1.+', lineItemId: 99 }),
+        parseShopifyFileBindingFromUrl(url, {
+          orderId: '1.+',
+          lineItemId: 99,
+        }),
       ).not.toBeNull();
-      // The same `.+` orderId should NOT match an unrelated key.
       expect(
-        parseR2KeyFromPublicUrl(otherUrl, { orderId: '1.+', lineItemId: 99 }),
+        parseShopifyFileBindingFromUrl(otherUrl, {
+          orderId: '1.+',
+          lineItemId: 99,
+        }),
       ).toBeNull();
     });
 
     test('loose mode (no bindings) still parses for back-compat', () => {
-      // Tests/non-routing consumers that just want a key+index back.
-      const url =
-        'https://r2.test.mosaiko.mx/print-files/anything-goes/tile-3.png';
-      expect(parseR2KeyFromPublicUrl(url)).toEqual({
-        key: 'print-files/anything-goes/tile-3.png',
+      const url = `${SHOP_PREFIX}/mosaiko-order-anything-item-77-tile-3.png`;
+      expect(parseShopifyFileBindingFromUrl(url)).toEqual({
+        key: 'mosaiko-order-anything-item-77-tile-3.png',
         index: 3,
       });
     });
 
-    // Codex Phase 5 round-2 audit MEDIUM fix: defense-in-depth against
-    // a tampered metafield that puts a regex string in `lineItemId` to
-    // bypass the binding. Even if the JSON-shape validator at parse
-    // time were skipped, the parser must reject non-integer bindings
-    // AND escape the stringified value before regex construction.
     test('non-integer lineItemId binding → null (defense in depth)', () => {
-      const url =
-        'https://r2.test.mosaiko.mx/print-files/order-1234-item-99/tile-7.png';
+      const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-99-tile-7.png`;
       expect(
-        parseR2KeyFromPublicUrl(url, {
+        parseShopifyFileBindingFromUrl(url, {
           orderId: '1234',
-          // Cast to bypass TS — simulates a runtime tampered binding.
           lineItemId: 99.5 as unknown as number,
         }),
       ).toBeNull();
       expect(
-        parseR2KeyFromPublicUrl(url, {
+        parseShopifyFileBindingFromUrl(url, {
           orderId: '1234',
           lineItemId: 'evil-string' as unknown as number,
         }),
@@ -200,18 +169,71 @@ describe('parseR2KeyFromPublicUrl — strict R2 URL → {key, index} parser', ()
     });
 
     test('regex-meta lineItemId binding (e.g. "99|a") → null', () => {
-      // Even if the upstream JSON validator were bypassed and lineItemId
-      // arrived as a string with regex meta-characters, the parser must
-      // refuse it. Combined with route-side `isWellFormedResult`
-      // validation, this is defense in depth.
-      const url =
-        'https://r2.test.mosaiko.mx/print-files/order-1234-item-99/tile-7.png';
+      const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-99-tile-7.png`;
       expect(
-        parseR2KeyFromPublicUrl(url, {
+        parseShopifyFileBindingFromUrl(url, {
           orderId: '1234',
           lineItemId: '99|a' as unknown as number,
         }),
       ).toBeNull();
+    });
+  });
+
+  describe('Shopify duplicate-resolution suffix tolerance', () => {
+    // Print tiles upload with `duplicateResolutionMode: REPLACE` so a
+    // suffix should never appear. The bounded `(?:_[A-Za-z0-9-]{1,80})?`
+    // is defense-in-depth in case any code path bypasses REPLACE
+    // (Shopify's default APPEND_UUID would emit a UUID suffix).
+    test('numeric dedup suffix (_2) → still binds', () => {
+      const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-99-tile-7_2.png`;
+      expect(
+        parseShopifyFileBindingFromUrl(url, {
+          orderId: '1234',
+          lineItemId: 99,
+        }),
+      ).toEqual({
+        key: 'mosaiko-order-1234-item-99-tile-7_2.png',
+        index: 7,
+      });
+    });
+
+    test('UUID-like dedup suffix → still binds (loose tolerance)', () => {
+      const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-99-tile-7_a1b2c3d4-0123.png`;
+      expect(
+        parseShopifyFileBindingFromUrl(url, {
+          orderId: '1234',
+          lineItemId: 99,
+        }),
+      ).toEqual({
+        key: 'mosaiko-order-1234-item-99-tile-7_a1b2c3d4-0123.png',
+        index: 7,
+      });
+    });
+
+    test('overly long suffix (>80 chars) → null (safety bound)', () => {
+      const longSuffix = 'a'.repeat(81);
+      const url = `${SHOP_PREFIX}/mosaiko-order-1234-item-99-tile-7_${longSuffix}.png`;
+      expect(
+        parseShopifyFileBindingFromUrl(url, {
+          orderId: '1234',
+          lineItemId: 99,
+        }),
+      ).toBeNull();
+    });
+  });
+
+  describe('basename-extraction edge cases', () => {
+    test('encoded slash in path → null (defense against tamper)', () => {
+      // A tampered URL could try to encode `/` as `%2F` in the path to
+      // fool a naive `split('/').pop()`. The decoded basename would
+      // contain a slash; we reject.
+      const url = `${SHOP_PREFIX}/mosaiko%2Forder-1-item-1-tile-0.png`;
+      expect(parseShopifyFileBindingFromUrl(url)).toBeNull();
+    });
+
+    test('empty basename → null', () => {
+      const url = `${SHOP_PREFIX}/`;
+      expect(parseShopifyFileBindingFromUrl(url)).toBeNull();
     });
   });
 });

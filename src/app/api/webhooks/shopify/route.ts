@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import crypto from 'node:crypto';
 import { uploadPrintTiles, deleteFile } from '@/lib/storage';
-import { sendOrderConfirmation, sendAdminNotification } from '@/lib/email/resend-client';
 import {
   extractCustomizedLineItems,
   type ShopifyOrderWebhook,
@@ -13,12 +12,19 @@ import {
   type PriorLineResult,
 } from '@/lib/shopify/webhook-processor';
 import { setOrderMetafields } from '@/lib/shopify/mutations/orders';
-import { buildPipelineMetafields } from '@/lib/shopify/pipeline-metafields';
+import {
+  buildPipelineMetafields,
+  applyPipelineOrderTags,
+} from '@/lib/shopify/pipeline-metafields';
+import {
+  getAdminAccessToken,
+  isAdminConfigured,
+  SHOPIFY_API_VERSION,
+} from '@/lib/shopify/client';
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET!;
-const SHOPIFY_ADMIN_API_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN!;
 const SHOPIFY_STORE_DOMAIN =
   process.env.SHOPIFY_STORE_DOMAIN ??
   process.env.NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN ??
@@ -64,7 +70,7 @@ async function updateOrderMetafields(
   orderId: number,
   result: WebhookOrderResult,
 ): Promise<void> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) {
+  if (!SHOPIFY_STORE_DOMAIN || !isAdminConfigured()) {
     console.warn(
       '[webhook/shopify] Shopify Admin API not configured, skipping metafield update',
     );
@@ -74,6 +80,11 @@ async function updateOrderMetafields(
   const orderGid = `gid://shopify/Order/${orderId}`;
   const writes = buildPipelineMetafields(result);
   await setOrderMetafields(orderGid, writes);
+  // Apply / clear pipeline-status order tags so failures + partials
+  // surface in Shopify Admin's order list (and on the local admin
+  // panel's Fallidos badge). Best-effort — never rolls back a
+  // metafield write, just logs on failure.
+  await applyPipelineOrderTags(orderGid, result.status);
 }
 
 /**
@@ -85,11 +96,11 @@ async function updateOrderMetafields(
  * whole point of the pipeline-status metafield existing.
  */
 async function isOrderAlreadyComplete(orderId: number): Promise<boolean> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) return false;
+  if (!SHOPIFY_STORE_DOMAIN || !isAdminConfigured()) return false;
   try {
-    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json?namespace=mosaiko&key=print_pipeline_status`;
+    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderId}/metafields.json?namespace=mosaiko&key=print_pipeline_status`;
     const res = await fetch(url, {
-      headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
+      headers: { 'X-Shopify-Access-Token': await getAdminAccessToken() },
     });
     if (!res.ok) return false;
     const data = (await res.json()) as {
@@ -117,11 +128,11 @@ async function isOrderAlreadyComplete(orderId: number): Promise<boolean> {
 async function readPriorSuccesses(
   orderId: number,
 ): Promise<PriorLineResult[] | undefined> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_TOKEN) return undefined;
+  if (!SHOPIFY_STORE_DOMAIN || !isAdminConfigured()) return undefined;
   try {
-    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${orderId}/metafields.json?namespace=mosaiko&key=print_pipeline_results`;
+    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderId}/metafields.json?namespace=mosaiko&key=print_pipeline_results`;
     const res = await fetch(url, {
-      headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN },
+      headers: { 'X-Shopify-Access-Token': await getAdminAccessToken() },
     });
     if (!res.ok) return undefined;
     const data = (await res.json()) as {
@@ -141,12 +152,13 @@ async function readPriorSuccesses(
 }
 
 // ─── SSRF prevention: only fetch from trusted origins ───────────────────────
+//
+// Post-Shopify-Files migration: every photo (originals, cart composites,
+// print tiles) lives on `cdn.shopify.com`. The legacy `r2.mosaiko.mx`
+// host is no longer in the allowlist; pre-migration carts (if any
+// exist) will fail closed and fall back to "no composite reuse".
 
-const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_URL
-  ? new URL(process.env.R2_PUBLIC_URL).hostname
-  : 'r2.mosaiko.mx';
-
-const ALLOWED_PHOTO_HOSTS = new Set([R2_PUBLIC_DOMAIN, 'cdn.shopify.com']);
+const ALLOWED_PHOTO_HOSTS = new Set(['cdn.shopify.com']);
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
@@ -272,44 +284,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Email notifications — admin gets an explicit failure banner when
-    // status is 'partial' or 'failed'; customer always gets the order
-    // confirmation (their email shouldn't change based on pipeline
-    // internals).
-    const emailData = {
-      orderNumber: String(order.order_number),
-      customerEmail: order.email,
-      items: customizedItems.map((item) => ({
-        title: item.title,
-        gridType: item.attrs['_grid_type'] || 'Personalizado',
-        quantity: item.quantity,
-        previewImageUrl: item.attrs['_preview_image_url'],
-      })),
-      printFileDownloadUrl:
-        result.allUrls.length > 0
-          ? `${process.env.NEXT_PUBLIC_SITE_URL || ''}/admin/pedidos/${order.order_number}`
-          : undefined,
-      pipelineStatus: result.status,
-      failedItems: result.failures.map((f) => ({
-        lineItemId: f.lineItemId,
-        title: f.title,
-        quantity: f.quantity,
-        reason: f.reason,
-        detail: f.detail,
-      })),
-    };
-
-    try {
-      await Promise.all([
-        sendOrderConfirmation(emailData),
-        sendAdminNotification(emailData),
-      ]);
-    } catch (emailError) {
-      console.error(
-        `[webhook/shopify] Failed to send emails for order ${order.order_number}:`,
-        emailError,
-      );
-    }
+    // Customer-facing email is now Shopify-native (the order/paid
+    // webhook is downstream of Shopify's own order-confirmation
+    // notification, which fires automatically on payment). Admin
+    // failure visibility is the order-tag set applied via
+    // `applyPipelineOrderTags` above — no per-failure email.
 
     console.log(
       `[webhook/shopify] Order ${order.order_number}: status=${result.status} tiles=${result.allUrls.length} failures=${result.failures.length}`,

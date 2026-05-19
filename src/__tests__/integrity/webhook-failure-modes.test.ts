@@ -20,40 +20,70 @@
  * untrusted-key rejection, dimension mismatch, Tonos-grid bypass,
  * server-derived URL (key/url binding).
  */
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, vi, afterEach } from 'vitest';
 
-// ─── Env prep — uploadPrintTiles reads these at call time ───────────────────
-
-beforeEach(() => {
-  process.env.R2_ACCOUNT_ID = 'test-account';
-  process.env.R2_ACCESS_KEY_ID = 'test-key';
-  process.env.R2_SECRET_ACCESS_KEY = 'test-secret';
-  process.env.R2_BUCKET_PRINT_FILES = 'test-print-files';
-  process.env.R2_PUBLIC_URL = 'https://r2.test.mosaiko.mx';
-});
+const SHOP_FILES_PREFIX = 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files';
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
-  vi.doUnmock('@aws-sdk/client-s3');
+  vi.doUnmock('@/lib/shopify/files');
 });
 
-// ─── S3 Client mock factory ─────────────────────────────────────────────────
+// ─── Shopify Files mock factory ─────────────────────────────────────────────
 
 /**
- * Mocks `@aws-sdk/client-s3` so `uploadPrintTiles` talks to a
- * deterministic send fn. `sendImpl` receives the command and returns a
- * promise — reject it to simulate upload failure for that tile.
+ * Mocks `@/lib/shopify/files` so `uploadPrintTiles` (in `@/lib/storage`)
+ * talks to a deterministic batch fn. `batchImpl` receives the inputs
+ * passed to `uploadShopifyFilesBatch` and returns the result array.
+ * Reject the promise to simulate an atomic batch failure (which the
+ * storage layer translates into an `UploadFailure` carrying every tile
+ * in `failed`).
  */
-function mockS3Client(sendImpl: (command: unknown) => Promise<unknown>): {
-  S3Client: new () => { send: typeof sendImpl };
-  sendSpy: ReturnType<typeof vi.fn>;
+function mockShopifyFiles(
+  batchImpl: (
+    inputs: Array<{ filename: string; mimeType: string; buffer: Buffer }>,
+  ) => Promise<Array<{ id: string; url: string; filename: string }>>,
+): {
+  uploadShopifyFilesBatch: ReturnType<typeof vi.fn>;
+  uploadShopifyFile: ReturnType<typeof vi.fn>;
 } {
-  const sendSpy = vi.fn(sendImpl);
-  class FakeS3Client {
-    send = sendSpy;
-  }
-  return { S3Client: FakeS3Client, sendSpy };
+  const uploadShopifyFilesBatch = vi.fn(batchImpl);
+  const uploadShopifyFile = vi.fn(
+    async (
+      filename: string,
+      mimeType: string,
+      buffer: Buffer,
+    ) => {
+      const [out] = await batchImpl([{ filename, mimeType, buffer }]);
+      return out;
+    },
+  );
+  vi.doMock('@/lib/shopify/files', () => ({
+    uploadShopifyFilesBatch,
+    uploadShopifyFile,
+    findShopifyFileByFilename: vi.fn(async () => null),
+    listShopifyFilesByPrefix: vi.fn(async () => []),
+    deleteShopifyFileById: vi.fn(async () => undefined),
+    deleteShopifyFileByFilename: vi.fn(async () => undefined),
+    shopifyCdnUrlFilename: (url: string) => {
+      try {
+        const u = new URL(url);
+        if (u.origin !== 'https://cdn.shopify.com') return null;
+        const m = /^\/s\/files\/[^/]+(?:\/[^/]+){0,3}\/files\/([^/]+)$/.exec(u.pathname);
+        if (!m) return null;
+        return decodeURIComponent(m[1]);
+      } catch {
+        return null;
+      }
+    },
+    SHOPIFY_FILE_MAX_BYTES: 15 * 1024 * 1024,
+    SHOPIFY_IMAGE_MAX_PIXELS: 16_000_000,
+    resizeForShopifyFiles: async (buf: Buffer) => buf,
+    getAdminAccessToken: vi.fn(async () => 'shpat_test'),
+    SHOPIFY_API_VERSION: '2026-04',
+  }));
+  return { uploadShopifyFilesBatch, uploadShopifyFile };
 }
 
 // ─── BLOCKER #2 — R2 partial state (FIXED in Phase 4) ──────────────────────
@@ -66,21 +96,13 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
   // new contract.
 
   test('successful path still returns URLs keyed by tile index', async () => {
-    const { S3Client } = mockS3Client(async () => ({}));
-
-    vi.doMock('@aws-sdk/client-s3', () => ({
-      S3Client,
-      PutObjectCommand: class {
-        input: unknown;
-        constructor(input: unknown) {
-          this.input = input;
-        }
-      },
-      GetObjectCommand: class {},
-      DeleteObjectCommand: class {},
-      ListObjectsV2Command: class {},
-      CopyObjectCommand: class {},
-    }));
+    mockShopifyFiles(async (inputs) =>
+      inputs.map((i, idx) => ({
+        id: `gid://shopify/MediaImage/${100 + idx}`,
+        url: `${SHOP_FILES_PREFIX}/${i.filename}`,
+        filename: i.filename,
+      })),
+    );
 
     const { uploadPrintTiles } = await import('@/lib/storage');
 
@@ -92,41 +114,37 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
     const result = await uploadPrintTiles('order-Y-item-456', tiles);
     expect(result).toEqual([
       {
-        key: 'print-files/order-Y-item-456/tile-0.png',
-        publicUrl:
-          'https://r2.test.mosaiko.mx/print-files/order-Y-item-456/tile-0.png',
+        key: 'mosaiko-order-Y-item-456-tile-0.png',
+        publicUrl: `${SHOP_FILES_PREFIX}/mosaiko-order-Y-item-456-tile-0.png`,
       },
       {
-        key: 'print-files/order-Y-item-456/tile-1.png',
-        publicUrl:
-          'https://r2.test.mosaiko.mx/print-files/order-Y-item-456/tile-1.png',
+        key: 'mosaiko-order-Y-item-456-tile-1.png',
+        publicUrl: `${SHOP_FILES_PREFIX}/mosaiko-order-Y-item-456-tile-1.png`,
       },
     ]);
   });
 
   // ─── Phase 4: uploadPrintTiles surfaces structured UploadFailure ────────
 
-  test('Phase 4 fix — uploadPrintTiles throws UploadFailure with succeeded + failed arrays', async () => {
-    const { S3Client } = mockS3Client(async (command) => {
-      const cmd = command as { input?: { Key?: string } };
-      const key = cmd.input?.Key ?? '';
-      if (key.includes('tile-1')) throw new Error('R2 write failed on tile-1');
-      return {};
+  test('Phase 4 fix — any tile failure → UploadFailure (atomic batch semantics)', async () => {
+    // Post-Shopify-Files migration the upload primitive is atomic: a
+    // failure on any one input throws AFTER best-effort cleanup of the
+    // others. The storage layer surfaces this as `UploadFailure` with
+    // every input under `failed[]` (succeeded[] is empty). This is a
+    // STRICTER all-or-nothing than the prior R2 partial-state contract;
+    // it removes the orphan-tile concern by handling cleanup inside
+    // the primitive rather than leaving it to the orchestrator.
+    mockShopifyFiles(async (inputs) => {
+      // Simulate Shopify Files batch failure when any tile-1 is in scope.
+      if (inputs.some((i) => i.filename.includes('tile-1'))) {
+        throw new Error('Shopify Files batch failed on tile-1');
+      }
+      return inputs.map((i, idx) => ({
+        id: `gid://shopify/MediaImage/${100 + idx}`,
+        url: `${SHOP_FILES_PREFIX}/${i.filename}`,
+        filename: i.filename,
+      }));
     });
-
-    vi.doMock('@aws-sdk/client-s3', () => ({
-      S3Client,
-      PutObjectCommand: class {
-        input: unknown;
-        constructor(input: unknown) {
-          this.input = input;
-        }
-      },
-      GetObjectCommand: class {},
-      DeleteObjectCommand: class {},
-      ListObjectsV2Command: class {},
-      CopyObjectCommand: class {},
-    }));
 
     const { uploadPrintTiles, UploadFailure } = await import('@/lib/storage');
 
@@ -140,32 +158,23 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
     } catch (err) {
       expect(err).toBeInstanceOf(UploadFailure);
       if (err instanceof UploadFailure) {
-        // 2 of 3 wrote successfully; 1 failed.
-        expect(err.succeeded).toHaveLength(2);
-        expect(err.succeeded.map((s) => s.index).sort()).toEqual([0, 2]);
-        expect(err.failed).toHaveLength(1);
-        expect(err.failed[0].index).toBe(1);
-        expect(err.failed[0].reason).toMatch(/R2 write failed/);
+        // Atomic: nothing succeeds; every tile is in `failed`.
+        expect(err.succeeded).toHaveLength(0);
+        expect(err.failed).toHaveLength(3);
+        expect(err.failed.map((f) => f.index).sort()).toEqual([0, 1, 2]);
+        expect(err.failed[0].reason).toMatch(/Shopify Files batch failed/);
       }
     }
   });
 
   test('Phase 4 fix — uploadPrintTiles full-success path still returns {key,publicUrl}[]', async () => {
-    const { S3Client } = mockS3Client(async () => ({}));
-
-    vi.doMock('@aws-sdk/client-s3', () => ({
-      S3Client,
-      PutObjectCommand: class {
-        input: unknown;
-        constructor(input: unknown) {
-          this.input = input;
-        }
-      },
-      GetObjectCommand: class {},
-      DeleteObjectCommand: class {},
-      ListObjectsV2Command: class {},
-      CopyObjectCommand: class {},
-    }));
+    mockShopifyFiles(async (inputs) =>
+      inputs.map((i, idx) => ({
+        id: `gid://shopify/MediaImage/${200 + idx}`,
+        url: `${SHOP_FILES_PREFIX}/${i.filename}`,
+        filename: i.filename,
+      })),
+    );
 
     const { uploadPrintTiles } = await import('@/lib/storage');
     const result = await uploadPrintTiles('order-G-item-1', [
@@ -173,7 +182,7 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
       { index: 1, buffer: Buffer.from('b') },
     ]);
     expect(result).toHaveLength(2);
-    expect(result[0].key).toBe('print-files/order-G-item-1/tile-0.png');
+    expect(result[0].key).toBe('mosaiko-order-G-item-1-tile-0.png');
   });
 
   // ─── Phase 4: per-line idempotency via `priors` ─────────────────────────
@@ -207,7 +216,7 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
             },
             {
               name: '_photo_url',
-              value: 'https://r2.mosaiko.mx/uploads/done.jpg',
+              value: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--done.jpg',
             },
             {
               name: '_crop_area',
@@ -230,7 +239,7 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
             },
             {
               name: '_photo_url',
-              value: 'https://r2.mosaiko.mx/uploads/retry.jpg',
+              value: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--retry.jpg',
             },
             {
               name: '_crop_area',
@@ -246,8 +255,8 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
         lineItemId: 1,
         kind: 'ok',
         urls: [
-          'https://r2.mosaiko.mx/print-files/order-99-item-1/tile-0.png',
-          'https://r2.mosaiko.mx/print-files/order-99-item-1/tile-1.png',
+          'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-order-99-item-1-tile-0.png',
+          'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-order-99-item-1-tile-1.png',
         ],
       },
     ];
@@ -262,8 +271,8 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
         uploadPrintTiles: async (jobId, tiles) => {
           uploadCount++;
           return tiles.map((t) => ({
-            key: `print-files/${jobId}/tile-${t.index}.png`,
-            publicUrl: `https://r2.mosaiko.mx/print-files/${jobId}/tile-${t.index}.png`,
+            key: `mosaiko-${jobId}-tile-${t.index}.png`,
+            publicUrl: `https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-${jobId}-tile-${t.index}.png`,
           }));
         },
         processPrintJob: async () => ({
@@ -279,10 +288,10 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
     expect(uploadCount).toBe(1);
     // But the reused URLs still appear in allUrls:
     expect(result.allUrls).toContain(
-      'https://r2.mosaiko.mx/print-files/order-99-item-1/tile-0.png',
+      'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-order-99-item-1-tile-0.png',
     );
     expect(result.allUrls).toContain(
-      'https://r2.mosaiko.mx/print-files/order-99-item-1/tile-1.png',
+      'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-order-99-item-1-tile-1.png',
     );
   });
 
@@ -314,7 +323,7 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
             },
             {
               name: '_photo_url',
-              value: 'https://r2.mosaiko.mx/uploads/once-broken.jpg',
+              value: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--once-broken.jpg',
             },
             {
               name: '_crop_area',
@@ -344,8 +353,8 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
         },
         uploadPrintTiles: async (jobId, tiles) =>
           tiles.map((t) => ({
-            key: `${jobId}/tile-${t.index}.png`,
-            publicUrl: `https://r2/${jobId}/tile-${t.index}.png`,
+            key: `${jobId}-tile-${t.index}.png`,
+            publicUrl: `https://r2/${jobId}-tile-${t.index}.png`,
           })),
         processPrintJob: async () => ({
           tiles: [{ index: 0, buffer: Buffer.from('x'), filename: 'x.png' }],
@@ -386,7 +395,7 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
             categoryType: 'mosaicos',
             gridSize: 9,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/missing.jpg',
+          _photo_url: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--missing.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
         },
       },
@@ -436,7 +445,7 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
               },
               {
                 name: '_photo_url',
-                value: 'https://r2.mosaiko.mx/uploads/ok.jpg',
+                value: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--ok.jpg',
               },
               {
                 name: '_crop_area',
@@ -459,7 +468,7 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
               },
               {
                 name: '_photo_url',
-                value: 'https://r2.mosaiko.mx/uploads/broken.jpg',
+                value: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--broken.jpg',
               },
               {
                 name: '_crop_area',
@@ -474,8 +483,8 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
           url.includes('broken') ? null : Buffer.from('ok'),
         uploadPrintTiles: async (jobId, tiles) =>
           tiles.map((t) => ({
-            key: `print-files/${jobId}/tile-${t.index}.png`,
-            publicUrl: `https://r2.mosaiko.mx/print-files/${jobId}/tile-${t.index}.png`,
+            key: `mosaiko-${jobId}-tile-${t.index}.png`,
+            publicUrl: `https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-${jobId}-tile-${t.index}.png`,
           })),
         processPrintJob: async () => ({
           tiles: [
@@ -526,7 +535,7 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
               },
               {
                 name: '_photo_url',
-                value: 'https://r2.mosaiko.mx/uploads/x.jpg',
+                value: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
               },
               {
                 name: '_crop_area',
@@ -583,7 +592,7 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
             categoryType: 'mosaicos',
             gridSize: 9,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _photo_url: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
         },
       },
@@ -615,7 +624,7 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
             categoryType: 'mosaicos',
             gridSize: 9,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _photo_url: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
         },
       },
@@ -653,7 +662,7 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
             categoryType: 'mosaicos',
             gridSize: 9,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _photo_url: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
         },
       },
@@ -692,9 +701,9 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
             ],
           }),
           _photo_urls: JSON.stringify([
-            'https://r2.mosaiko.mx/uploads/a.jpg',
-            'https://r2.mosaiko.mx/uploads/b.jpg',
-            'https://r2.mosaiko.mx/uploads/c.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--a.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--b.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--c.jpg',
           ]),
           _crop_areas: JSON.stringify([
             { x: 0, y: 0, width: 1, height: 1 },
@@ -749,9 +758,9 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
             tonosSlots: [{ fitMode: 'fit', rotation: 0 }, { fitMode: 'fill', rotation: 0 }],
           }),
           _photo_urls: JSON.stringify([
-            'https://r2.mosaiko.mx/uploads/a.jpg',
-            'https://r2.mosaiko.mx/uploads/b.jpg',
-            'https://r2.mosaiko.mx/uploads/c.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--a.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--b.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--c.jpg',
           ]),
           _crop_areas: JSON.stringify([
             { x: 0, y: 0, width: 1, height: 1 },
@@ -796,9 +805,9 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
             intensity: 'medium',
           }),
           _photo_urls: JSON.stringify([
-            'https://r2.mosaiko.mx/uploads/a.jpg',
-            'https://r2.mosaiko.mx/uploads/b.jpg',
-            'https://r2.mosaiko.mx/uploads/c.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--a.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--b.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--c.jpg',
           ]),
           _crop_areas: JSON.stringify([
             { x: 0, y: 0, width: 1, height: 1 },
@@ -866,8 +875,8 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
     const uploadPrintTilesSpy = vi.fn(
       async (jobId: string, tiles: { index: number; buffer: Buffer }[]) =>
         tiles.map((t) => ({
-          key: `print-files/${jobId}/tile-${t.index}.png`,
-          publicUrl: `https://r2.test.mosaiko.mx/print-files/${jobId}/tile-${t.index}.png`,
+          key: `mosaiko-${jobId}-tile-${t.index}.png`,
+          publicUrl: `https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-${jobId}-tile-${t.index}.png`,
         })),
     );
     const deleteCompositeSpy = vi.fn(async () => {});
@@ -883,10 +892,11 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
             categoryType: 'mosaicos',
             gridSize: 3,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _photo_url: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
-          _composite_key: 'cart-composites/abc-123.png',
-          _composite_url: 'https://r2.mosaiko.mx/cart-composites/abc-123.png',
+          _composite_key: 'mosaiko-print-files--cart-composites-abc-123.png',
+          _composite_url:
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-print-files--cart-composites-abc-123.png',
           _composite_pipeline_version: PIPELINE_VERSION,
         },
       },
@@ -906,7 +916,9 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
     expect(uploadPrintTilesSpy).toHaveBeenCalledTimes(1);
     expect(uploadPrintTilesSpy.mock.calls[0][1]).toHaveLength(3);
     // Cleanup ran (best-effort, non-fatal — we just confirm the call).
-    expect(deleteCompositeSpy).toHaveBeenCalledWith('cart-composites/abc-123.png');
+    expect(deleteCompositeSpy).toHaveBeenCalledWith(
+      'mosaiko-print-files--cart-composites-abc-123.png',
+    );
   });
 
   test('pipeline-version mismatch → bypass falls through; processPrintJob IS called', async () => {
@@ -935,10 +947,11 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
             categoryType: 'mosaicos',
             gridSize: 3,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _photo_url: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
-          _composite_key: 'cart-composites/abc-456.png',
-          _composite_url: 'https://r2.mosaiko.mx/cart-composites/abc-456.png',
+          _composite_key: 'mosaiko-print-files--cart-composites-abc-456.png',
+          _composite_url:
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-print-files--cart-composites-abc-456.png',
           // Deliberately stale version — should reject the bypass.
           _composite_pipeline_version: 'pre-phase-3-old-version',
         },
@@ -987,11 +1000,13 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
             categoryType: 'mosaicos',
             gridSize: 3,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _photo_url: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
-          // Path-traversal-style attack; regex requires `cart-composites/<id>.png`.
+          // Path-traversal-style attack; regex requires the flattened
+          // `mosaiko-print-files--cart-composites-<id>.png` shape.
           _composite_key: '../../../etc/passwd',
-          _composite_url: 'https://r2.mosaiko.mx/anywhere.png',
+          _composite_url:
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-print-files--cart-composites-anywhere.png',
           _composite_pipeline_version: PIPELINE_VERSION,
         },
       },
@@ -1009,7 +1024,7 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
     // fetchPhoto called once — for the original photo only, NOT the composite.
     // (The composite-key gate rejected before fetch.)
     expect(fetchPhotoSpy).toHaveBeenCalledTimes(1);
-    expect(fetchPhotoSpy).toHaveBeenCalledWith('https://r2.mosaiko.mx/uploads/x.jpg');
+    expect(fetchPhotoSpy).toHaveBeenCalledWith('https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg');
   });
 
   test('Tonos 9-grid composite bypass: same path works for tone+logo-baked composites', async () => {
@@ -1035,8 +1050,8 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
     const uploadPrintTilesSpy = vi.fn(
       async (jobId: string, tiles: { index: number; buffer: Buffer }[]) =>
         tiles.map((t) => ({
-          key: `print-files/${jobId}/tile-${t.index}.png`,
-          publicUrl: `https://r2.test.mosaiko.mx/print-files/${jobId}/tile-${t.index}.png`,
+          key: `mosaiko-${jobId}-tile-${t.index}.png`,
+          publicUrl: `https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-${jobId}-tile-${t.index}.png`,
         })),
     );
 
@@ -1053,16 +1068,18 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
             intensity: 'medium',
           }),
           _photo_urls: JSON.stringify([
-            'https://r2.mosaiko.mx/uploads/a.jpg',
-            'https://r2.mosaiko.mx/uploads/b.jpg',
-            'https://r2.mosaiko.mx/uploads/c.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--a.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--b.jpg',
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--c.jpg',
           ]),
           _crop_areas: JSON.stringify([
             { x: 0, y: 0, width: 1, height: 1 },
             { x: 0, y: 0, width: 1, height: 1 },
             { x: 0, y: 0, width: 1, height: 1 },
           ]),
-          _composite_key: 'cart-composites/tonos-abc.png',
+          _composite_key: 'mosaiko-print-files--cart-composites-tonos-abc.png',
+          _composite_url:
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-print-files--cart-composites-tonos-abc.png',
           _composite_pipeline_version: PIPELINE_VERSION,
         },
       },
@@ -1079,34 +1096,43 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
     expect(uploadPrintTilesSpy.mock.calls[0][1]).toHaveLength(9);
   });
 
-  test('client-supplied _composite_url is IGNORED: server derives from key (Codex MAJOR fix)', async () => {
-    // Even if a client passes a malicious _composite_url pointing at an
-    // arbitrary allow-listed origin (e.g. a different R2 object or a
-    // Shopify CDN image), the webhook must derive the URL from the
-    // validated _composite_key instead. Proven here by passing an
-    // attacker-controlled URL alongside a valid key — fetchPhoto must
-    // be called with the key-derived URL, NOT the supplied one.
+  test('_composite_url must BIND to _composite_key (post-Shopify-Files Codex fix)', async () => {
+    // Post-migration there is no deterministic key→URL mapping, so the
+    // webhook must trust `_composite_url` — but ONLY after binding it
+    // to `_composite_key` via the cdn.shopify.com URL filename. A
+    // tampered cart that pairs a legitimate key with an attacker URL
+    // (different filename) MUST cause the bypass to fall through.
     const composite = await buildMosaicos3Composite();
     const { PIPELINE_VERSION } = await import('@/lib/print-pipeline/version');
     const { processLineItem } = await import('@/lib/shopify/webhook-processor');
 
     const fetchPhotoSpy = vi.fn(async (_url: string) => composite);
+    const processPrintJobSpy = vi.fn(async () => ({
+      tiles: [
+        { index: 0, buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]), filename: 't0' },
+      ],
+    }));
+
     await processLineItem(
       47,
       {
         lineItemId: 12,
-        title: 'Mosaico 3 (key/url binding)',
+        title: 'Mosaico 3 (key/url mismatch)',
         quantity: 1,
         attrs: {
           _customization: JSON.stringify({
             categoryType: 'mosaicos',
             gridSize: 3,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _photo_url:
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
-          _composite_key: 'cart-composites/legitimate.png',
-          // Attacker-controlled URL — should be IGNORED by the webhook.
-          _composite_url: 'https://r2.mosaiko.mx/cart-composites/attacker-controlled.png',
+          _composite_key: 'mosaiko-print-files--cart-composites-legitimate.png',
+          // Same-host URL but the FILENAME does not match the key — the
+          // bind check must reject and we should fall through to the
+          // full pipeline.
+          _composite_url:
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-print-files--cart-composites-attacker-controlled.png',
           _composite_pipeline_version: PIPELINE_VERSION,
         },
       },
@@ -1114,21 +1140,19 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
         fetchPhoto: fetchPhotoSpy,
         uploadPrintTiles: async (jobId, tiles) =>
           tiles.map((t) => ({
-            key: `${jobId}/${t.index}`,
-            publicUrl: `https://r2.test/${jobId}/${t.index}`,
+            key: `mosaiko-${jobId}-tile-${t.index}.png`,
+            publicUrl: `${SHOP_FILES_PREFIX}/mosaiko-${jobId}-tile-${t.index}.png`,
           })),
-        processPrintJob: async () => ({ tiles: [] }),
+        processPrintJob: processPrintJobSpy,
       },
     );
 
-    // First fetchPhoto call MUST be for the key-derived URL, not the
-    // attacker's URL. The R2_PUBLIC_URL env in this test suite is
-    // `https://r2.test.mosaiko.mx`, so the derived URL is
-    // `https://r2.test.mosaiko.mx/cart-composites/legitimate.png`.
-    expect(fetchPhotoSpy.mock.calls[0][0]).toBe(
-      'https://r2.test.mosaiko.mx/cart-composites/legitimate.png',
-    );
-    expect(fetchPhotoSpy.mock.calls[0][0]).not.toContain('attacker-controlled');
+    // The bypass must have been rejected (key/url mismatch), so the
+    // FULL pipeline ran via processPrintJob.
+    expect(processPrintJobSpy).toHaveBeenCalledTimes(1);
+    // fetchPhoto was called for the original photo, NOT for either
+    // composite URL — we never reached the composite-fetch step.
+    expect(fetchPhotoSpy.mock.calls.every((c) => !String(c[0]).includes('cart-composites'))).toBe(true);
   });
 
   test('composite dimension mismatch → bypass falls through; processPrintJob IS called', async () => {
@@ -1169,10 +1193,11 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
             categoryType: 'mosaicos',
             gridSize: 3,
           }),
-          _photo_url: 'https://r2.mosaiko.mx/uploads/x.jpg',
+          _photo_url: 'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--x.jpg',
           _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
-          _composite_key: 'cart-composites/abc-789.png',
-          _composite_url: 'https://r2.mosaiko.mx/cart-composites/abc-789.png',
+          _composite_key: 'mosaiko-print-files--cart-composites-abc-789.png',
+          _composite_url:
+            'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-print-files--cart-composites-abc-789.png',
           _composite_pipeline_version: PIPELINE_VERSION,
         },
       },

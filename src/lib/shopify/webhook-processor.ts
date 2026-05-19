@@ -32,15 +32,17 @@ import {
   getCompositeLayout,
   splitCompositeIntoTiles,
 } from '../print-pipeline/utils/assemble-tiles';
-import { getPublicUrl } from '../storage';
+import { shopifyCdnUrlFilename } from './files';
 
-// Composite-reuse: strict key validator. Matches the producer pattern
-// from `/api/cart-composite/route.ts:342` (`cart-composites/<jobId>.png`).
-// jobId is `crypto.randomUUID()` from the cart-composite endpoint, but we
-// allow any [\w-]{1,128} to absorb future UUID format changes without
-// breaking existing carts. Anything outside this shape is rejected and
-// the webhook falls back to the full pipeline.
-const COMPOSITE_KEY_REGEX = /^cart-composites\/[\w-]{1,128}\.png$/;
+// Composite-reuse: strict key validator. The cart-composite route now
+// uploads via Shopify Files; the storage layer's `flattenToFilename`
+// produces `mosaiko-print-files--cart-composites-<jobId>.png`. The cart
+// attribute `_composite_key` stores this flattened form (returned by
+// `uploadBuffer`), and `_composite_url` carries the cdn.shopify.com URL.
+// Anything outside this shape is rejected and the webhook falls back
+// to the full pipeline.
+const COMPOSITE_KEY_REGEX =
+  /^mosaiko-print-files--cart-composites-[\w-]{1,128}\.png$/;
 
 /**
  * Composite-reuse bypass. Runs before the regular processor invocation:
@@ -91,18 +93,27 @@ async function tryComposeReuseBypass(
     return null;
   }
 
-  // Codex Phase 3 audit MAJOR fix: ignore any client-supplied
-  // `_composite_url`. Derive the URL from the validated `_composite_key`
-  // ourselves so a tampered cart attribute can't steer the fetch at any
-  // allow-listed origin (r2.mosaiko.mx + cdn.shopify.com). The key is
-  // already constrained by `COMPOSITE_KEY_REGEX` to the
-  // `cart-composites/<id>.png` shape, so the derived URL is always one
-  // we trust.
-  const compositeUrl = getPublicUrl(compositeKey);
+  // Codex post-Shopify-Files-migration fix: there is no longer a
+  // deterministic key→URL mapping (Shopify minted CDN URL is not
+  // reconstructable from the filename alone). We must trust the
+  // `_composite_url` cart attribute, but ONLY after binding it to
+  // `_composite_key` to defend against a tampered cart redirecting the
+  // fetch at an attacker-controlled URL. The binding: the URL's
+  // basename must equal the validated `_composite_key`.
+  const compositeUrl = lineItemAttrs['_composite_url'];
+  if (!compositeUrl) return null;
+  const urlFilename = shopifyCdnUrlFilename(compositeUrl);
+  if (urlFilename !== compositeKey) {
+    console.warn(
+      '[webhook] composite-reuse rejected: _composite_url does not bind to _composite_key',
+      { compositeKey, urlFilename },
+    );
+    return null;
+  }
 
-  // Fetch the composite. fetchPhoto's allow-list includes the R2 public
-  // host (which is what `getPublicUrl` returns), so this passes; null
-  // means missing or refused. No bypass without the actual composite bytes.
+  // Fetch the composite. fetchPhoto's allow-list includes
+  // cdn.shopify.com, so this passes; null means missing or refused.
+  // No bypass without the actual composite bytes.
   const composite = await deps.fetchPhoto(compositeUrl);
   if (!composite) return null;
 

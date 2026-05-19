@@ -1,5 +1,5 @@
 // ─── Shopify GraphQL Types ──────────────────────────────────────────────────
-// Mirrors Shopify Storefront API 2024-01 schema.
+// Mirrors Shopify Storefront API 2026-04 schema.
 // Uses edges/nodes connection pattern for paginated resources.
 
 // ─── Primitives ─────────────────────────────────────────────────────────────

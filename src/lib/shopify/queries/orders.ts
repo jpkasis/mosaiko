@@ -16,7 +16,6 @@ export interface AdminOrder {
   customer: {
     firstName: string | null;
     lastName: string | null;
-    email: string;
   } | null;
   shippingAddress: {
     address1: string | null;
@@ -61,7 +60,7 @@ const ORDERS_QUERY = /* GraphQL */ `
         node {
           id
           name
-          orderNumber
+          orderNumber: number
           createdAt
           displayFinancialStatus
           displayFulfillmentStatus
@@ -75,7 +74,6 @@ const ORDERS_QUERY = /* GraphQL */ `
           customer {
             firstName
             lastName
-            email
           }
           lineItems(first: 10) {
             edges {
@@ -118,7 +116,7 @@ const ORDER_BY_ID_QUERY = /* GraphQL */ `
     order(id: $id) {
       id
       name
-      orderNumber
+      orderNumber: number
       createdAt
       displayFinancialStatus
       displayFulfillmentStatus
@@ -132,7 +130,6 @@ const ORDER_BY_ID_QUERY = /* GraphQL */ `
       customer {
         firstName
         lastName
-        email
       }
       shippingAddress {
         address1

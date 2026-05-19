@@ -48,15 +48,11 @@ const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 15_000;
 
 // ─── URL validation (SSRF prevention) ───────────────────────────────────────
+//
+// Post-Shopify-Files migration: every photo lives on cdn.shopify.com.
+// The legacy r2.mosaiko.mx host is no longer in the allowlist.
 
-const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_URL
-  ? new URL(process.env.R2_PUBLIC_URL).hostname
-  : 'r2.mosaiko.mx';
-
-const ALLOWED_PHOTO_HOSTS = new Set([
-  R2_PUBLIC_DOMAIN,
-  'cdn.shopify.com',
-]);
+const ALLOWED_PHOTO_HOSTS = new Set(['cdn.shopify.com']);
 
 function validatePhotoUrl(url: string): void {
   let parsed: URL;

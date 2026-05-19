@@ -55,11 +55,8 @@ const MAX_REQUEST_BODY_BYTES = 90 * 1024 * 1024;
 
 // ─── URL validation (SSRF prevention) ───────────────────────────────────────
 
-const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_URL
-  ? new URL(process.env.R2_PUBLIC_URL).hostname
-  : 'r2.mosaiko.mx';
-
-const ALLOWED_PHOTO_HOSTS = new Set([R2_PUBLIC_DOMAIN, 'cdn.shopify.com']);
+// Post-Shopify-Files migration: every photo lives on cdn.shopify.com.
+const ALLOWED_PHOTO_HOSTS = new Set(['cdn.shopify.com']);
 
 function validatePhotoUrl(url: string): void {
   let parsed: URL;

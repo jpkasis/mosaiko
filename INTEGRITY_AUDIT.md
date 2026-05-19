@@ -9,9 +9,21 @@
 - Fixture-based vitest suite under `src/__tests__/integrity/` — every finding pinned as a named test.
 - Dependency-injected orchestrator + mock + captured-fixture webhook payloads; no live Shopify, no live R2.
 
-**Branch:** `fix/pipeline-integrity` (off `fix/cart-display-and-print-shape`).
+**Status:** Fully landed on `main` (PR #4 squash-merged as `f9daaf3` on 2026-04-28).
 
-**Last updated:** 2026-04-28 (cart durability fix shipped — durable filesystem-backed dev composite cache + new `/carrito/[itemId]` detail view + shared `<TileGrid>` component extracted from catalog. Closes the cart-thumbnail placeholder bug that affected every category in dev. 2 rounds of Codex audit — caught 1 MAJOR (`.`/`..` path traversal via `BLOB_ID_PATTERN`) + 1 LOW (hydration race), both fixed. Pre-push: Codex cumulative review caught 1 MAJOR (font-glob bloat 37 MB → 1.28 MB), 1 LOW (test env-leak), 2 NITs (dangling export, trailing blank lines), all fixed. Post-push hot-fixes: font-loader Turbopack dev-mode resolution + Spotify geometry reconciliation (cropper aspect 1.0 → 1109/1152 to match measured transparent area in template PNGs; mirrors Phase 1c Polaroid/Studio fix) + cart durability. Zero open BLOCKERs. Zero open MAJORs. Zero open MINORs. Remaining items in `DEFERRED.md` require external action only: real-device iOS test, shipping-ETA product decision, Shopify store creation by client).
+**Last updated:** 2026-04-29 — repo polish + docs sweep. All audit findings closed. Branch state captured below.
+
+**Audit history:**
+- Phase 2 (Tonos `fitMode`) — closes MAJOR #8.
+- Phase 3 (cart correctness: composite-reuse + attr naming + safety) — closes MAJOR #9 + MINOR #12.
+- Phase 4 (server-side font fidelity: `@napi-rs/canvas` + `@fontsource` WOFF2s) — closes MAJOR #10 + MINOR #13.
+- Phase 5 (admin print-files metafield-driven gate) — closes MAJOR #11.
+- Phase 6 (mobile polish: `useKeyboardInset`, Tonos slot toolbar, upload-step sticky CTA).
+- Pre-push cumulative audit — caught 1 MAJOR (font-glob bloat 37 MB → 1.28 MB), 1 LOW (test env-leak), 2 NITs; all fixed.
+- Post-push hot-fixes: font-loader Turbopack dev-mode resolution; Spotify geometry reconciliation (cropAspect 1.0 → 1109/1152 from measured template PNGs).
+- Cart-thumbnail durability fix — durable filesystem-backed composite cache + new `/carrito/[itemId]` detail view + shared `<TileGrid>` extracted from catalog. 2 rounds of Codex audit caught 1 MAJOR (`.` / `..` path traversal in `BLOB_ID_PATTERN`) + 1 LOW (hydration race), both fixed.
+
+**Zero open BLOCKERs / MAJORs / MINORs.** Remaining items in `DEFERRED.md` are external (Shopify store creation by client, real-device iOS test, shipping-ETA product decision) or post-launch roadmap (admin retry UI, fulfillment entry, GA4, content-pages polish).
 
 ---
 
