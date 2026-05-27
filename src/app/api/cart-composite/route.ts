@@ -4,6 +4,7 @@ import { uploadBuffer } from '@/lib/storage';
 import { put as putBlob } from '@/lib/cart-composite-blob-cache';
 import type {
   CategoryCustomization,
+  SaveTheDateCustomization,
   TonosCustomization,
 } from '@/lib/customization-types';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
@@ -13,6 +14,7 @@ import type {
   PrintJob,
   SingleImagePrintJob,
   TonosPrintJob,
+  SaveTheDateMultiPhotoPrintJob,
 } from '@/lib/print-pipeline/types';
 
 // ─── Server-side CropArea (mirrors client-side CropArea without DOM deps) ───
@@ -43,7 +45,22 @@ interface TonosRequest {
   rotations?: [number, number, number];
 }
 
-type CartCompositeRequest = SingleImageRequest | TonosRequest;
+/**
+ * UAT-1b: STD-3 multi-photo request. Same shape as Tonos request
+ * minus tonosSlots/intensity, plus a SaveTheDateCustomization with
+ * gridSize: 3.
+ */
+interface SaveTheDateMultiPhotoRequest {
+  photoUrls?: [string, string, string];
+  photoDataUrls?: [string, string, string];
+  customization: SaveTheDateCustomization & { gridSize: 3 };
+  cropAreas: [CropArea, CropArea, CropArea];
+}
+
+type CartCompositeRequest =
+  | SingleImageRequest
+  | TonosRequest
+  | SaveTheDateMultiPhotoRequest;
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -184,7 +201,77 @@ export async function POST(request: NextRequest) {
 
     let job: PrintJob;
 
-    if (body.customization.categoryType === 'tonos') {
+    // UAT-1b: STD-3 multi-photo branch. Same input shape as Tonos
+    // (3 photos + 3 cropAreas) but the resulting PrintJob is a
+    // SaveTheDateMultiPhotoPrintJob — no tonosSlots / fitModes /
+    // intensity. The STD processor branches on `imageBuffers` to
+    // route into the multi-photo strip-assembly code path.
+    if (
+      body.customization.categoryType === 'save-the-date' &&
+      (body.customization as SaveTheDateCustomization).gridSize === 3
+    ) {
+      const stdBody = body as SaveTheDateMultiPhotoRequest;
+
+      if (
+        !Array.isArray(stdBody.cropAreas) ||
+        stdBody.cropAreas.length !== 3 ||
+        !stdBody.cropAreas.every(isValidCropArea)
+      ) {
+        return NextResponse.json(
+          { error: 'Save the Date 3-piece requires cropAreas to be an array of 3 valid crop areas' },
+          { status: 400 },
+        );
+      }
+
+      const photoUrls = stdBody.photoUrls;
+      const photoDataUrls = stdBody.photoDataUrls;
+      let buffers: Buffer[];
+
+      if (Array.isArray(photoUrls) && photoUrls.length === 3 && photoUrls.every((u) => typeof u === 'string' && u.length > 0)) {
+        try {
+          photoUrls.forEach(validatePhotoUrl);
+        } catch (error) {
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : 'Invalid photo URL' },
+            { status: 400 },
+          );
+        }
+        try {
+          buffers = await Promise.all(photoUrls.map(fetchPhotoBuffer));
+        } catch (error) {
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : 'Failed to fetch photo' },
+            { status: 422 },
+          );
+        }
+      } else if (
+        Array.isArray(photoDataUrls) &&
+        photoDataUrls.length === 3 &&
+        photoDataUrls.every((u) => typeof u === 'string' && u.length > 0)
+      ) {
+        try {
+          buffers = photoDataUrls.map(decodePhotoDataUrl);
+        } catch (error) {
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : 'Invalid photoData' },
+            { status: 400 },
+          );
+        }
+      } else {
+        return NextResponse.json(
+          { error: 'Save the Date 3-piece requires photoUrls or photoDataUrls (array of 3)' },
+          { status: 400 },
+        );
+      }
+
+      const stdJob: SaveTheDateMultiPhotoPrintJob = {
+        imageBuffers: [buffers[0], buffers[1], buffers[2]],
+        customization: stdBody.customization,
+        cropAreas: [stdBody.cropAreas[0], stdBody.cropAreas[1], stdBody.cropAreas[2]],
+        jobId,
+      };
+      job = stdJob;
+    } else if (body.customization.categoryType === 'tonos') {
       const tonosBody = body as TonosRequest;
 
       if (

@@ -49,18 +49,21 @@ export interface CompositeLayout {
 export function getCompositeLayout(
   customization: CategoryCustomization,
 ): CompositeLayout {
-  if (
-    customization.categoryType === 'mosaicos' &&
-    customization.layoutRotated === true
-  ) {
-    const base = CATEGORY_LAYOUTS.mosaicos;
+  // UAT-1b: categories with `rotatable: true` AND a `layoutRotated`
+  // customization flag swap rows/cols at the composite-layout boundary
+  // so the assembled tiles + composite-reuse bypass match the rotated
+  // print processor output. Both Mosaicos and Save the Date support
+  // rotation now; promote the swap into a shared helper.
+  const layoutRotated =
+    (customization.categoryType === 'mosaicos' && customization.layoutRotated === true) ||
+    (customization.categoryType === 'save-the-date' && customization.layoutRotated === true);
+
+  if (layoutRotated) {
+    const base = CATEGORY_LAYOUTS[customization.categoryType];
     const dims = base.dimensions[customization.gridSize];
     if (!dims) {
-      // Should be unreachable: MosaicosCustomization.gridSize is typed
-      // as `3 | 6 | 9` and all three keys are populated in
-      // category-layouts/mosaicos.ts.
       throw new Error(
-        `[assemble-tiles] Missing mosaicos dimensions for grid ${customization.gridSize}`,
+        `[assemble-tiles] Missing ${customization.categoryType} dimensions for grid ${customization.gridSize}`,
       );
     }
     const rotatedLayout = {

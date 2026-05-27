@@ -133,6 +133,10 @@
     "tonosUploadHint": "Each row uses one of your photos. Columns apply warm, neutral, and cool tones.",
     "tonosCropTitle": "Adjust your 3 photos",
     "tonosCropHint": "Frame each photo and pick the tone intensity.",
+    "stdMultiUploadTitle": "Upload 3 photos",
+    "stdMultiUploadHint": "Each tile will show one of your 3 photos. You can add your text in the next step.",
+    "stdMultiCropTitle": "Adjust your 3 photos",
+    "stdMultiCropHint": "Frame each photo. The event text is added in the next step.",
     "tonosIntensityLabel": "Tone intensity",
     "tonosIntensityMild": "Mild",
     "tonosIntensityMedium": "Medium",
@@ -404,6 +408,7 @@
     "viewDesign": "View design",
     "backToCatalog": "Back to catalog",
     "previewSubtitle": "This is how your magnets will look on the fridge",
+    "layoutExampleSubtitle": "This photo is just an example. Upload yours to make it your own.",
     "addToCartPrice": "Add to cart — {price}"
   },
   "orderConfirmation": {

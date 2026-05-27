@@ -17,7 +17,7 @@
  *     `OrderPipelineStatus` so the route can set order-level metafields
  *     and the admin email can enumerate the failed lines.
  */
-import type { CategoryCustomization } from '../customization-types';
+import type { CategoryCustomization, SaveTheDateCustomization } from '../customization-types';
 import type { CropArea } from '../canvas-utils';
 import {
   extractCustomizedLineItems,
@@ -349,6 +349,71 @@ export async function processLineItem(
         cropAreas: [crops[0], crops[1], crops[2]],
         rotations,
         fitModes,
+        jobId,
+      });
+    } catch (error) {
+      return fail('print_pipeline_error', String(error));
+    }
+
+    if (!printResult.tiles || printResult.tiles.length === 0) {
+      return fail('no_tiles_generated');
+    }
+
+    let stored;
+    try {
+      stored = await deps.uploadPrintTiles(
+        jobId,
+        printResult.tiles.map((t) => ({ index: t.index, buffer: t.buffer })),
+      );
+    } catch (error) {
+      return fail('tile_upload_error', String(error));
+    }
+
+    if (stored.length === 0) {
+      return fail('no_tiles_generated');
+    }
+
+    return { kind: 'ok', ...base, urls: stored.map((s) => s.publicUrl) };
+  }
+
+  // ── Save the Date 3-piece (multi-photo) ─────────────────────────────
+  // UAT-1b: STD-3 uses the same `_photo_urls` + `_crop_areas` shape as
+  // Tonos but produces a SaveTheDateMultiPhotoPrintJob — no tonosSlots,
+  // no rotations/fitModes, no color effects. The STD processor branches
+  // internally on `imageBuffers` to route to the multi-photo strip
+  // assembly code.
+  if (
+    customization.categoryType === 'save-the-date' &&
+    (customization as { gridSize?: number }).gridSize === 3
+  ) {
+    const urlsRaw = lineItem.attrs['_photo_urls'];
+    const cropsRaw = lineItem.attrs['_crop_areas'];
+    if (!urlsRaw || !cropsRaw) return fail('missing_photo_attrs');
+
+    const urls = safeJsonParse<string[]>(urlsRaw);
+    const crops = safeJsonParse<CropArea[]>(cropsRaw);
+    if (!urls || !crops) return fail('photo_attr_parse_error');
+    if (urls.length !== 3 || crops.length !== 3) {
+      return fail(
+        'tonos_slot_count_mismatch',
+        `urls.length=${urls.length}, crops.length=${crops.length}`,
+      );
+    }
+
+    const buffers = await Promise.all(urls.map(deps.fetchPhoto));
+    if (buffers.some((b) => !b)) {
+      const missing = buffers
+        .map((b, i) => (b ? null : i))
+        .filter((i): i is number => i !== null);
+      return fail('photo_fetch_failed', `slots=${missing.join(',')}`);
+    }
+
+    let printResult;
+    try {
+      printResult = await deps.processPrintJob({
+        imageBuffers: [buffers[0]!, buffers[1]!, buffers[2]!],
+        customization: customization as SaveTheDateCustomization & { gridSize: 3 },
+        cropAreas: [crops[0], crops[1], crops[2]],
         jobId,
       });
     } catch (error) {

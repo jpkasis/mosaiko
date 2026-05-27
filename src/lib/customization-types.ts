@@ -108,7 +108,11 @@ export type STDTextIntensity = 'subtle' | 'medium' | 'intense';
 
 export interface SaveTheDateCustomization {
   categoryType: 'save-the-date';
-  gridSize: 9;
+  /**
+   * UAT-1b: STD now supports 3 grid sizes. 9 = 3×3 single-photo;
+   * 6 = 3×2 single-photo; 3 = 3×1 multi-photo (one photo per tile).
+   */
+  gridSize: 3 | 6 | 9;
   eventText: string;
   date: string;
   fontFamily: STDFontFamily;
@@ -117,6 +121,13 @@ export interface SaveTheDateCustomization {
   anchor: STDAnchor;
   treatment: STDTextTreatment;
   intensity: STDTextIntensity;
+  /**
+   * UAT-1b: when true, the cropper produced a landscape-oriented crop
+   * (STD-6 rotated to 2×3, STD-3 rotated to 1×3). The print processor
+   * uses this to swap rows/cols before assembling the composite. No-op
+   * on STD-9 (square).
+   */
+  layoutRotated?: boolean;
 }
 
 export const STD_DEFAULTS = {
@@ -251,7 +262,10 @@ export const CATEGORY_REGISTRY: Record<CategoryType, CategoryMeta> = {
   'save-the-date': {
     type: 'save-the-date',
     label: 'Save the Date',
-    allowedGridSizes: [9],
+    // UAT-1b: extended from [9] to all three sizes. 9 + 6 are single-
+    // photo with STD text overlay; 3 is multi-photo (3 photos) with the
+    // same overlay but no Tonos color/intensity effects.
+    allowedGridSizes: [9, 6, 3],
     textFields: ['eventText', 'date'],
     hasTheme: false,
     description: 'Photo with text overlay for events',

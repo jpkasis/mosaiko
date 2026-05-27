@@ -1,6 +1,8 @@
 import { createCart, addToCart } from './mutations/cart';
 import { getVariantId, isVariantMapConfigured } from './variant-map';
 import { toPrintCustomization } from './customization-serializer';
+import { isPurchasableAsIs } from '../catalog-purchase-mode';
+import { getProductById } from '../catalog-data';
 import type { CartLineInput } from './types';
 import type { CartItem } from '../cart-store';
 
@@ -12,7 +14,13 @@ export interface CheckoutResult {
 }
 
 export interface CheckoutError {
-  code: 'SHOPIFY_NOT_CONFIGURED' | 'VARIANT_NOT_FOUND' | 'CART_CREATION_FAILED' | 'EMPTY_CART';
+  code:
+    | 'SHOPIFY_NOT_CONFIGURED'
+    | 'VARIANT_NOT_FOUND'
+    | 'CART_CREATION_FAILED'
+    | 'EMPTY_CART'
+    | 'LAYOUT_EXAMPLE_NOT_PURCHASABLE'
+    | 'INVALID_PREDESIGNED_LINE';
   message: string;
 }
 
@@ -38,6 +46,44 @@ export function buildCartLines(
   const lines: CartLineInput[] = [];
 
   for (const item of items) {
+    // UAT-1a guard (round 2 — fail-CLOSED + spoof-resistant): for
+    // every `predesigned` line, derive the truth from the catalog by
+    // looking up `productId`. We never trust the client-supplied
+    // `categorySlug` because a hand-crafted POST could pair
+    // `categorySlug: "studio"` with a Polaroid productId. The
+    // catalog is the only source of truth for category.
+    //
+    // Reject if:
+    //   - productId is missing
+    //   - productId doesn't match a known catalog product
+    //   - the looked-up product's category is layout-example
+    //     (Mosaicos/Tonos/STD/Spotify/Polaroid)
+    //
+    // Dynamic admin products are not in the sync `getProductById`
+    // lookup yet — they'd reject here. That's fine until admin
+    // product CRUD ships (deferred to post-launch per CLAUDE.md).
+    if (item.type === 'predesigned') {
+      if (!item.productId) {
+        return {
+          code: 'INVALID_PREDESIGNED_LINE',
+          message: 'Hubo un problema con tu carrito. Vacía el carrito y vuelve a personalizar tu pedido.',
+        };
+      }
+      const trustedProduct = getProductById(item.productId);
+      if (!trustedProduct) {
+        return {
+          code: 'INVALID_PREDESIGNED_LINE',
+          message: 'Hubo un problema con tu carrito. Vacía el carrito y vuelve a personalizar tu pedido.',
+        };
+      }
+      if (!isPurchasableAsIs(trustedProduct.category)) {
+        return {
+          code: 'LAYOUT_EXAMPLE_NOT_PURCHASABLE',
+          message: `Los productos de la categoría ${trustedProduct.category} son ejemplos. Personaliza el tuyo con tu propia foto.`,
+        };
+      }
+    }
+
     const variantId = getVariantId(item.gridSize);
 
     if (!variantId) {
@@ -76,7 +122,17 @@ export function buildCartLines(
         { key: '_customization', value: JSON.stringify(toPrintCustomization(item)) },
       );
 
-      if (item.customizations.categoryType === 'tonos') {
+      // UAT-1b: multi-photo categories emit `_photo_urls` + `_crop_areas`.
+      // Tonos always; Save the Date when gridSize === 3 (3-piece is
+      // multi-photo; 9 and 6 stay single-photo). The `_photo_url` legacy
+      // key is also emitted with the first URL for admin detection +
+      // backward compat with the webhook's _-prefix filter.
+      const isMultiPhotoCart =
+        item.customizations.categoryType === 'tonos' ||
+        (item.customizations.categoryType === 'save-the-date' &&
+          item.gridSize === 3);
+
+      if (isMultiPhotoCart) {
         const urls = item.customizations.photoStorageUrls ?? ['', '', ''];
         const crops = item.customizations.cropAreas;
         attributes.push(

@@ -102,7 +102,6 @@ export async function addProduct(input: {
     grid: input.grid,
     gridSize: input.gridSize,
     originalImage: originalUpload.publicUrl,
-    isPredesigned: true,
     seamData: input.seamData,
     isDynamic: true,
     displayImageKey: displayKey,

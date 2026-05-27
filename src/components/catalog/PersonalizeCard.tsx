@@ -3,6 +3,7 @@
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { type CategoryType } from '@/lib/customization-types';
+import { buildPersonalizarHref } from '@/lib/builder-href';
 
 interface PersonalizeCardProps {
   category: CategoryType;
@@ -14,10 +15,7 @@ export function PersonalizeCard({ category, accentColor }: PersonalizeCardProps)
 
   return (
     <Link
-      href={{
-        pathname: '/personalizar',
-        query: { category },
-      }}
+      href={buildPersonalizarHref({ category })}
       className="group flex h-full flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-light-gray bg-warm-white/60 p-6 text-center transition-all duration-300 hover:border-terracotta/40 hover:bg-cream/80"
     >
       {/* Upload icon */}

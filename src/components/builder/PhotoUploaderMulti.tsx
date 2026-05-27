@@ -10,11 +10,19 @@ interface PhotoUploaderMultiProps {
   imageSrcs: [string | null, string | null, string | null];
   onImageSelected: (index: TonosIndex, file: File) => void;
   onAllReady: () => void;
+  /** UAT-1b: i18n keys override for non-Tonos multi-photo flows
+   *  (e.g. STD-3 uses `stdMultiUploadTitle` / `stdMultiUploadHint`).
+   *  Defaults to the Tonos copy. */
+  titleKey?: string;
+  hintKey?: string;
+  /** UAT-1b: per-slot label override. Tonos shows warm/neutral/cool;
+   *  STD-3 uses plain "Foto 1/2/3" without tone hints. */
+  slotLabels?: Record<TonosIndex, { label: string; hint: string }>;
 }
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-const SLOT_LABELS: Record<TonosIndex, { label: string; hint: string }> = {
+const TONOS_SLOT_LABELS: Record<TonosIndex, { label: string; hint: string }> = {
   0: { label: 'Foto 1', hint: 'Columna cálida' },
   1: { label: 'Foto 2', hint: 'Columna neutra' },
   2: { label: 'Foto 3', hint: 'Columna fría' },
@@ -24,9 +32,13 @@ export function PhotoUploaderMulti({
   imageSrcs,
   onImageSelected,
   onAllReady,
+  titleKey = 'tonosUploadTitle',
+  hintKey = 'tonosUploadHint',
+  slotLabels,
 }: PhotoUploaderMultiProps) {
   const t = useTranslations('builder');
   const tc = useTranslations('common');
+  const SLOT_LABELS = slotLabels ?? TONOS_SLOT_LABELS;
 
   const [error, setError] = useState<string | null>(null);
 
@@ -52,10 +64,10 @@ export function PhotoUploaderMulti({
     <div className="flex flex-col gap-6">
       <div className="text-center">
         <h2 className="font-serif text-2xl font-bold text-charcoal md:text-3xl">
-          {t('tonosUploadTitle')}
+          {t(titleKey as 'tonosUploadTitle')}
         </h2>
         <p className="mt-2 text-sm text-warm-gray md:text-base">
-          {t('tonosUploadHint')}
+          {t(hintKey as 'tonosUploadHint')}
         </p>
         <p className="mt-1 text-xs text-warm-gray/80">
           {t('uploadFormatsHintMulti')}

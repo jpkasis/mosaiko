@@ -8,7 +8,8 @@ const tiles = (count: 3 | 6 | 9): readonly LayoutTile<'mosaicos'>[] =>
 
 export const mosaicosLayout = {
   type: 'mosaicos',
-  uploadSlots: 1,
+  uploadSlots: { 3: 1, 6: 1, 9: 1 },
+  photoInputMode: { 3: 'single', 6: 'single', 9: 'single' },
   rotatable: true,
   dimensions: {
     3: { rows: 1, cols: 3 },

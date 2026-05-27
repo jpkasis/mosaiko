@@ -17,7 +17,8 @@ import type { CategoryLayout } from './types';
  */
 export const studioLayout = {
   type: 'studio',
-  uploadSlots: 1,
+  uploadSlots: { 6: 1 },
+  photoInputMode: { 6: 'single' },
   rotatable: false,
   dimensions: {
     6: { rows: 3, cols: 2 },

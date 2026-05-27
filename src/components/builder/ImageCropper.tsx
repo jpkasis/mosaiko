@@ -131,6 +131,15 @@ interface ImageCropperProps {
    * clearing the image + navigating back to the upload step.
    */
   onReplacePhoto?: () => void;
+  /**
+   * UAT-1b NIT — proceed button label. The parent (MagnetBuilder) derives
+   * this from `flow.stepSequence`: "Siguiente" when the next step is
+   * `customize` (STD with text fields) or "Vista previa" when the next
+   * step is `preview` (Mosaicos/Studio/Arte/Spotify/Polaroid). Required so
+   * TypeScript enforces the prop pass — the cropper must not decide
+   * "what's next" on its own. Codex audit fix.
+   */
+  ctaLabel: string;
 }
 
 export function ImageCropper({
@@ -147,6 +156,7 @@ export function ImageCropper({
   canRotateLayout = false,
   layoutRotated = false,
   onReplacePhoto,
+  ctaLabel,
 }: ImageCropperProps) {
   const t = useTranslations('builder');
 
@@ -478,7 +488,7 @@ export function ImageCropper({
         onClick={handleProceed}
         disabled={!canProceed}
       >
-        {t('stepPreview')}
+        {ctaLabel}
       </Button>
 
       {/* Custom slider styles */}

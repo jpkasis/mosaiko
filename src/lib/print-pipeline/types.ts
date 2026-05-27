@@ -1,5 +1,6 @@
 import type {
   CategoryCustomization,
+  SaveTheDateCustomization,
   TonosCustomization,
 } from '../customization-types';
 import type { CropArea } from '../canvas-utils';
@@ -41,7 +42,24 @@ export interface TonosPrintJob {
   jobId: string;
 }
 
-export type PrintJob = SingleImagePrintJob | TonosPrintJob;
+/**
+ * UAT-1b: Save the Date 3-piece multi-photo print job. The customer
+ * uploads 3 photos (one per tile); the processor crops each photo,
+ * assembles them into a 3-tile strip (vertical by default, rotated
+ * 1×3 horizontal when `customization.layoutRotated`), renders the
+ * SaveTheDate text overlay across the strip, and splits into 3
+ * tiles. NO Tonos color/intensity effects.
+ */
+export interface SaveTheDateMultiPhotoPrintJob {
+  imageBuffers: [Buffer, Buffer, Buffer];
+  customization: SaveTheDateCustomization & { gridSize: 3 };
+  cropAreas: [CropArea, CropArea, CropArea];
+  /** Optional per-photo 90° rotations (matches Tonos for parity). */
+  rotations?: [number, number, number];
+  jobId: string;
+}
+
+export type PrintJob = SingleImagePrintJob | TonosPrintJob | SaveTheDateMultiPhotoPrintJob;
 
 // ─── Single tile output ─────────────────────────────────────────────────────
 

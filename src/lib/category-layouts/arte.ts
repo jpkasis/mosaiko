@@ -9,7 +9,8 @@ import type { CategoryLayout } from './types';
  */
 export const arteLayout = {
   type: 'arte',
-  uploadSlots: 1,
+  uploadSlots: { 9: 1 },
+  photoInputMode: { 9: 'single' },
   rotatable: false,
   dimensions: {
     9: { rows: 3, cols: 4 },

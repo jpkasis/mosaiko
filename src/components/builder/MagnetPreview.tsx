@@ -91,10 +91,15 @@ export function MagnetPreview({
         return { categoryType: 'arte', gridSize: 9, title: textFields.title || '', artist: textFields.artist || '', year: textFields.year || '' };
       case 'studio':
         return { categoryType: 'studio', gridSize: 6, year: textFields.year || '', japaneseText: textFields.japaneseText || '', customText: textFields.customText || '', studioText: textFields.studioText || '' };
-      case 'save-the-date':
+      case 'save-the-date': {
+        // UAT-1b: STD supports 3 grid sizes. Preserve whichever grid
+        // size the builder is on so the preview descriptors match the
+        // current layout. STD-9 ↔ 9, STD-6 ↔ 6, STD-3 ↔ 3; default to
+        // 9 if something unexpected slips through.
+        const stdGrid = (gridConfig.size === 6 ? 6 : gridConfig.size === 3 ? 3 : 9) as 3 | 6 | 9;
         return {
           categoryType: 'save-the-date',
-          gridSize: 9,
+          gridSize: stdGrid,
           eventText: textFields.eventText || '',
           date: textFields.date || '',
           fontFamily: (textFields.fontFamily as STDFontFamily) || STD_DEFAULTS.fontFamily,
@@ -104,6 +109,7 @@ export function MagnetPreview({
           treatment: (textFields.treatment as STDTextTreatment) || STD_DEFAULTS.treatment,
           intensity: (textFields.intensity as STDTextIntensity) || STD_DEFAULTS.intensity,
         };
+      }
       case 'tonos':
         return { categoryType: 'tonos', gridSize: (gridConfig.size === 9 ? 9 : 3), intensity: tonos?.intensity ?? 'medium' };
       case 'polaroid':
@@ -132,8 +138,17 @@ export function MagnetPreview({
         setIsLoading(true);
         setError(null);
 
-        // Tonos: crop each of 3 source images once, then fan out to tiles by descriptor.
-        if (categoryType === 'tonos' && tonos) {
+        // Multi-photo categories (Tonos AND UAT-1b Save the Date 3-piece):
+        // crop each of 3 source images once, then fan out to tiles by
+        // descriptor's `sourceImageIndex`. The tone-column filter is
+        // applied per tile in the render step (Tonos only); STD-3 has
+        // no per-tile filter and gets its text overlay via
+        // `SaveTheDateOverlay` in the tile render.
+        const isMultiPhotoPreview =
+          (categoryType === 'tonos' || categoryType === 'save-the-date') &&
+          tonos != null &&
+          (tonos.imageSrcs as (string | null)[]).some((s) => Boolean(s));
+        if (isMultiPhotoPreview && tonos) {
           const tileSize = 200;
           const perSource: (string | null)[] = [null, null, null];
 

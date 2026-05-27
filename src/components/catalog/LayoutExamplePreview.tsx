@@ -2,27 +2,38 @@
 
 import { useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { useRouter } from '@/i18n/navigation';
+import { useRouter, Link } from '@/i18n/navigation';
 import { motion } from 'framer-motion';
 import { getProductById, CATEGORY_ACCENT, type CatalogProduct } from '@/lib/catalog-data';
-import { getEffectiveGridConfig, formatPrice } from '@/lib/grid-config';
+import { getEffectiveGridConfig } from '@/lib/grid-config';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
-import { useCartStore } from '@/lib/cart-store';
-import { isPurchasableAsIs } from '@/lib/catalog-purchase-mode';
+import { buildPersonalizarHref } from '@/lib/builder-href';
+import { isLayoutExample } from '@/lib/catalog-purchase-mode';
 import { Button } from '@/components/ui/Button';
 import { TileGrid } from '@/components/preview/TileGrid';
 
-interface PredesignedPreviewProps {
+interface LayoutExamplePreviewProps {
   productId: string;
   initialProduct?: CatalogProduct; // pre-fetched for dynamic products
 }
 
-export function PredesignedPreview({ productId, initialProduct }: PredesignedPreviewProps) {
+/**
+ * Detail-page shell for layout-example products (Mosaicos, Tonos,
+ * Save the Date, Spotify, Polaroid). Same preview rendering as
+ * `PredesignedPreview` — TileGrid composited example image — but the
+ * primary action is "Personalizar", which deep-links into the builder
+ * with the category + grid pre-selected. The example photo shown
+ * here is INSPIRATION; the customer brings their own.
+ *
+ * Sibling of `PredesignedPreview` (Studio/Arte buyable-as-is). Both
+ * are reached through `/catalogo/[productId]`; the route delegates
+ * by `getPurchaseMode(product.category)`.
+ */
+export function LayoutExamplePreview({ productId, initialProduct }: LayoutExamplePreviewProps) {
   const t = useTranslations('catalogPage');
   const tb = useTranslations('builder');
   const tc = useTranslations('common');
   const router = useRouter();
-  const addItem = useCartStore((s) => s.addItem);
 
   const product = useMemo(() => initialProduct ?? getProductById(productId), [productId, initialProduct]);
   const gridConfig = useMemo(
@@ -30,7 +41,7 @@ export function PredesignedPreview({ productId, initialProduct }: PredesignedPre
     [product],
   );
 
-  // Derive actual rows/cols from seamData when available (handles non-standard grids)
+  // Derive actual rows/cols from seamData when available (handles non-standard grids).
   const effectiveGrid = useMemo(() => {
     if (!product || !gridConfig) return null;
     if (product.seamData) {
@@ -41,33 +52,15 @@ export function PredesignedPreview({ productId, initialProduct }: PredesignedPre
     return { rows: gridConfig.rows, cols: gridConfig.cols };
   }, [product, gridConfig]);
 
-  const handleAddToCart = useCallback(() => {
-    if (!product || !gridConfig) return;
-    const categoryLabel = CATEGORY_REGISTRY[product.category].label;
-
-    addItem({
-      type: 'predesigned',
-      productId: product.id,
-      categorySlug: product.category,
-      name: `${categoryLabel} — ${product.name}`,
-      gridSize: gridConfig.size,
-      gridLayout: { rows: gridConfig.rows, cols: gridConfig.cols },
-      price: product.price,
-      quantity: 1,
-      previewUrl: product.image,
-      tileUrls: [],
-    });
-  }, [product, gridConfig, addItem]);
-
   const handleBack = useCallback(() => {
     router.push('/catalogo');
   }, [router]);
 
-  if (!product || !isPurchasableAsIs(product.category) || !gridConfig || !effectiveGrid) return null;
+  if (!product || !isLayoutExample(product.category) || !gridConfig || !effectiveGrid) return null;
 
   const categoryLabel = CATEGORY_REGISTRY[product.category].label;
   const accentClass = CATEGORY_ACCENT[product.category];
-  const priceFormatted = formatPrice(product.price);
+  const personalizarHref = buildPersonalizarHref({ category: product.category, gridSize: product.gridSize });
 
   return (
     <div className="flex flex-col gap-6">
@@ -103,12 +96,11 @@ export function PredesignedPreview({ productId, initialProduct }: PredesignedPre
           transition={{ delay: 0.15, duration: 0.4 }}
           className="mt-2 text-sm text-warm-gray"
         >
-          {t('previewSubtitle')}
+          {t('layoutExampleSubtitle')}
         </motion.p>
       </div>
 
-      {/* Product display — shared TileGrid component, also used by the
-          cart-item detail page (`/carrito/[itemId]`) for custom mosaics. */}
+      {/* Product display — shared TileGrid component */}
       <div className="mx-auto w-full max-w-[420px]">
         {/* Hidden img for SEO/a11y alt text */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -131,33 +123,27 @@ export function PredesignedPreview({ productId, initialProduct }: PredesignedPre
         transition={{ delay: 0.4, duration: 0.4 }}
         className="flex flex-col gap-4"
       >
-        {/* Product info card */}
+        {/* Product info card (no price — price is set by the builder grid choice) */}
         <div className="flex items-center justify-between rounded-xl bg-white px-4 py-3">
           <div className="flex flex-col">
             <span className="text-sm text-warm-gray">
               {tb(`grid${gridConfig.size}` as 'grid3' | 'grid4' | 'grid6' | 'grid9')}
             </span>
             <span className="text-xs text-warm-gray">
-              {product.category === 'arte'
-                ? `4×2+1 — ${gridConfig.size} ${tc('pieces')}`
-                : `${gridConfig.rows} x ${gridConfig.cols} — ${gridConfig.size} ${tc('pieces')}`}
+              {/* Arte is purchase-as-is, never reaches this shell, so the
+                  Arte-specific "4×2+1" badge stays in PredesignedPreview. */}
+              {`${gridConfig.rows} x ${gridConfig.cols} — ${gridConfig.size} ${tc('pieces')}`}
               {' · '}{categoryLabel}
             </span>
           </div>
-          <span className="text-xl font-bold text-charcoal">
-            {priceFormatted}
-          </span>
         </div>
 
-        {/* Add to cart button */}
-        <Button
-          variant="primary"
-          size="lg"
-          fullWidth
-          onClick={handleAddToCart}
-        >
-          {t('addToCartPrice', { price: priceFormatted })}
-        </Button>
+        {/* Personalizar CTA → builder deep-link */}
+        <Link href={personalizarHref}>
+          <Button variant="primary" size="lg" fullWidth>
+            {t('personalizeButton')}
+          </Button>
+        </Link>
 
         {/* Back to catalog link */}
         <button
@@ -170,4 +156,3 @@ export function PredesignedPreview({ productId, initialProduct }: PredesignedPre
     </div>
   );
 }
-

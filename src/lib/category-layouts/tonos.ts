@@ -34,7 +34,8 @@ function tilesFor(grid: 3 | 9): readonly LayoutTile<'tonos'>[] {
 
 export const tonosLayout = {
   type: 'tonos',
-  uploadSlots: 3,
+  uploadSlots: { 3: 3, 9: 3 },
+  photoInputMode: { 3: 'multi-photo', 9: 'multi-photo' },
   rotatable: false,
   dimensions: {
     3: { rows: 1, cols: 3 },

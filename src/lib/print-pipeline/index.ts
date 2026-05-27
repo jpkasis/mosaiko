@@ -4,6 +4,7 @@ import type {
   TileOutput,
   SingleImagePrintJob,
   TonosPrintJob,
+  SaveTheDateMultiPhotoPrintJob,
 } from './types';
 import sharp from 'sharp';
 import { processMosaicos } from './processors/mosaicos';
@@ -24,6 +25,7 @@ export type {
   PrintJob,
   SingleImagePrintJob,
   TonosPrintJob,
+  SaveTheDateMultiPhotoPrintJob,
   ProcessorResult,
   TileOutput,
 } from './types';
@@ -72,9 +74,17 @@ export async function processPrintJob(
     case 'spotify':
       tiles = await processSpotify(job as SingleImagePrintJob);
       break;
-    case 'save-the-date':
-      tiles = await processSaveTheDate(job as SingleImagePrintJob);
+    case 'save-the-date': {
+      // UAT-1b: STD-3 is multi-photo; STD-9 and STD-6 remain single-
+      // photo. Disambiguate by shape (`imageBuffers` array vs
+      // `imageBuffer` buffer) and route to the right processor branch.
+      if ('imageBuffers' in job) {
+        tiles = await processSaveTheDate(job as SaveTheDateMultiPhotoPrintJob);
+      } else {
+        tiles = await processSaveTheDate(job as SingleImagePrintJob);
+      }
       break;
+    }
     case 'arte':
       tiles = await processArte(job as SingleImagePrintJob);
       break;

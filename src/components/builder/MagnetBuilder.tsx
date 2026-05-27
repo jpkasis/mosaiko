@@ -13,7 +13,7 @@ import {
   type TonosSlotConfigs,
 } from '@/lib/customization-types';
 import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
-import { deriveCropperOverlay } from '@/lib/category-layouts/derive';
+import { deriveCropperOverlay, isMultiPhotoInput } from '@/lib/category-layouts/derive';
 import type { CropArea } from '@/lib/canvas-utils';
 import { useCartStore } from '@/lib/cart-store';
 import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
@@ -171,6 +171,75 @@ export function MagnetBuilder() {
     try {
       const meta = CATEGORY_REGISTRY[flow.selectedCategory];
 
+      // UAT-1b: STD-3 multi-photo path. Shares the multi-photo upload +
+      // crop state stored under `flow.tonos.*` (the name is historical;
+      // the slots are generic). Produces a `save-the-date` customization
+      // with `textFields` + `gridSize: 3` and no Tonos-specific fields.
+      if (
+        flow.selectedCategory === 'save-the-date' &&
+        flow.gridConfig.size === 3
+      ) {
+        const srcs = flow.tonos.imageSrcs;
+        const cropAreas = flow.tonos.cropAreas;
+        const files = flow.tonos.fileRefs.current;
+
+        if (srcs.some((s) => !s) || cropAreas.some((c) => !c) || files.some((f) => !f)) {
+          return;
+        }
+
+        const uploaded = await Promise.all(
+          (files as File[]).map(uploadOrEncode),
+        );
+        const anyFailed = uploaded.some((u) => u.kind !== 'url');
+        const photoStorageUrls = uploaded.map((u) => (u.kind === 'url' ? u.url : '')) as [
+          string, string, string,
+        ];
+
+        const customization = buildPrintCustomization({
+          categoryType: 'save-the-date',
+          gridSize: 3,
+          textFields: flow.customizationValues,
+          layoutRotated: flow.layoutRotated,
+        });
+
+        const compositeBody: Record<string, unknown> = {
+          cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
+          customization,
+        };
+        if (anyFailed) {
+          const allDataUrls = (await Promise.all(
+            (files as File[]).map((f) => fileToDataUrl(f)),
+          )) as [string, string, string];
+          compositeBody.photoDataUrls = allDataUrls;
+        } else {
+          compositeBody.photoUrls = photoStorageUrls;
+        }
+        const composite = await requestCartComposite(compositeBody);
+
+        addItem({
+          type: 'custom',
+          name: `${meta.label} 3 piezas`,
+          gridSize: 3,
+          gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
+          price: flow.gridConfig.price,
+          quantity: 1,
+          previewUrl: composite.thumbUrl,
+          tileUrls: [],
+          customizations: {
+            categoryType: 'save-the-date',
+            textFields: flow.customizationValues,
+            photoStorageUrls,
+            cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
+            layoutRotated: flow.layoutRotated,
+            compositeJobId: composite.jobId,
+            compositeKey: composite.compositeKey,
+            compositeUrl: composite.compositeUrl,
+            compositePipelineVersion: composite.pipelineVersion,
+          },
+        });
+        return;
+      }
+
       if (flow.selectedCategory === 'tonos') {
         // Tonos: 3 images, 3 crops, intensity.
         const srcs = flow.tonos.imageSrcs;
@@ -316,7 +385,36 @@ export function MagnetBuilder() {
     return CATEGORY_REGISTRY[flow.selectedCategory].allowedGridSizes;
   }, [flow.selectedCategory]);
 
-  const isTonos = flow.selectedCategory === 'tonos';
+  // UAT-1b: `isMultiPhoto` is the FLOW gate — it controls which upload
+  // step, which cropper, and which add-to-cart shape we use. It's
+  // derived from the layout for the current (category, grid), so STD-3
+  // joins the multi-photo flow without inheriting Tonos's color/intensity
+  // effects. `isTonosEffects` stays the Tonos-only gate for tone column +
+  // intensity + fit-mode UI.
+  const isMultiPhoto = useMemo(() => {
+    if (!flow.selectedCategory || flow.selectedGrid == null) return false;
+    return isMultiPhotoInput(
+      CATEGORY_LAYOUTS[flow.selectedCategory],
+      flow.selectedGrid,
+    );
+  }, [flow.selectedCategory, flow.selectedGrid]);
+  const isTonosEffects = flow.selectedCategory === 'tonos';
+  // Legacy alias for the flow-gate name. Most existing branches that
+  // read `isTonos` actually mean "multi-photo flow" — UAT-1b corrects
+  // the semantic. The `isTonosEffects` variable above keeps the Tonos-
+  // specific UI branches honest.
+  const isTonos = isMultiPhoto;
+
+  // UAT-1b NIT — crop-step CTA label. `stepSequence` already knows whether
+  // the next step is `customize` (categories with text fields, e.g. STD)
+  // or `preview` (Tonos, Mosaicos, Studio, Arte, Spotify, Polaroid). Use
+  // `tc('next')` ("Siguiente") for the intermediate hop to match the rest
+  // of the builder's step-advance buttons (Codex audit, i18n consistency).
+  const cropCtaLabel = useMemo(() => {
+    const cropIdx = flow.stepSequence.indexOf('crop');
+    const nextStep = cropIdx >= 0 ? flow.stepSequence[cropIdx + 1] : undefined;
+    return nextStep === 'customize' ? tc('next') : t('stepPreview');
+  }, [flow.stepSequence, t, tc]);
 
   // Mobile-only live-preview drawer. Desktop keeps the sticky sidebar.
   const [previewDrawerOpen, setPreviewDrawerOpen] = useState(false);
@@ -590,7 +688,7 @@ export function MagnetBuilder() {
                     onReadyChange={setUploadReadyFile}
                   />
                 )}
-                {flow.currentStepId === 'upload' && flow.gridConfig && isTonos && (
+                {flow.currentStepId === 'upload' && flow.gridConfig && isMultiPhoto && (
                   <PhotoUploaderMulti
                     imageSrcs={flow.tonos.imageSrcs}
                     onImageSelected={flow.handleTonosImageSelected}
@@ -602,6 +700,17 @@ export function MagnetBuilder() {
                         );
                       }
                     }}
+                    titleKey={isTonosEffects ? 'tonosUploadTitle' : 'stdMultiUploadTitle'}
+                    hintKey={isTonosEffects ? 'tonosUploadHint' : 'stdMultiUploadHint'}
+                    slotLabels={
+                      isTonosEffects
+                        ? undefined
+                        : {
+                            0: { label: 'Foto 1', hint: '' },
+                            1: { label: 'Foto 2', hint: '' },
+                            2: { label: 'Foto 3', hint: '' },
+                          }
+                    }
                   />
                 )}
 
@@ -619,9 +728,10 @@ export function MagnetBuilder() {
                     canRotateLayout={flow.canRotateLayout}
                     layoutRotated={flow.layoutRotated}
                     onReplacePhoto={flow.handleReplaceSingleImage}
+                    ctaLabel={cropCtaLabel}
                   />
                 )}
-                {flow.currentStepId === 'crop' && isTonos && flow.gridConfig && (
+                {flow.currentStepId === 'crop' && isMultiPhoto && flow.gridConfig && (
                   <ImageCropperMulti
                     imageSrcs={flow.tonos.imageSrcs}
                     gridConfig={flow.gridConfig}
@@ -637,6 +747,18 @@ export function MagnetBuilder() {
                     onSlotReset={flow.handleTonosSlotReset}
                     onSlotReplacePhoto={flow.handleTonosSlotReplacePhoto}
                     onAllDone={flow.advanceFromTonosCrop}
+                    variant={isTonosEffects ? 'tonos' : 'plain'}
+                    title={
+                      isTonosEffects
+                        ? undefined
+                        : t('stdMultiCropTitle')
+                    }
+                    subtitle={
+                      isTonosEffects
+                        ? undefined
+                        : t('stdMultiCropHint')
+                    }
+                    ctaLabel={cropCtaLabel}
                   />
                 )}
 
@@ -941,7 +1063,14 @@ function LivePreviewSidebar({
 }) {
   const t = useTranslations('builder');
 
-  const isTonos = selectedCategory === 'tonos';
+  // UAT-1b: sidebar mirrors the main flow gate. Was `selectedCategory === 'tonos'`
+  // which excluded STD-3 multi-photo from the multi-photo preview branch and
+  // caused STD-3 to render as a single-photo placeholder.
+  const isMultiPhoto =
+    selectedCategory != null && selectedGrid != null
+      ? isMultiPhotoInput(CATEGORY_LAYOUTS[selectedCategory], selectedGrid)
+      : false;
+  const isTonos = isMultiPhoto;
   const tonosReady = !!tonos && tonos.imageSrcs.every((s) => s) && tonos.cropAreas.every((c) => c);
 
   return (
@@ -1044,8 +1173,12 @@ function LivePreviewSidebar({
                 imageSrc={null}
                 cropArea={null}
                 gridConfig={gridConfig}
-                categoryType="tonos"
+                // UAT-1b: pass through the actual category so STD-3 renders
+                // its text overlay (was hardcoded "tonos" which skipped STD's
+                // SaveTheDateOverlay path inside MagnetPreview).
+                categoryType={selectedCategory ?? undefined}
                 tonos={tonos}
+                textFields={textFields}
               />
             </motion.div>
           )}

@@ -38,6 +38,31 @@ interface ImageCropperMultiProps {
    *  to the upload step to swap one photo. */
   onSlotReplacePhoto: (index: TonosIndex, file: File) => void;
   onAllDone: () => void;
+  /**
+   * UAT-1b: which UI controls render. Tonos exposes intensity selector,
+   * fit-mode selector, and tone-column swatches; STD-3 ("plain") hides
+   * all three because Save the Date multi-photo doesn't have color
+   * effects. Defaults to "tonos" for back-compat.
+   */
+  variant?: 'tonos' | 'plain';
+  /** UAT-1b: per-slot labels (Foto 1/2/3 by default). Tonos passes
+   *  warm/neutral/cool hints; STD-3 omits hints entirely. */
+  slotLabels?: readonly [
+    { label: string; hint?: string; swatch?: string },
+    { label: string; hint?: string; swatch?: string },
+    { label: string; hint?: string; swatch?: string },
+  ];
+  /** UAT-1b: title + subtitle override (defaults to Tonos copy). */
+  title?: string;
+  subtitle?: string;
+  /**
+   * UAT-1b NIT — proceed button label. The parent (MagnetBuilder) derives
+   * this from `flow.stepSequence`: "Siguiente" when the next step is
+   * `customize` (STD-3) or "Vista previa" when the next step is `preview`
+   * (Tonos). Required so TypeScript enforces the prop pass — the cropper
+   * must not decide "what's next" on its own. Codex audit fix.
+   */
+  ctaLabel: string;
 }
 
 const INTENSITY_ORDER: TonosIntensity[] = ['mild', 'medium', 'strong'];
@@ -63,11 +88,34 @@ export function ImageCropperMulti({
   onSlotReset,
   onSlotReplacePhoto,
   onAllDone,
+  variant = 'tonos',
+  slotLabels,
+  title,
+  subtitle,
+  ctaLabel,
 }: ImageCropperMultiProps) {
   const t = useTranslations('builder');
 
   const allCropped = cropAreas.every((c) => c !== null);
   const allSrcs = imageSrcs.every((s) => s !== null);
+
+  const heading = title ?? t('tonosCropTitle');
+  const hint = subtitle ?? t('tonosCropHint');
+  const isTonosVariant = variant === 'tonos';
+
+  // UAT-1b — when not Tonos, render plain "Foto 1/2/3" labels without
+  // tone hints. Tonos keeps its warm/neutral/cool affordance.
+  const effectiveLabels: Record<TonosIndex, { label: string; hint?: string; swatch?: string }> = (
+    slotLabels
+      ? { 0: slotLabels[0], 1: slotLabels[1], 2: slotLabels[2] }
+      : isTonosVariant
+        ? COLUMN_LABELS
+        : {
+            0: { label: 'Foto 1' },
+            1: { label: 'Foto 2' },
+            2: { label: 'Foto 3' },
+          }
+  );
 
   return (
     <motion.div
@@ -78,17 +126,14 @@ export function ImageCropperMulti({
     >
       <div className="text-center">
         <h2 className="font-serif text-2xl font-bold text-charcoal md:text-3xl">
-          {t('tonosCropTitle')}
+          {heading}
         </h2>
-        <p className="mt-2 text-sm text-warm-gray">{t('tonosCropHint')}</p>
+        <p className="mt-2 text-sm text-warm-gray">{hint}</p>
       </div>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         {imageSrcs.map((src, i) => (
           <TonosCropSlot
-            // Phase 6.2 — composite key includes resetSeq so a bumped
-            // counter for slot i forces remount of THAT slot only.
-            // Other slots retain their crop/zoom/imageSize state.
             key={`${i}-${resetSeq[i]}`}
             index={i as TonosIndex}
             imageSrc={src}
@@ -99,11 +144,18 @@ export function ImageCropperMulti({
             onToggleRotation={onToggleRotation}
             onSlotReset={onSlotReset}
             onSlotReplacePhoto={onSlotReplacePhoto}
+            label={effectiveLabels[i as TonosIndex]}
+            showFitModeSelector={isTonosVariant}
+            showRotation={isTonosVariant}
           />
         ))}
       </div>
 
-      <IntensitySelector selected={intensity} onChange={onIntensityChange} />
+      {/* Intensity selector is Tonos-only; STD-3 + future plain
+          multi-photo variants don't expose color/intensity controls. */}
+      {isTonosVariant && (
+        <IntensitySelector selected={intensity} onChange={onIntensityChange} />
+      )}
 
       <Button
         variant="primary"
@@ -112,7 +164,7 @@ export function ImageCropperMulti({
         onClick={onAllDone}
         disabled={!allCropped || !allSrcs}
       >
-        {t('stepPreview')}
+        {ctaLabel}
       </Button>
     </motion.div>
   );
@@ -130,6 +182,9 @@ function TonosCropSlot({
   onToggleRotation,
   onSlotReset,
   onSlotReplacePhoto,
+  label: labelOverride,
+  showFitModeSelector = true,
+  showRotation = true,
 }: {
   index: TonosIndex;
   imageSrc: string | null;
@@ -140,6 +195,13 @@ function TonosCropSlot({
   onToggleRotation: (index: TonosIndex) => void;
   onSlotReset: (index: TonosIndex) => void;
   onSlotReplacePhoto: (index: TonosIndex, file: File) => void;
+  label?: { label: string; hint?: string; swatch?: string };
+  showFitModeSelector?: boolean;
+  /** UAT-1b: STD-3 ("plain") hides per-slot 90° rotation because the
+   *  multi-photo print processor doesn't currently apply per-photo
+   *  rotations — exposing the button would let the user rotate the
+   *  preview without affecting the printed output. Defaults to true. */
+  showRotation?: boolean;
 }) {
   const t = useTranslations('builder');
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -199,7 +261,7 @@ function TonosCropSlot({
     [index, onCropChange, onCropComplete],
   );
 
-  const meta = COLUMN_LABELS[index];
+  const meta = labelOverride ?? COLUMN_LABELS[index];
   const objectFit = slot.fitMode === 'fill' ? 'cover' : 'contain';
 
   // Cropper aspect must match the EFFECTIVE image aspect for `'fit'`
@@ -228,20 +290,26 @@ function TonosCropSlot({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-charcoal">{meta.label}</span>
-        <div className="flex items-center gap-2">
-          <span
-            className="h-3 w-3 rounded-full border border-black/5"
-            style={{ backgroundColor: meta.swatch }}
-            aria-hidden="true"
-          />
-          <span className="text-xs text-warm-gray">{meta.hint}</span>
-        </div>
+        {(meta.swatch || meta.hint) && (
+          <div className="flex items-center gap-2">
+            {meta.swatch && (
+              <span
+                className="h-3 w-3 rounded-full border border-black/5"
+                style={{ backgroundColor: meta.swatch }}
+                aria-hidden="true"
+              />
+            )}
+            {meta.hint && <span className="text-xs text-warm-gray">{meta.hint}</span>}
+          </div>
+        )}
       </div>
 
-      <FitModeSelector
-        selected={slot.fitMode}
-        onChange={(m) => onFitModeChange(index, m)}
-      />
+      {showFitModeSelector && (
+        <FitModeSelector
+          selected={slot.fitMode}
+          onChange={(m) => onFitModeChange(index, m)}
+        />
+      )}
 
       {/* Phase 6.2 — per-slot toolbar. Mirrors the single-image cropper's
           Restablecer + Cambiar foto pattern, scoped to this one slot.
@@ -297,21 +365,23 @@ function TonosCropSlot({
       </div>
 
       <div className="flex items-center gap-2 px-1">
-        <button
-          type="button"
-          onClick={() => onToggleRotation(index)}
-          disabled={!imageSrc}
-          aria-label={t('rotate')}
-          title={`${t('rotate')} (${slot.rotation}°)`}
-          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-light-gray bg-white text-warm-gray transition-colors hover:border-terracotta hover:text-terracotta disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M7.5 3.5L4 7l3.5 3.5" />
-            <path d="M4 7h11a4 4 0 0 1 4 4v1" />
-            <path d="M16.5 20.5L20 17l-3.5-3.5" />
-            <path d="M20 17H9a4 4 0 0 1-4-4v-1" />
-          </svg>
-        </button>
+        {showRotation && (
+          <button
+            type="button"
+            onClick={() => onToggleRotation(index)}
+            disabled={!imageSrc}
+            aria-label={t('rotate')}
+            title={`${t('rotate')} (${slot.rotation}°)`}
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-light-gray bg-white text-warm-gray transition-colors hover:border-terracotta hover:text-terracotta disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7.5 3.5L4 7l3.5 3.5" />
+              <path d="M4 7h11a4 4 0 0 1 4 4v1" />
+              <path d="M16.5 20.5L20 17l-3.5-3.5" />
+              <path d="M20 17H9a4 4 0 0 1-4-4v-1" />
+            </svg>
+          </button>
+        )}
 
         {slot.fitMode !== 'stretch' && (
           <>

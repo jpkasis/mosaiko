@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { createCanvas, type SKRSContext2D } from '@napi-rs/canvas';
-import { GRID_CONFIGS, TILE_PRINT_SIZE } from '../../grid-config';
+import { TILE_PRINT_SIZE } from '../../grid-config';
 import {
   STD_FONT_PRINT_NAMES,
   hexLuminance,
@@ -10,36 +10,75 @@ import {
   type STDTextTreatment,
   type STDTextIntensity,
 } from '../../customization-types';
-import type { SingleImagePrintJob, TileOutput } from '../types';
+import { saveTheDateLayout } from '../../category-layouts/save-the-date';
+import { deriveDimensions } from '../../category-layouts/derive';
+import type {
+  SingleImagePrintJob,
+  SaveTheDateMultiPhotoPrintJob,
+  TileOutput,
+} from '../types';
 import { cropAndResize, splitIntoTiles } from '../utils/tile-splitter';
 import { ensurePrintFontsRegistered } from '../utils/font-loader';
 
 const TILE = TILE_PRINT_SIZE;
 
+function isMultiPhotoJob(
+  job: SingleImagePrintJob | SaveTheDateMultiPhotoPrintJob,
+): job is SaveTheDateMultiPhotoPrintJob {
+  return 'imageBuffers' in job;
+}
+
 /**
  * Save the Date processor.
  *
- * The user's text is composited as a single unified overlay onto the
- * cropped photo BEFORE splitting into tiles. Each output PNG tile
- * naturally receives its slice of the overlay.
+ * Two job shapes are supported (UAT-1b):
+ *   - SingleImagePrintJob   → STD-9 (3×3) and STD-6 (3×2). The cropped
+ *     photo spans the full composite; text overlay renders once across
+ *     it; the composite is split into 6 or 9 tiles.
+ *   - SaveTheDateMultiPhotoPrintJob → STD-3 (3×1 portrait by default,
+ *     or 1×3 landscape when layoutRotated). Each of the 3 uploaded
+ *     photos is cropped into its tile slot; the strip is assembled
+ *     gapless; text overlay renders across the entire strip; the
+ *     strip splits into 3 tiles.
+ *
+ * Layout dimensions come from `saveTheDateLayout.dimensions` via
+ * `deriveDimensions`, not raw `GRID_CONFIGS`, so STD-3 (3 rows × 1 col)
+ * doesn't conflict with the base GRID_CONFIGS[3] (1 row × 3 cols).
  *
  * Text wrapping is user-controlled: eventText is split on '\n' only.
  * No automatic word-breaking.
  */
 export async function processSaveTheDate(
-  job: SingleImagePrintJob,
+  job: SingleImagePrintJob | SaveTheDateMultiPhotoPrintJob,
 ): Promise<TileOutput[]> {
   const customization = job.customization as SaveTheDateCustomization;
-  const grid = GRID_CONFIGS[customization.gridSize];
-  const compositeW = grid.cols * TILE;
-  const compositeH = grid.rows * TILE;
+  const baseDim = deriveDimensions(saveTheDateLayout, customization.gridSize);
+  // Respect layout rotation: STD-6 portrait↔landscape, STD-3 vertical↔horizontal.
+  // STD-9 is square so rotation is a no-op.
+  const dim = customization.layoutRotated
+    ? { rows: baseDim.cols, cols: baseDim.rows }
+    : baseDim;
+  const compositeW = dim.cols * TILE;
+  const compositeH = dim.rows * TILE;
 
-  const croppedBuffer = await cropAndResize(
-    job.imageBuffer,
-    job.cropArea,
-    compositeW,
-    compositeH,
-  );
+  let baseComposite: Buffer;
+
+  if (isMultiPhotoJob(job)) {
+    // STD-3: assemble 3 cropped tiles into the strip BEFORE overlay.
+    baseComposite = await assembleMultiPhotoStrip(
+      job,
+      dim.rows,
+      dim.cols,
+    );
+  } else {
+    // STD-9 / STD-6: single cropped photo spans the full composite.
+    baseComposite = await cropAndResize(
+      job.imageBuffer,
+      job.cropArea,
+      compositeW,
+      compositeH,
+    );
+  }
 
   // Phase 4 STD migration: text + treatment effects rendered via
   // @napi-rs/canvas instead of SVG/librsvg. The SVG path silently fell
@@ -53,18 +92,70 @@ export async function processSaveTheDate(
     compositeH,
   );
 
-  const composited = await sharp(croppedBuffer)
+  const composited = await sharp(baseComposite)
     .composite([{ input: overlay, blend: 'over' }])
     .png()
     .toBuffer();
 
-  const tileBuffers = await splitIntoTiles(composited, grid.rows, grid.cols);
+  const tileBuffers = await splitIntoTiles(composited, dim.rows, dim.cols);
 
   return tileBuffers.map((buffer, index) => ({
     index,
     buffer,
     filename: `${job.jobId}_save-the-date_tile_${index}.png`,
   }));
+}
+
+/**
+ * Assemble 3 cropped photos into the STD-3 strip composite. Each photo
+ * is cropped to its 827×827 tile slot, then placed at the correct
+ * position in the strip. Tile placement honors `layoutRotated`:
+ *   - vertical (default):   tiles stacked top→bottom (3 rows × 1 col)
+ *   - landscape (rotated):  tiles laid out left→right (1 row × 3 cols)
+ *
+ * No tone effects, no rotations applied to the photos themselves
+ * (per-photo rotations would extend this to apply 90° turns via
+ * `extract` + `rotate` before cropping). Phase 4 of UAT-1b can add
+ * per-photo rotation if needed.
+ */
+async function assembleMultiPhotoStrip(
+  job: SaveTheDateMultiPhotoPrintJob,
+  rows: number,
+  cols: number,
+): Promise<Buffer> {
+  const tileBuffers = await Promise.all(
+    job.imageBuffers.map((buf, i) =>
+      cropAndResize(buf, job.cropAreas[i], TILE, TILE),
+    ),
+  );
+
+  // Build the strip canvas (cream background) and composite each tile
+  // at its position. Same convention as the cart-composite endpoint
+  // (assembleTilesToComposite) but inlined for clarity since STD-3
+  // is always a simple strip.
+  const stripW = cols * TILE;
+  const stripH = rows * TILE;
+  const composites = tileBuffers.map((buffer, i) => {
+    const rowIdx = Math.floor(i / cols);
+    const colIdx = i % cols;
+    return {
+      input: buffer,
+      left: colIdx * TILE,
+      top: rowIdx * TILE,
+    };
+  });
+
+  return await sharp({
+    create: {
+      width: stripW,
+      height: stripH,
+      channels: 4,
+      background: { r: 250, g: 248, b: 242, alpha: 1 },
+    },
+  })
+    .composite(composites)
+    .png()
+    .toBuffer();
 }
 
 function formatDate(iso: string): string {

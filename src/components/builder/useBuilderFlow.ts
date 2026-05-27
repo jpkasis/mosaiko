@@ -516,10 +516,23 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     });
   }, []);
 
+  // UAT-1b: renamed from "advance from Tonos crop" to "advance from multi-
+  // photo crop" because Save the Date 3-piece now uses the same multi-crop
+  // step. Route to the next step in `stepSequence`, not hardcoded to
+  // `preview`. STD-3 has `customize` between crop and preview (eventText
+  // + date); Tonos has no text fields so its step sequence is
+  // crop → preview directly. `goForward`-like math means both work
+  // without category-specific branches.
   const advanceFromTonosCrop = useCallback(() => {
     setDirection(1);
-    setCurrentStepId('preview');
-  }, []);
+    setCurrentStepId((current) => {
+      const idx = stepSequence.indexOf(current);
+      if (idx >= 0 && idx < stepSequence.length - 1) {
+        return stepSequence[idx + 1];
+      }
+      return current;
+    });
+  }, [stepSequence]);
 
   // Phase 6.2 — Per-slot reset. Mirrors the single-image cropper's
   // `Restablecer` semantics for Tonos's 3-slot grid: clear fitMode +

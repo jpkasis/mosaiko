@@ -12,6 +12,7 @@ import type {
   CategoryLayout,
   CropperOverlay,
   LayoutTile,
+  PhotoInputMode,
   PhotoRegion,
 } from './types';
 import { CATEGORY_LAYOUTS } from './index';
@@ -51,6 +52,42 @@ function requireFrame(layout: CategoryLayout) {
     );
   }
   return layout.frame;
+}
+
+// ─── Photo input mode (UAT-1b) ─────────────────────────────────────────────
+
+/**
+ * Number of photos the user uploads for this (category, grid). 1 for
+ * single-photo flows, 3 for multi-photo flows (Tonos, STD-3). Grid-keyed
+ * because Save the Date is mixed (9/6 = 1, 3 = 3) — call this helper
+ * rather than inspect the layout map directly.
+ */
+export function deriveUploadSlots(
+  layout: CategoryLayout,
+  grid: GridSize,
+): 1 | 3 {
+  return layout.uploadSlots[grid] ?? 1;
+}
+
+/**
+ * Whether the (category, grid) combination is single-photo or multi-photo.
+ * The builder flow, cart serializer, cart-composite endpoint, webhook
+ * processor, and print pipeline all branch on this — NOT on
+ * `category === 'tonos'`. That keeps Save the Date 3-piece reusing the
+ * multi-photo flow without inheriting Tonos's tone/intensity effects.
+ */
+export function derivePhotoInput(
+  layout: CategoryLayout,
+  grid: GridSize,
+): PhotoInputMode {
+  return layout.photoInputMode[grid] ?? 'single';
+}
+
+export function isMultiPhotoInput(
+  layout: CategoryLayout,
+  grid: GridSize,
+): boolean {
+  return derivePhotoInput(layout, grid) === 'multi-photo';
 }
 
 // ─── Crop aspect ────────────────────────────────────────────────────────────

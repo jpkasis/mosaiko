@@ -133,6 +133,10 @@
     "tonosUploadHint": "Cada fila del mosaico usa una de tus fotos. Las columnas aplican los tonos cálido, neutro y frío.",
     "tonosCropTitle": "Ajusta tus 3 fotos",
     "tonosCropHint": "Encuadra cada foto y elige la intensidad del tono.",
+    "stdMultiUploadTitle": "Sube 3 fotos",
+    "stdMultiUploadHint": "Cada tile mostrará una de tus 3 fotos. Después podrás añadir tu texto.",
+    "stdMultiCropTitle": "Ajusta tus 3 fotos",
+    "stdMultiCropHint": "Encuadra cada foto. El texto del evento se añade en el siguiente paso.",
     "tonosIntensityLabel": "Intensidad del color",
     "tonosIntensityMild": "Suave",
     "tonosIntensityMedium": "Media",
@@ -404,6 +408,7 @@
     "viewDesign": "Ver diseño",
     "backToCatalog": "Volver al catálogo",
     "previewSubtitle": "Así se verán tus imanes en el refrigerador",
+    "layoutExampleSubtitle": "Esta foto es solo un ejemplo. Sube la tuya y créalo a tu manera.",
     "addToCartPrice": "Agregar al carrito — {price}"
   },
   "orderConfirmation": {

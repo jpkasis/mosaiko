@@ -16,7 +16,8 @@ import type { CategoryLayout } from './types';
  */
 export const polaroidLayout = {
   type: 'polaroid',
-  uploadSlots: 1,
+  uploadSlots: { 4: 1 },
+  photoInputMode: { 4: 'single' },
   rotatable: false,
   dimensions: {
     4: { rows: 2, cols: 2 },

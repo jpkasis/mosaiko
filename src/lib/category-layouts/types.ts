@@ -21,9 +21,11 @@ import type {
 // ─── Tile descriptor ────────────────────────────────────────────────────────
 
 /**
- * Category-specific tile metadata. Tonos is the only category with genuine
- * per-tile metadata today; everything else uses labels that describe the
- * tile's visual role (e.g. which corner of the Spotify bar it is).
+ * Category-specific tile metadata. Tonos has true per-tile metadata (tone
+ * column + source image index); Save the Date 3-piece uses
+ * `sourceImageIndex` to map each photo slot to its tile (without tone
+ * effects). Everything else uses labels that describe a tile's visual
+ * role (e.g. which corner of the Spotify bar it is).
  */
 export type CategoryTileMeta = {
   mosaicos: Record<string, never>;
@@ -32,7 +34,7 @@ export type CategoryTileMeta = {
   studio: { label?: 'studio-left' | 'studio-right' };
   arte: { label?: 'arte-info' };
   polaroid: Record<string, never>;
-  'save-the-date': Record<string, never>;
+  'save-the-date': { sourceImageIndex?: 0 | 1 | 2 };
 };
 
 export interface LayoutTile<C extends CategoryType = CategoryType> {
@@ -103,16 +105,42 @@ export interface CropperOverlay {
   rowSplits?: number[];
 }
 
+// ─── Photo input mode (per-grid) ────────────────────────────────────────────
+
+/**
+ * How many photos the user brings to the builder for a given (category, grid)
+ * combination. Single-photo flows split one cropped photo across all tiles
+ * (Mosaicos, Studio, Arte, Spotify, Polaroid, STD-9, STD-6). Multi-photo flows
+ * accept one photo per tile (Tonos 3/9, STD-3).
+ *
+ * UAT-1b made this per-grid because Save the Date is mixed: 9/6 are single-
+ * photo, 3 is multi-photo. Use `derivePhotoInput(layout, grid)` to read it;
+ * don't inspect the map directly.
+ */
+export type PhotoInputMode = 'single' | 'multi-photo';
+
 // ─── The full per-category layout ───────────────────────────────────────────
 
 export interface CategoryLayout<C extends CategoryType = CategoryType> {
   type: C;
-  /** How many photos the user uploads. Tonos = 3, everything else = 1. */
-  uploadSlots: 1 | 3;
+  /**
+   * Photo upload slots per grid size. Single-photo flows are `1`; multi-photo
+   * flows are `3`. Grid-keyed because Save the Date is mixed (9/6 = 1, 3 = 3).
+   * Consumers should call `deriveUploadSlots(layout, grid)` — don't read the
+   * map directly.
+   */
+  uploadSlots: Partial<Record<GridSize, 1 | 3>>;
+  /**
+   * Photo input mode per grid size — single-photo or multi-photo. Replaces
+   * the prior implicit category-string branching (e.g. `category === 'tonos'`).
+   * Call `derivePhotoInput(layout, grid)` to read.
+   */
+  photoInputMode: Partial<Record<GridSize, PhotoInputMode>>;
   /**
    * Whether the cropper aspect can be flipped (landscape↔portrait).
-   * False for categories with a frame / fixed aspect override, and for Tonos
-   * (multi-image flow). Today this is effectively only Mosaicos 3 / 6.
+   * False for categories with a frame / fixed aspect override. UAT-1b
+   * enabled this for Save the Date so STD-6 and STD-3 can rotate
+   * portrait↔landscape; STD-9 rotation is a no-op (square grid).
    */
   rotatable: boolean;
   /** Grid rows × cols per allowed grid size. */

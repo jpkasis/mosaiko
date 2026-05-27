@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
         SHOPIFY_NOT_CONFIGURED: 503,
         VARIANT_NOT_FOUND: 422,
         CART_CREATION_FAILED: 502,
+        LAYOUT_EXAMPLE_NOT_PURCHASABLE: 400,
+        INVALID_PREDESIGNED_LINE: 400,
       };
       return NextResponse.json(
         { error: result.message, code: result.code },

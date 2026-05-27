@@ -9,16 +9,20 @@ import AutoScroll from 'embla-carousel-auto-scroll';
 import { Link } from '@/i18n/navigation';
 import type { CategoryType } from '@/lib/customization-types';
 import type { GridSize } from '@/lib/grid-config';
+import { buildPersonalizarHref, type PersonalizarHref } from '@/lib/builder-href';
 
 /* ── Product data ── */
 type Badge = 'bestseller' | 'new' | 'limited';
 
 /**
  * Each carousel card resolves to either:
- *   - `productId`: a predesigned catalog entry that has its own detail page
- *     at `/catalogo/[productId]` (Studio, Arte, Save the Date, Tonos);
- *   - `categoryKey` + `gridSize`: a buildable category (Mosaicos, Polaroid)
- *     that routes straight to the builder with that preselection.
+ *   - `productId`: a catalog entry with a detail page at
+ *     `/catalogo/[productId]`. UAT-1a (2026-05-22): that route now
+ *     delegates by category purchase mode — Studio/Arte detail
+ *     pages show "Agregar al carrito"; Save the Date/Tonos/etc.
+ *     show "Personalizar" → builder.
+ *   - `categoryKey` + `gridSize`: skip the detail page and go
+ *     straight to the builder (Mosaicos, Polaroid).
  */
 interface Product {
   src: string;
@@ -156,13 +160,20 @@ const products: Product[] = [
 ];
 
 /**
- * Resolve the click destination for a carousel product. Predesigned items
- * go to their detail page; buildable categories go to the builder with the
- * right preselection so the user lands on the upload step immediately.
+ * Resolve the click destination for a carousel product.
+ *
+ * - `productId`-shaped entries (Studio, Arte, Save the Date, Tonos):
+ *   go to `/catalogo/[productId]`. The detail-page route delegates
+ *   by category purchase mode: Studio/Arte → "Agregar al carrito"
+ *   shell; everything else → "Personalizar" shell that deep-links
+ *   into the builder.
+ * - `categoryKey + gridSize`-shaped entries (Mosaicos, Polaroid):
+ *   skip the detail page and go straight to the builder via the
+ *   single `buildPersonalizarHref` helper.
  */
 type CarouselHref =
   | { pathname: '/catalogo/[productId]'; params: { productId: string } }
-  | { pathname: '/personalizar'; query: { category: CategoryType; grid: string } }
+  | PersonalizarHref
   | { pathname: '/catalogo' };
 
 function hrefForProduct(product: Product): CarouselHref {
@@ -170,10 +181,7 @@ function hrefForProduct(product: Product): CarouselHref {
     return { pathname: '/catalogo/[productId]', params: { productId: product.productId } };
   }
   if (product.categoryKey && product.gridSize) {
-    return {
-      pathname: '/personalizar',
-      query: { category: product.categoryKey, grid: String(product.gridSize) },
-    };
+    return buildPersonalizarHref({ category: product.categoryKey, gridSize: product.gridSize });
   }
   return { pathname: '/catalogo' };
 }

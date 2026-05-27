@@ -115,10 +115,15 @@ export function buildPrintCustomization(
         studioText: tf.studioText ?? '',
       };
 
-    case 'save-the-date':
+    case 'save-the-date': {
+      // UAT-1b: STD supports 9/6/3 grids. Preserve the incoming gridSize
+      // instead of forcing 9. Default to 9 if an unsupported size sneaks
+      // through (shouldn't happen — useBuilderFlow + checkout guard both
+      // validate against allowedGridSizes upstream).
+      const stdGrid = (gridSize === 6 ? 6 : gridSize === 3 ? 3 : 9) as 3 | 6 | 9;
       return {
         categoryType: 'save-the-date',
-        gridSize: 9,
+        gridSize: stdGrid,
         eventText: tf.eventText ?? '',
         date: tf.date ?? '',
         fontFamily: (tf.fontFamily as STDFontFamily) || STD_DEFAULTS.fontFamily,
@@ -127,7 +132,9 @@ export function buildPrintCustomization(
         anchor: (tf.anchor as STDAnchor) || STD_DEFAULTS.anchor,
         treatment: (tf.treatment as STDTextTreatment) || STD_DEFAULTS.treatment,
         intensity: (tf.intensity as STDTextIntensity) || STD_DEFAULTS.intensity,
+        ...(input.layoutRotated ? { layoutRotated: true } : {}),
       };
+    }
 
     case 'tonos': {
       // `tonosSlots` is now declared on `TonosCustomization` so the
