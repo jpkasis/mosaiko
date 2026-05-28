@@ -128,25 +128,27 @@ export function CategoryRow({ category, products, index }: CategoryRowProps) {
           ref={scrollRef}
           className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-2 snap-x snap-mandatory scrollbar-none sm:mx-0 sm:gap-5 sm:px-[max(1rem,calc((100vw-1280px)/2+1rem))]"
         >
-          {/* "Create your own" CTA card — first (skipped when products already show "tu foto") */}
-          {category.showPersonalizeCard && (
-            <div
-              data-card
-              className="w-[72vw] min-w-[260px] flex-shrink-0 snap-start sm:w-auto sm:flex-[0_0_280px]"
+          {/* "Crea el tuyo / Personalizar" intro card — always first.
+              Every category supports custom-builder entry (even Studio +
+              Arte as-is offer an alternate custom path), so the previous
+              `showPersonalizeCard` flag was dead taxonomy and got removed
+              in UAT-2. */}
+          <div
+            data-card
+            className="w-[72vw] min-w-[260px] flex-shrink-0 snap-start sm:w-auto sm:flex-[0_0_280px]"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.97 }}
+              animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
+              transition={{ delay: index * 0.12, duration: 0.45, ease }}
+              className="h-full"
             >
-              <motion.div
-                initial={{ opacity: 0, y: 16, scale: 0.97 }}
-                animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
-                transition={{ delay: index * 0.12, duration: 0.45, ease }}
-                className="h-full"
-              >
-                <PersonalizeCard
-                  category={category.type}
-                  accentColor={category.accentColor}
-                />
-              </motion.div>
-            </div>
-          )}
+              <PersonalizeCard
+                category={category.type}
+                accentColor={category.accentColor}
+              />
+            </motion.div>
+          </div>
 
           {products.map((product, i) => (
             <div
@@ -157,7 +159,7 @@ export function CategoryRow({ category, products, index }: CategoryRowProps) {
               <motion.div
                 initial={{ opacity: 0, y: 16, scale: 0.97 }}
                 animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
-                transition={{ delay: index * 0.12 + (i + (category.showPersonalizeCard ? 1 : 0)) * 0.06, duration: 0.45, ease }}
+                transition={{ delay: index * 0.12 + (i + 1) * 0.06, duration: 0.45, ease }}
                 className="h-full"
               >
                 <CatalogProductCard product={product} />

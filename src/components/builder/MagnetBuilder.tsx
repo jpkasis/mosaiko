@@ -656,6 +656,7 @@ export function MagnetBuilder() {
             <AnimatePresence custom={flow.direction} mode="wait" initial={false}>
               <motion.div
                 key={flow.currentStepId}
+                data-testid="builder-animated-step"
                 custom={flow.direction}
                 variants={slideVariants}
                 initial="enter"
@@ -895,9 +896,14 @@ export function MagnetBuilder() {
 
       {/* Mobile sticky CTA footer. Single primary action anchored to the
           bottom of the viewport so the buyer never has to scroll to find
-          the next step. Desktop keeps the inline per-step buttons. */}
+          the next step. Desktop keeps the inline per-step buttons.
+          MUST stay a sibling of the animated step container (data-testid
+          `builder-animated-step`), not a descendant — a `transform` on
+          an ancestor breaks `position: fixed` viewport-relativity on
+          iOS Safari. UAT-2 contract test asserts this DOM ancestry. */}
       {stickyCta.visible && (
         <div
+          data-testid="builder-sticky-cta"
           // Sticky CTA sits above base page content but below drawers/modals
           // — if the cart drawer or mobile menu opens on top of the builder,
           // it should cover this CTA rather than the other way around.

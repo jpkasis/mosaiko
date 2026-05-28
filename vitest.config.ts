@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     // next-intl and a few other modules do their own CJS/ESM dance. Loading
     // them via vitest's default vitest-node transforms them on demand; keep
     // the config explicit about the extensions we care about so the resolver

@@ -81,7 +81,6 @@ export interface CatalogCategory {
   i18nKey: string;       // key under catalogPage.*
   accentColor: string;   // Tailwind bg class
   order: number;
-  showPersonalizeCard: boolean; // false when products already include "tu foto" placeholders
 }
 
 // Lookup from kebab-case CategoryType to the camelCase i18n key used in catalogPage
@@ -106,13 +105,13 @@ export const CATEGORY_ACCENT: Record<CategoryType, string> = {
 };
 
 export const CATALOG_CATEGORIES: CatalogCategory[] = [
-  { type: 'mosaicos', i18nKey: 'mosaicos', accentColor: 'bg-terracotta', order: 1, showPersonalizeCard: true },
-  { type: 'studio', i18nKey: 'studio', accentColor: 'bg-charcoal', order: 2, showPersonalizeCard: true },
-  { type: 'arte', i18nKey: 'arte', accentColor: 'bg-gold', order: 3, showPersonalizeCard: true },
-  { type: 'save-the-date', i18nKey: 'saveTheDate', accentColor: 'bg-terracotta-light', order: 4, showPersonalizeCard: true },
-  { type: 'tonos', i18nKey: 'tonos', accentColor: 'bg-terracotta', order: 5, showPersonalizeCard: true },
-  { type: 'spotify', i18nKey: 'spotify', accentColor: 'bg-gold-dark', order: 6, showPersonalizeCard: false },
-  { type: 'polaroid', i18nKey: 'polaroid', accentColor: 'bg-warm-gray', order: 7, showPersonalizeCard: false },
+  { type: 'mosaicos', i18nKey: 'mosaicos', accentColor: 'bg-terracotta', order: 1 },
+  { type: 'studio', i18nKey: 'studio', accentColor: 'bg-charcoal', order: 2 },
+  { type: 'arte', i18nKey: 'arte', accentColor: 'bg-gold', order: 3 },
+  { type: 'save-the-date', i18nKey: 'saveTheDate', accentColor: 'bg-terracotta-light', order: 4 },
+  { type: 'tonos', i18nKey: 'tonos', accentColor: 'bg-terracotta', order: 5 },
+  { type: 'spotify', i18nKey: 'spotify', accentColor: 'bg-gold-dark', order: 6 },
+  { type: 'polaroid', i18nKey: 'polaroid', accentColor: 'bg-warm-gray', order: 7 },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
