@@ -22,7 +22,6 @@ import {
   useBuilderFlow,
   STEP_I18N_MAP,
   type StepId,
-  type TonosIndex,
 } from './useBuilderFlow';
 import { useKeyboardInset } from './useKeyboardInset';
 import { CategorySelector } from './CategorySelector';
@@ -236,16 +235,16 @@ export function MagnetBuilder() {
       const meta = CATEGORY_REGISTRY[flow.selectedCategory];
 
       // UAT-1b: STD-3 multi-photo path. Shares the multi-photo upload +
-      // crop state stored under `flow.tonos.*` (the name is historical;
+      // crop state stored under `flow.multiPhoto.*` (UAT-3 Phase 3b:
       // the slots are generic). Produces a `save-the-date` customization
       // with `textFields` + `gridSize: 3` and no Tonos-specific fields.
       if (
         flow.selectedCategory === 'save-the-date' &&
         flow.gridConfig.size === 3
       ) {
-        const srcs = flow.tonos.imageSrcs;
-        const cropAreas = flow.tonos.cropAreas;
-        const files = flow.tonos.fileRefs.current;
+        const srcs = flow.multiPhoto.imageSrcs;
+        const cropAreas = flow.multiPhoto.cropAreas;
+        const files = flow.multiPhoto.fileRefs.current;
 
         if (srcs.some((s) => !s) || cropAreas.some((c) => !c) || files.some((f) => !f)) {
           return;
@@ -306,9 +305,9 @@ export function MagnetBuilder() {
 
       if (flow.selectedCategory === 'tonos') {
         // Tonos: 3 images, 3 crops, intensity.
-        const srcs = flow.tonos.imageSrcs;
-        const cropAreas = flow.tonos.cropAreas;
-        const files = flow.tonos.fileRefs.current;
+        const srcs = flow.multiPhoto.imageSrcs;
+        const cropAreas = flow.multiPhoto.cropAreas;
+        const files = flow.multiPhoto.fileRefs.current;
 
         if (srcs.some((s) => !s) || cropAreas.some((c) => !c) || files.some((f) => !f)) {
           return;
@@ -328,15 +327,15 @@ export function MagnetBuilder() {
         ];
 
         const tonosSlots: TonosSlotConfigs = [
-          { fitMode: flow.tonos.slots[0].fitMode, rotation: flow.tonos.slots[0].rotation },
-          { fitMode: flow.tonos.slots[1].fitMode, rotation: flow.tonos.slots[1].rotation },
-          { fitMode: flow.tonos.slots[2].fitMode, rotation: flow.tonos.slots[2].rotation },
+          { fitMode: flow.tonosEffects.slots[0].fitMode, rotation: flow.tonosEffects.slots[0].rotation },
+          { fitMode: flow.tonosEffects.slots[1].fitMode, rotation: flow.tonosEffects.slots[1].rotation },
+          { fitMode: flow.tonosEffects.slots[2].fitMode, rotation: flow.tonosEffects.slots[2].rotation },
         ];
 
         const customization = buildPrintCustomization({
           categoryType: 'tonos',
           gridSize: flow.gridConfig.size,
-          tonosIntensity: flow.tonos.intensity,
+          tonosIntensity: flow.tonosEffects.intensity,
           tonosSlots,
         });
 
@@ -372,7 +371,7 @@ export function MagnetBuilder() {
             categoryType: 'tonos',
             photoStorageUrls,
             cropAreas: [cropAreas[0]!, cropAreas[1]!, cropAreas[2]!],
-            tonosIntensity: flow.tonos.intensity,
+            tonosIntensity: flow.tonosEffects.intensity,
             tonosSlots,
             layoutRotated: flow.layoutRotated,
             compositeJobId: composite.jobId,
@@ -485,7 +484,7 @@ export function MagnetBuilder() {
   // ready file via `onReadyChange`; parent stores it here so the sticky
   // CTA can advance from outside the PhotoUploader component without
   // lifting the rest of its phase state. Tonos derives readiness from
-  // `flow.tonos.imageSrcs` directly (already in `useBuilderFlow`).
+  // `flow.multiPhoto.imageSrcs` directly (already in `useBuilderFlow`).
   const [uploadReadyFile, setUploadReadyFile] = useState<File | null>(null);
   // Only show the FAB once the user is past the category pick — the preview
   // has nothing to render before a category + image exist. Hide on the
@@ -507,8 +506,8 @@ export function MagnetBuilder() {
     if (step !== 'crop' && step !== 'customize') return false;
     if (isTonos) {
       return (
-        flow.tonos.imageSrcs.every((s) => Boolean(s)) &&
-        flow.tonos.cropAreas.every((c) => Boolean(c))
+        flow.multiPhoto.imageSrcs.every((s) => Boolean(s)) &&
+        flow.multiPhoto.cropAreas.every((c) => Boolean(c))
       );
     }
     return Boolean(flow.imageSrc) &&
@@ -520,8 +519,8 @@ export function MagnetBuilder() {
     flow.imageSrc,
     flow.liveCropArea,
     flow.cropAreaPixels,
-    flow.tonos.imageSrcs,
-    flow.tonos.cropAreas,
+    flow.multiPhoto.imageSrcs,
+    flow.multiPhoto.cropAreas,
   ]);
 
   const showPreviewFab = canPreview && !previewDrawerOpen;
@@ -529,7 +528,7 @@ export function MagnetBuilder() {
   // Mobile sticky bottom CTA. Keeps the primary action anchored so it never
   // drifts out of the thumb zone as step content changes. Rendered on
   // steps where the `useBuilderFlow` hook already owns the advance action:
-  //   - upload    → flow.handleImageSelected / flow.handleTonosImagesSelected
+  //   - upload    → flow.handleImageSelected / flow.handleMultiPhotoImagesSelected
   //                 (Phase 6.3: PhotoUploader emits readiness via
   //                 onReadyChange; Tonos derives from imageSrcs)
   //   - customize → flow.handleCustomizeComplete (always eligible to advance)
@@ -546,15 +545,15 @@ export function MagnetBuilder() {
   >(() => {
     if (flow.currentStepId === 'upload' && flow.gridConfig) {
       if (isTonos) {
-        const allReady = flow.tonos.imageSrcs.every((s) => s !== null);
+        const allReady = flow.multiPhoto.imageSrcs.every((s) => s !== null);
         return {
           visible: true,
           label: tc('next'),
           canAdvance: allReady,
           onAdvance: () => {
-            const files = flow.tonos.fileRefs.current;
+            const files = flow.multiPhoto.fileRefs.current;
             if (files.every((f) => f != null)) {
-              flow.handleTonosImagesSelected(
+              flow.handleMultiPhotoImagesSelected(
                 files as [File, File, File],
               );
             }
@@ -595,9 +594,9 @@ export function MagnetBuilder() {
     flow.isUploading,
     flow.handleCustomizeComplete,
     flow.handleImageSelected,
-    flow.handleTonosImagesSelected,
-    flow.tonos.imageSrcs,
-    flow.tonos.fileRefs,
+    flow.handleMultiPhotoImagesSelected,
+    flow.multiPhoto.imageSrcs,
+    flow.multiPhoto.fileRefs,
     handleAddToCart,
     isTonos,
     uploadReadyFile,
@@ -620,24 +619,25 @@ export function MagnetBuilder() {
   // actually changed, otherwise MagnetPreview's effect re-fires infinitely.
   const tonosForPreview = useMemo(() => {
     if (!isTonos) return undefined;
-    const rotations = flow.tonos.slots.map((s) => s.rotation) as [number, number, number];
-    const fitModes = flow.tonos.slots.map((s) => s.fitMode) as [
+    const rotations = flow.tonosEffects.slots.map((s) => s.rotation) as [number, number, number];
+    const fitModes = flow.tonosEffects.slots.map((s) => s.fitMode) as [
       'fill' | 'fit' | 'stretch',
       'fill' | 'fit' | 'stretch',
       'fill' | 'fit' | 'stretch',
     ];
     return {
-      imageSrcs: flow.tonos.imageSrcs,
-      cropAreas: flow.tonos.cropAreas,
-      intensity: flow.tonos.intensity,
+      imageSrcs: flow.multiPhoto.imageSrcs,
+      cropAreas: flow.multiPhoto.cropAreas,
+      intensity: flow.tonosEffects.intensity,
       rotations,
       fitModes,
     };
-  }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.intensity, flow.tonos.slots]);
+  }, [isTonos, flow.multiPhoto.imageSrcs, flow.multiPhoto.cropAreas, flow.tonosEffects.intensity, flow.tonosEffects.slots]);
 
   const tonosForSidebar = useMemo(() => {
     if (!isTonos) return undefined;
-    const { imageSrcs, cropAreas, liveCropAreas, intensity, slots } = flow.tonos;
+    const { imageSrcs, cropAreas, liveCropAreas } = flow.multiPhoto;
+    const { intensity, slots } = flow.tonosEffects;
     const merged = [0, 1, 2].map((i) => liveCropAreas[i] ?? cropAreas[i]) as [
       CropArea | null, CropArea | null, CropArea | null
     ];
@@ -648,7 +648,7 @@ export function MagnetBuilder() {
       'fill' | 'fit' | 'stretch',
     ];
     return { imageSrcs, cropAreas: merged, intensity, rotations, fitModes };
-  }, [isTonos, flow.tonos.imageSrcs, flow.tonos.cropAreas, flow.tonos.liveCropAreas, flow.tonos.intensity, flow.tonos.slots]);
+  }, [isTonos, flow.multiPhoto.imageSrcs, flow.multiPhoto.cropAreas, flow.multiPhoto.liveCropAreas, flow.tonosEffects.intensity, flow.tonosEffects.slots]);
 
   // On mobile, pad the bottom of the page content by the footer height plus a
   // breathing gap so the sticky footer never covers the last interactive
@@ -757,13 +757,13 @@ export function MagnetBuilder() {
                 )}
                 {flow.currentStepId === 'upload' && flow.gridConfig && isMultiPhoto && (
                   <PhotoUploaderMulti
-                    imageSrcs={flow.tonos.imageSrcs}
-                    onImageSelected={flow.handleTonosImageSelected}
+                    imageSrcs={flow.multiPhoto.imageSrcs}
+                    onImageSelected={flow.handleMultiPhotoImageSelected}
                     onAllReady={() => {
                       // Require all 3 uploaded
-                      if (flow.tonos.imageSrcs.every((s) => s)) {
-                        flow.handleTonosImagesSelected(
-                          flow.tonos.fileRefs.current as [File, File, File],
+                      if (flow.multiPhoto.imageSrcs.every((s) => s)) {
+                        flow.handleMultiPhotoImagesSelected(
+                          flow.multiPhoto.fileRefs.current as [File, File, File],
                         );
                       }
                     }}
@@ -800,20 +800,20 @@ export function MagnetBuilder() {
                 )}
                 {flow.currentStepId === 'crop' && isMultiPhoto && flow.gridConfig && (
                   <ImageCropperMulti
-                    imageSrcs={flow.tonos.imageSrcs}
+                    imageSrcs={flow.multiPhoto.imageSrcs}
                     gridConfig={flow.gridConfig}
-                    cropAreas={flow.tonos.cropAreas}
-                    intensity={flow.tonos.intensity}
-                    slots={flow.tonos.slots}
-                    resetSeq={flow.tonos.resetSeq}
-                    onCropChange={flow.handleTonosCropChange}
-                    onCropComplete={flow.handleTonosCropComplete}
+                    cropAreas={flow.multiPhoto.cropAreas}
+                    intensity={flow.tonosEffects.intensity}
+                    slots={flow.tonosEffects.slots}
+                    resetSeq={flow.multiPhoto.resetSeq}
+                    onCropChange={flow.handleMultiPhotoCropChange}
+                    onCropComplete={flow.handleMultiPhotoCropComplete}
                     onIntensityChange={flow.setTonosIntensity}
                     onFitModeChange={flow.setTonosFitMode}
                     onToggleRotation={flow.toggleTonosRotation}
-                    onSlotReset={flow.handleTonosSlotReset}
-                    onSlotReplacePhoto={flow.handleTonosSlotReplacePhoto}
-                    onAllDone={flow.advanceFromTonosCrop}
+                    onSlotReset={flow.handleMultiPhotoSlotReset}
+                    onSlotReplacePhoto={flow.handleMultiPhotoSlotReplacePhoto}
+                    onAllDone={flow.advanceFromMultiCrop}
                     variant={isTonosEffects ? 'tonos' : 'plain'}
                     title={
                       isTonosEffects

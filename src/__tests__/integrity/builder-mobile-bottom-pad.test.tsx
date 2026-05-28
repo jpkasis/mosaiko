@@ -127,17 +127,22 @@ vi.mock('@/components/builder/useBuilderFlow', () => {
       isUploading: false,
       layoutRotated: false,
       canRotateLayout: false,
-      tonos: {
+      // UAT-3 Phase 3b: split shape — generic multi-photo state +
+      // Tonos-only effects.
+      multiPhoto: {
         imageSrcs: [null, null, null],
         cropAreas: [null, null, null],
+        liveCropAreas: [null, null, null],
+        resetSeq: [0, 0, 0],
+        fileRefs: { current: [null, null, null] },
+      },
+      tonosEffects: {
+        intensity: 'medium',
         slots: [
           { fitMode: 'fill', rotation: 0 },
           { fitMode: 'fill', rotation: 0 },
           { fitMode: 'fill', rotation: 0 },
         ],
-        intensity: 'medium',
-        resetSeq: [0, 0, 0],
-        fileRefs: { current: [null, null, null] },
       },
       handleCategorySelect: () => {},
       handleGridSelect: () => {},
@@ -151,15 +156,15 @@ vi.mock('@/components/builder/useBuilderFlow', () => {
       advanceFromCustomize: () => {},
       handleBack: () => {},
       handleReset: () => {},
-      handleTonosImagesSelected: () => {},
-      handleTonosCropChange: () => {},
-      handleTonosCropComplete: () => {},
+      handleMultiPhotoImagesSelected: () => {},
+      handleMultiPhotoCropChange: () => {},
+      handleMultiPhotoCropComplete: () => {},
+      handleMultiPhotoSlotReset: () => {},
+      handleMultiPhotoSlotReplacePhoto: () => {},
+      advanceFromMultiCrop: () => {},
       setTonosIntensity: () => {},
       setTonosFitMode: () => {},
       toggleTonosRotation: () => {},
-      handleTonosSlotReset: () => {},
-      handleTonosSlotReplacePhoto: () => {},
-      advanceFromTonosCrop: () => {},
     }),
     getStepsForCategory: () => stepSequence,
   };

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
-import { GRID_CONFIGS, getEffectiveGridConfig, type GridSize, type GridConfig } from '@/lib/grid-config';
+import { getEffectiveGridConfig, type GridSize, type GridConfig } from '@/lib/grid-config';
 import {
   CATEGORY_REGISTRY,
   type CategoryType,
@@ -49,26 +49,51 @@ import type {
 export type { TonosFitMode, TonosRotation, TonosSlotConfigs };
 export type TonosSlot = TonosSlotConfig;
 
-export type TonosIndex = 0 | 1 | 2;
+/**
+ * UAT-3 Phase 3b (Codex Approach B + C2): fixed 3-slot multi-photo
+ * shape used by Tonos and STD-3 alike. The hard-coded length matches
+ * `deriveUploadSlots(layout, grid) === 3` for both categories. If a
+ * future category needs a different slot count, replace this with a
+ * helper driven by `deriveUploadSlots`.
+ */
+export type MultiPhotoIndex = 0 | 1 | 2;
+export type MultiPhotoSlots<T> = [T, T, T];
 
-export interface TonosState {
-  fileRefs: React.RefObject<[File | null, File | null, File | null]>;
-  imageSrcs: [string | null, string | null, string | null];
-  cropAreas: [CropArea | null, CropArea | null, CropArea | null];
-  liveCropAreas: [CropArea | null, CropArea | null, CropArea | null];
-  intensity: TonosIntensity;
-  slots: TonosSlotConfigs;
+/** @deprecated use `MultiPhotoIndex`. Re-exported for cross-file
+ *  callers that haven't migrated yet. */
+export type TonosIndex = MultiPhotoIndex;
+
+/**
+ * Generic multi-photo state shared by Tonos and STD-3. Per Codex's
+ * Phase 3b plan (state-decouple-implementation): ownership separation.
+ * Tonos-only effects live in `TonosEffectsState` below.
+ */
+export interface MultiPhotoState {
+  fileRefs: React.RefObject<MultiPhotoSlots<File | null>>;
+  imageSrcs: MultiPhotoSlots<string | null>;
+  cropAreas: MultiPhotoSlots<CropArea | null>;
+  liveCropAreas: MultiPhotoSlots<CropArea | null>;
   /**
    * Phase 6.2 (Codex audit fix) — per-slot remount counter. Bumped by
-   * `handleTonosSlotReset` and `handleTonosSlotReplacePhoto` so the
-   * cropper for that slot remounts with fresh local state (crop/zoom/
-   * imageSize). Without this, a Reset on a slot already at fill/0
-   * doesn't trigger the local crop/zoom effect (deps unchanged) AND a
-   * pending debounced onCropChange could fire after Reset and
+   * `handleMultiPhotoSlotReset` and `handleMultiPhotoSlotReplacePhoto`
+   * so the cropper for that slot remounts with fresh local state
+   * (crop/zoom/imageSize). Without this, a Reset on a slot already at
+   * fill/0 doesn't trigger the local crop/zoom effect (deps unchanged)
+   * AND a pending debounced onCropChange could fire after Reset and
    * repopulate `liveCropAreas` with stale data. Remount via React
    * `key={resetSeq[i]}` clears all local state cleanly in one shot.
    */
-  resetSeq: [number, number, number];
+  resetSeq: MultiPhotoSlots<number>;
+}
+
+/**
+ * Tonos-only effects: color intensity + per-column tone/fitMode
+ * configuration. STD-3 doesn't read these; the builder gates the
+ * Tonos UI via `category === 'tonos'`.
+ */
+export interface TonosEffectsState {
+  intensity: TonosIntensity;
+  slots: TonosSlotConfigs;
 }
 
 const DEFAULT_TONOS_SLOT: TonosSlotConfig = { fitMode: 'fill', rotation: 0 };
@@ -109,28 +134,33 @@ export interface BuilderFlowState {
   handleCropComplete: (croppedArea: CropArea, croppedAreaPixels: CropArea) => void;
   handleCropChange: (croppedAreaPixels: CropArea) => void;
 
-  // Tonos (multi-image)
-  tonos: TonosState;
-  handleTonosImageSelected: (index: TonosIndex, file: File) => void;
-  handleTonosImagesSelected: (files: [File, File, File]) => void;
-  handleTonosCropChange: (index: TonosIndex, cropAreaPixels: CropArea) => void;
-  handleTonosCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
+  // Multi-photo (Tonos + STD-3): shared image/crop state
+  multiPhoto: MultiPhotoState;
+  handleMultiPhotoImageSelected: (index: MultiPhotoIndex, file: File) => void;
+  handleMultiPhotoImagesSelected: (files: [File, File, File]) => void;
+  handleMultiPhotoCropChange: (index: MultiPhotoIndex, cropAreaPixels: CropArea) => void;
+  handleMultiPhotoCropComplete: (index: MultiPhotoIndex, cropAreaPixels: CropArea) => void;
+  /**
+   * Phase 6.2 — Reset a single multi-photo slot's cropper state to
+   * defaults (fitMode='fill', rotation=0 for Tonos, crop areas cleared
+   * for everyone). Keeps the photo intact. Mirrors the single-image
+   * cropper's `Restablecer` button.
+   */
+  handleMultiPhotoSlotReset: (index: MultiPhotoIndex) => void;
+  /**
+   * Phase 6.2 — Replace a single multi-photo slot's photo. Revokes the
+   * prior URL, swaps in the new file, and clears that slot's crop
+   * areas so the cropper picks up the new photo cleanly. Other slots
+   * untouched.
+   */
+  handleMultiPhotoSlotReplacePhoto: (index: MultiPhotoIndex, file: File) => void;
+  advanceFromMultiCrop: () => void;
+
+  // Tonos-only effects (intensity, per-column fitMode + rotation)
+  tonosEffects: TonosEffectsState;
   setTonosIntensity: (intensity: TonosIntensity) => void;
-  setTonosFitMode: (index: TonosIndex, mode: TonosFitMode) => void;
-  toggleTonosRotation: (index: TonosIndex) => void;
-  /**
-   * Phase 6.2 — Reset a single Tonos slot's cropper state to defaults
-   * (fitMode='fill', rotation=0, crop areas cleared). Keeps the photo
-   * intact. Mirrors the single-image cropper's `Restablecer` button.
-   */
-  handleTonosSlotReset: (index: TonosIndex) => void;
-  /**
-   * Phase 6.2 — Replace a single Tonos slot's photo. Revokes the prior
-   * URL, swaps in the new file, and clears that slot's crop areas so
-   * the cropper picks up the new photo cleanly. Other slots untouched.
-   */
-  handleTonosSlotReplacePhoto: (index: TonosIndex, file: File) => void;
-  advanceFromTonosCrop: () => void;
+  setTonosFitMode: (index: MultiPhotoIndex, mode: TonosFitMode) => void;
+  toggleTonosRotation: (index: MultiPhotoIndex) => void;
 
   // Layout rotation
   layoutRotated: boolean;
@@ -219,14 +249,14 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   const [liveCropArea, setLiveCropArea] = useState<CropArea | null>(null);
 
   // ─── Tonos multi-image ───
-  const tonosFileRefs = useRef<[File | null, File | null, File | null]>([null, null, null]);
-  const [tonosImageSrcs, setTonosImageSrcs] = useState<[string | null, string | null, string | null]>(
+  const multiPhotoFileRefs = useRef<[File | null, File | null, File | null]>([null, null, null]);
+  const [multiPhotoImageSrcs, setMultiPhotoImageSrcs] = useState<[string | null, string | null, string | null]>(
     emptyTuple<string | null>(null),
   );
-  const [tonosCropAreas, setTonosCropAreas] = useState<[CropArea | null, CropArea | null, CropArea | null]>(
+  const [multiPhotoCropAreas, setMultiPhotoCropAreas] = useState<[CropArea | null, CropArea | null, CropArea | null]>(
     emptyTuple<CropArea | null>(null),
   );
-  const [tonosLiveCropAreas, setTonosLiveCropAreas] = useState<[CropArea | null, CropArea | null, CropArea | null]>(
+  const [multiPhotoLiveCropAreas, setMultiPhotoLiveCropAreas] = useState<[CropArea | null, CropArea | null, CropArea | null]>(
     emptyTuple<CropArea | null>(null),
   );
   const [tonosIntensity, setTonosIntensityState] = useState<TonosIntensity>('medium');
@@ -238,7 +268,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   // Per-slot remount counter (Phase 6.2). React key={resetSeq[i]} on
   // each TonosCropSlot — bumping the counter for slot i forces that
   // slot to remount with fresh local state. See TonosState comment.
-  const [tonosResetSeq, setTonosResetSeq] = useState<[number, number, number]>([0, 0, 0]);
+  const [multiPhotoResetSeq, setMultiPhotoResetSeq] = useState<[number, number, number]>([0, 0, 0]);
 
   // ─── Layout rotation ───
   const [layoutRotated, setLayoutRotated] = useState(false);
@@ -250,18 +280,27 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   const [isUploading, setIsUploading] = useState(false);
   const [addToCartError, setAddToCartError] = useState<string | null>(null);
 
-  // ─── Stable Tonos view ───
-  const tonos = useMemo<TonosState>(
+  // ─── Stable views ───
+  // UAT-3 Phase 3b: ownership separation per Codex Approach B. Generic
+  // multi-photo state (image/crop/file/reset) lives in `multiPhoto`;
+  // Tonos-only effects (intensity + per-column slots) live in
+  // `tonosEffects`. STD-3 uses only `multiPhoto`; Tonos uses both.
+  const multiPhoto = useMemo<MultiPhotoState>(
     () => ({
-      fileRefs: tonosFileRefs,
-      imageSrcs: tonosImageSrcs,
-      cropAreas: tonosCropAreas,
-      liveCropAreas: tonosLiveCropAreas,
+      fileRefs: multiPhotoFileRefs,
+      imageSrcs: multiPhotoImageSrcs,
+      cropAreas: multiPhotoCropAreas,
+      liveCropAreas: multiPhotoLiveCropAreas,
+      resetSeq: multiPhotoResetSeq,
+    }),
+    [multiPhotoImageSrcs, multiPhotoCropAreas, multiPhotoLiveCropAreas, multiPhotoResetSeq],
+  );
+  const tonosEffects = useMemo<TonosEffectsState>(
+    () => ({
       intensity: tonosIntensity,
       slots: tonosSlots,
-      resetSeq: tonosResetSeq,
     }),
-    [tonosImageSrcs, tonosCropAreas, tonosLiveCropAreas, tonosIntensity, tonosSlots, tonosResetSeq],
+    [tonosIntensity, tonosSlots],
   );
 
   // ─── Derived ───
@@ -332,18 +371,18 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   }, [imageSrc]);
 
   const clearTonos = useCallback(() => {
-    tonosImageSrcs.forEach((s) => { if (s) URL.revokeObjectURL(s); });
-    tonosFileRefs.current = [null, null, null];
-    setTonosImageSrcs(emptyTuple<string | null>(null));
-    setTonosCropAreas(emptyTuple<CropArea | null>(null));
-    setTonosLiveCropAreas(emptyTuple<CropArea | null>(null));
+    multiPhotoImageSrcs.forEach((s) => { if (s) URL.revokeObjectURL(s); });
+    multiPhotoFileRefs.current = [null, null, null];
+    setMultiPhotoImageSrcs(emptyTuple<string | null>(null));
+    setMultiPhotoCropAreas(emptyTuple<CropArea | null>(null));
+    setMultiPhotoLiveCropAreas(emptyTuple<CropArea | null>(null));
     setTonosIntensityState('medium');
     setTonosSlots([
       { ...DEFAULT_TONOS_SLOT },
       { ...DEFAULT_TONOS_SLOT },
       { ...DEFAULT_TONOS_SLOT },
     ]);
-  }, [tonosImageSrcs]);
+  }, [multiPhotoImageSrcs]);
 
   // ─── Category select ───
   const handleCategorySelect = useCallback((cat: CategoryType) => {
@@ -407,11 +446,11 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   }, []);
 
   // ─── Tonos handlers ───
-  const handleTonosImageSelected = useCallback((index: TonosIndex, file: File) => {
-    const refs = tonosFileRefs.current;
+  const handleMultiPhotoImageSelected = useCallback((index: MultiPhotoIndex, file: File) => {
+    const refs = multiPhotoFileRefs.current;
     refs[index] = file;
     const url = URL.createObjectURL(file);
-    setTonosImageSrcs((prev) => {
+    setMultiPhotoImageSrcs((prev) => {
       const next: [string | null, string | null, string | null] = [...prev];
       if (next[index]) URL.revokeObjectURL(next[index] as string);
       next[index] = url;
@@ -428,41 +467,41 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     // null cropAreas already (these become no-ops via the React
     // bailout) and the slot wasn't mounted before so the resetSeq
     // bump is just the first mount's key.
-    setTonosCropAreas((p) => {
+    setMultiPhotoCropAreas((p) => {
       if (p[index] === null) return p;
       const n: [CropArea | null, CropArea | null, CropArea | null] = [...p];
       n[index] = null;
       return n;
     });
-    setTonosLiveCropAreas((p) => {
+    setMultiPhotoLiveCropAreas((p) => {
       if (p[index] === null) return p;
       const n: [CropArea | null, CropArea | null, CropArea | null] = [...p];
       n[index] = null;
       return n;
     });
-    setTonosResetSeq((p) => {
+    setMultiPhotoResetSeq((p) => {
       const n: [number, number, number] = [...p];
       n[index] = p[index] + 1;
       return n;
     });
   }, []);
 
-  const handleTonosImagesSelected = useCallback((files: [File, File, File]) => {
-    files.forEach((file, i) => handleTonosImageSelected(i as TonosIndex, file));
+  const handleMultiPhotoImagesSelected = useCallback((files: [File, File, File]) => {
+    files.forEach((file, i) => handleMultiPhotoImageSelected(i as MultiPhotoIndex, file));
     setDirection(1);
     setCurrentStepId('crop');
-  }, [handleTonosImageSelected]);
+  }, [handleMultiPhotoImageSelected]);
 
-  const handleTonosCropChange = useCallback((index: TonosIndex, cropAreaPixels: CropArea) => {
-    setTonosLiveCropAreas((prev) => {
+  const handleMultiPhotoCropChange = useCallback((index: MultiPhotoIndex, cropAreaPixels: CropArea) => {
+    setMultiPhotoLiveCropAreas((prev) => {
       const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
       next[index] = cropAreaPixels;
       return next;
     });
   }, []);
 
-  const handleTonosCropComplete = useCallback((index: TonosIndex, cropAreaPixels: CropArea) => {
-    setTonosCropAreas((prev) => {
+  const handleMultiPhotoCropComplete = useCallback((index: MultiPhotoIndex, cropAreaPixels: CropArea) => {
+    setMultiPhotoCropAreas((prev) => {
       const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
       next[index] = cropAreaPixels;
       return next;
@@ -473,7 +512,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setTonosIntensityState(intensity);
   }, []);
 
-  const setTonosFitMode = useCallback((index: TonosIndex, mode: TonosFitMode) => {
+  const setTonosFitMode = useCallback((index: MultiPhotoIndex, mode: TonosFitMode) => {
     setTonosSlots((prev) => {
       if (prev[index].fitMode === mode) return prev;
       const next: [TonosSlot, TonosSlot, TonosSlot] = [...prev];
@@ -481,13 +520,13 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
       return next;
     });
     // Reset that slot's crop area so the new mode starts fresh.
-    setTonosCropAreas((prev) => {
+    setMultiPhotoCropAreas((prev) => {
       if (!prev[index]) return prev;
       const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
       next[index] = null;
       return next;
     });
-    setTonosLiveCropAreas((prev) => {
+    setMultiPhotoLiveCropAreas((prev) => {
       if (!prev[index]) return prev;
       const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
       next[index] = null;
@@ -495,20 +534,20 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     });
   }, []);
 
-  const toggleTonosRotation = useCallback((index: TonosIndex) => {
+  const toggleTonosRotation = useCallback((index: MultiPhotoIndex) => {
     setTonosSlots((prev) => {
       const next: [TonosSlot, TonosSlot, TonosSlot] = [...prev];
       next[index] = { ...prev[index], rotation: nextRotation(prev[index].rotation) };
       return next;
     });
     // Rotation invalidates the previous crop area; clear and let cropper re-emit.
-    setTonosCropAreas((prev) => {
+    setMultiPhotoCropAreas((prev) => {
       if (!prev[index]) return prev;
       const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
       next[index] = null;
       return next;
     });
-    setTonosLiveCropAreas((prev) => {
+    setMultiPhotoLiveCropAreas((prev) => {
       if (!prev[index]) return prev;
       const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
       next[index] = null;
@@ -523,7 +562,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   // + date); Tonos has no text fields so its step sequence is
   // crop → preview directly. `goForward`-like math means both work
   // without category-specific branches.
-  const advanceFromTonosCrop = useCallback(() => {
+  const advanceFromMultiCrop = useCallback(() => {
     setDirection(1);
     setCurrentStepId((current) => {
       const idx = stepSequence.indexOf(current);
@@ -538,18 +577,18 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   // `Restablecer` semantics for Tonos's 3-slot grid: clear fitMode +
   // rotation + crop areas for ONE slot only; leave the photo intact
   // and the OTHER two slots completely untouched.
-  const handleTonosSlotReset = useCallback((index: TonosIndex) => {
+  const handleMultiPhotoSlotReset = useCallback((index: MultiPhotoIndex) => {
     setTonosSlots((prev) => {
       const next: [TonosSlot, TonosSlot, TonosSlot] = [...prev];
       next[index] = { ...DEFAULT_TONOS_SLOT };
       return next;
     });
-    setTonosCropAreas((prev) => {
+    setMultiPhotoCropAreas((prev) => {
       const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
       next[index] = null;
       return next;
     });
-    setTonosLiveCropAreas((prev) => {
+    setMultiPhotoLiveCropAreas((prev) => {
       const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
       next[index] = null;
       return next;
@@ -560,7 +599,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     // fill/0 wouldn't trigger the local effect (deps unchanged), and a
     // pending debounced onCropChange could fire AFTER Reset and
     // repopulate `liveCropAreas` with stale data.
-    setTonosResetSeq((prev) => {
+    setMultiPhotoResetSeq((prev) => {
       const next: [number, number, number] = [...prev];
       next[index] = prev[index] + 1;
       return next;
@@ -570,26 +609,26 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   // Phase 6.2 — Per-slot photo replace. Revokes the prior object URL,
   // swaps in the new file, and clears that slot's crop areas so the
   // cropper picks up the new photo cleanly. Same revoke-and-set pattern
-  // as `handleTonosImageSelected` but also wipes downstream crop state
+  // as `handleMultiPhotoImageSelected` but also wipes downstream crop state
   // (which is stale once the image changes). Other slots untouched.
-  const handleTonosSlotReplacePhoto = useCallback(
-    (index: TonosIndex, file: File) => {
-      const refs = tonosFileRefs.current;
+  const handleMultiPhotoSlotReplacePhoto = useCallback(
+    (index: MultiPhotoIndex, file: File) => {
+      const refs = multiPhotoFileRefs.current;
       refs[index] = file;
       const url = URL.createObjectURL(file);
-      setTonosImageSrcs((prev) => {
+      setMultiPhotoImageSrcs((prev) => {
         const next: [string | null, string | null, string | null] = [...prev];
         if (next[index]) URL.revokeObjectURL(next[index] as string);
         next[index] = url;
         return next;
       });
       // Clear stale crop areas — they were sized to the prior image.
-      setTonosCropAreas((prev) => {
+      setMultiPhotoCropAreas((prev) => {
         const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
         next[index] = null;
         return next;
       });
-      setTonosLiveCropAreas((prev) => {
+      setMultiPhotoLiveCropAreas((prev) => {
         const next: [CropArea | null, CropArea | null, CropArea | null] = [...prev];
         next[index] = null;
         return next;
@@ -598,7 +637,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
       // be used to compute crop dimensions for the new one. Without
       // remount, a rapid replace could leave stale imageSize visible
       // until the new img.onload fires. (Codex Phase 6.2 audit MAJOR.)
-      setTonosResetSeq((prev) => {
+      setMultiPhotoResetSeq((prev) => {
         const next: [number, number, number] = [...prev];
         next[index] = prev[index] + 1;
         return next;
@@ -670,17 +709,19 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     handleCropComplete,
     handleCropChange,
 
-    tonos,
-    handleTonosImageSelected,
-    handleTonosImagesSelected,
-    handleTonosCropChange,
-    handleTonosCropComplete,
+    multiPhoto,
+    handleMultiPhotoImageSelected,
+    handleMultiPhotoImagesSelected,
+    handleMultiPhotoCropChange,
+    handleMultiPhotoCropComplete,
+    handleMultiPhotoSlotReset,
+    handleMultiPhotoSlotReplacePhoto,
+    advanceFromMultiCrop,
+
+    tonosEffects,
     setTonosIntensity,
     setTonosFitMode,
     toggleTonosRotation,
-    handleTonosSlotReset,
-    handleTonosSlotReplacePhoto,
-    advanceFromTonosCrop,
 
     layoutRotated,
     canRotateLayout,
