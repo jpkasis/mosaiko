@@ -3,6 +3,8 @@ import { getVariantId, isVariantMapConfigured } from './variant-map';
 import { toPrintCustomization } from './customization-serializer';
 import { isPurchasableAsIs } from '../catalog-purchase-mode';
 import { getProductById } from '../catalog-data';
+import { CATEGORY_LAYOUTS } from '../category-layouts';
+import { isMultiPhotoInput } from '../category-layouts/derive';
 import type { CartLineInput } from './types';
 import type { CartItem } from '../cart-store';
 
@@ -122,15 +124,15 @@ export function buildCartLines(
         { key: '_customization', value: JSON.stringify(toPrintCustomization(item)) },
       );
 
-      // UAT-1b: multi-photo categories emit `_photo_urls` + `_crop_areas`.
-      // Tonos always; Save the Date when gridSize === 3 (3-piece is
-      // multi-photo; 9 and 6 stay single-photo). The `_photo_url` legacy
-      // key is also emitted with the first URL for admin detection +
-      // backward compat with the webhook's _-prefix filter.
-      const isMultiPhotoCart =
-        item.customizations.categoryType === 'tonos' ||
-        (item.customizations.categoryType === 'save-the-date' &&
-          item.gridSize === 3);
+      // UAT-3 Phase 3 (Codex audit E9): multi-photo cart attrs are
+      // derived from the layout contract, not a literal category list.
+      // `isMultiPhotoInput` is the single source of truth across cart,
+      // preview, generate-print, and webhook. STD-9/STD-6 single,
+      // STD-3 multi; Tonos always multi.
+      const isMultiPhotoCart = isMultiPhotoInput(
+        CATEGORY_LAYOUTS[item.customizations.categoryType],
+        item.gridSize,
+      );
 
       if (isMultiPhotoCart) {
         const urls = item.customizations.photoStorageUrls ?? ['', '', ''];

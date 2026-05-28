@@ -49,13 +49,18 @@ export interface TonosPrintJob {
  * 1×3 horizontal when `customization.layoutRotated`), renders the
  * SaveTheDate text overlay across the strip, and splits into 3
  * tiles. NO Tonos color/intensity effects.
+ *
+ * UAT-3 Phase 3a (Codex audit): removed the previously-declared
+ * `rotations?: [number, number, number]` field. The processor's
+ * `assembleMultiPhotoStrip` branch never honored it, the STD UI
+ * hides per-photo rotation, and both callers (cart-composite +
+ * generate-print) stopped setting it. The field was misleading
+ * contract noise — keep this type honest.
  */
 export interface SaveTheDateMultiPhotoPrintJob {
   imageBuffers: [Buffer, Buffer, Buffer];
   customization: SaveTheDateCustomization & { gridSize: 3 };
   cropAreas: [CropArea, CropArea, CropArea];
-  /** Optional per-photo 90° rotations (matches Tonos for parity). */
-  rotations?: [number, number, number];
   jobId: string;
 }
 

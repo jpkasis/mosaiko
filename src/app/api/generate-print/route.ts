@@ -3,15 +3,20 @@ import crypto from 'node:crypto';
 import { uploadPrintTiles } from '@/lib/storage';
 import type {
   CategoryCustomization,
+  SaveTheDateCustomization,
   TonosCustomization,
 } from '@/lib/customization-types';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
+import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
+import { isMultiPhotoInput } from '@/lib/category-layouts/derive';
+import type { GridSize } from '@/lib/grid-config';
 import { whitelistTonosFitModes } from '@/lib/shopify/webhook-parser';
 import type {
   ProcessorResult,
   PrintJob,
   SingleImagePrintJob,
   TonosPrintJob,
+  SaveTheDateMultiPhotoPrintJob,
 } from '@/lib/print-pipeline/types';
 
 // ─── Server-side CropArea (mirrors client-side CropArea without DOM deps) ───
@@ -40,7 +45,25 @@ interface TonosRequest {
   orderId?: string;
 }
 
-type GeneratePrintRequest = SingleImageRequest | TonosRequest;
+/**
+ * UAT-3 Phase 3 (Codex E8): STD-3 multi-photo generate-print request.
+ * 3 source photos, one per tile, with the SaveTheDate text overlay
+ * but NO Tonos color effects and NO per-photo rotation — the
+ * processor (`processSaveTheDate` multi-photo branch) doesn't honor
+ * rotations and the UI hides the rotation control for STD-3.
+ * (Codex Phase 3a audit: keep the contract honest.)
+ */
+interface SaveTheDateMultiPhotoRequest {
+  photoUrls: [string, string, string];
+  customization: SaveTheDateCustomization & { gridSize: 3 };
+  cropAreas: [CropArea, CropArea, CropArea];
+  orderId?: string;
+}
+
+type GeneratePrintRequest =
+  | SingleImageRequest
+  | TonosRequest
+  | SaveTheDateMultiPhotoRequest;
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -159,7 +182,25 @@ export async function POST(request: NextRequest) {
 
     let job: PrintJob;
 
-    if (body.customization.categoryType === 'tonos') {
+    // UAT-3 Phase 3 (Codex E8): multi-photo dispatch derives from
+    // `isMultiPhotoInput(layout, gridSize)` — the same single source of
+    // truth used by checkout, MagnetPreview, and the webhook. STD single
+    // and STD-3 share the same `categoryType`, so we discriminate by
+    // (category + gridSize), not category alone. The customization
+    // shape carries a `gridSize` field for every category; we narrow
+    // here via `GridSize` so unknown values default to single-photo.
+    const category = body.customization.categoryType;
+    const rawGridSize = (body.customization as { gridSize?: unknown }).gridSize;
+    const gridSize: GridSize | undefined = (
+      [3, 4, 6, 9] as const
+    ).includes(rawGridSize as 3 | 4 | 6 | 9)
+      ? (rawGridSize as GridSize)
+      : undefined;
+    const isMultiPhotoJob =
+      gridSize !== undefined &&
+      isMultiPhotoInput(CATEGORY_LAYOUTS[category], gridSize);
+
+    if (isMultiPhotoJob && category === 'tonos') {
       const tonosBody = body as TonosRequest;
 
       if (
@@ -232,6 +273,62 @@ export async function POST(request: NextRequest) {
         jobId: orderId,
       };
       job = tonosJob;
+    } else if (isMultiPhotoJob && category === 'save-the-date') {
+      // UAT-3 Phase 3 (Codex E8): STD-3 multi-photo support. 3 source
+      // photos, one per tile, with STD text overlay but no Tonos
+      // color effects. The processor (`processSaveTheDate` →
+      // `assembleMultiPhotoStrip` branch) honors layoutRotated for
+      // vertical↔horizontal flip.
+      const stdBody = body as SaveTheDateMultiPhotoRequest;
+
+      if (
+        !Array.isArray(stdBody.photoUrls) ||
+        stdBody.photoUrls.length !== 3 ||
+        !stdBody.photoUrls.every((u) => typeof u === 'string' && u.length > 0)
+      ) {
+        return NextResponse.json(
+          { error: 'STD-3 requires photoUrls to be an array of exactly 3 strings' },
+          { status: 400 },
+        );
+      }
+
+      if (
+        !Array.isArray(stdBody.cropAreas) ||
+        stdBody.cropAreas.length !== 3 ||
+        !stdBody.cropAreas.every(isValidCropArea)
+      ) {
+        return NextResponse.json(
+          { error: 'STD-3 requires cropAreas to be an array of exactly 3 valid crop areas' },
+          { status: 400 },
+        );
+      }
+
+      try {
+        stdBody.photoUrls.forEach(validatePhotoUrl);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : 'Invalid photo URL' },
+          { status: 400 },
+        );
+      }
+
+      let stdBuffers: Buffer[];
+      try {
+        stdBuffers = await Promise.all(stdBody.photoUrls.map(fetchPhotoBuffer));
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : 'Failed to fetch photo' },
+          { status: 422 },
+        );
+      }
+
+      const stdJob: SaveTheDateMultiPhotoPrintJob = {
+        imageBuffers: [stdBuffers[0], stdBuffers[1], stdBuffers[2]],
+        customization: stdBody.customization,
+        cropAreas: [stdBody.cropAreas[0], stdBody.cropAreas[1], stdBody.cropAreas[2]],
+        jobId: orderId,
+      };
+      job = stdJob;
     } else {
       const singleBody = body as SingleImageRequest;
 

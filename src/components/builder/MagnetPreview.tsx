@@ -20,7 +20,7 @@ import {
   type STDTextIntensity,
 } from '@/lib/customization-types';
 import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
-import { deriveClientInset } from '@/lib/category-layouts/derive';
+import { deriveClientInset, isMultiPhotoInput } from '@/lib/category-layouts/derive';
 import { getTonosColumnCSSFilter } from '@/lib/print-pipeline/utils/filter-presets';
 import { Button } from '@/components/ui/Button';
 import { MosaikoWatermark } from './MosaikoWatermark';
@@ -138,14 +138,18 @@ export function MagnetPreview({
         setIsLoading(true);
         setError(null);
 
-        // Multi-photo categories (Tonos AND UAT-1b Save the Date 3-piece):
-        // crop each of 3 source images once, then fan out to tiles by
-        // descriptor's `sourceImageIndex`. The tone-column filter is
+        // UAT-3 Phase 3 (Codex audit E10): multi-photo decision derives
+        // from `isMultiPhotoInput` — the single source of truth shared
+        // with checkout, generate-print, and the webhook. STD-3 multi,
+        // STD-6/9 single, Tonos multi. The tone-column filter is
         // applied per tile in the render step (Tonos only); STD-3 has
         // no per-tile filter and gets its text overlay via
         // `SaveTheDateOverlay` in the tile render.
         const isMultiPhotoPreview =
-          (categoryType === 'tonos' || categoryType === 'save-the-date') &&
+          isMultiPhotoInput(
+            CATEGORY_LAYOUTS[categoryType],
+            gridConfig.size,
+          ) &&
           tonos != null &&
           (tonos.imageSrcs as (string | null)[]).some((s) => Boolean(s));
         if (isMultiPhotoPreview && tonos) {
