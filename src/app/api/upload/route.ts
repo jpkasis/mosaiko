@@ -1,32 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadOriginalPhoto } from '@/lib/storage';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-
-// ─── Magic byte signatures for image validation ─────────────────────────────
-
-const MAGIC_BYTES: { prefix: number[]; type: string; extension: string }[] = [
-  { prefix: [0xFF, 0xD8, 0xFF], type: 'image/jpeg', extension: 'jpg' },
-  { prefix: [0x89, 0x50, 0x4E, 0x47], type: 'image/png', extension: 'png' },
-  { prefix: [0x52, 0x49, 0x46, 0x46], type: 'image/webp', extension: 'webp' }, // RIFF header (WebP)
-];
-
-function detectImageType(buffer: Buffer): { type: string; extension: string } | null {
-  for (const magic of MAGIC_BYTES) {
-    if (magic.prefix.every((byte, i) => buffer[i] === byte)) {
-      // Additional WebP check: bytes 8-11 must be "WEBP"
-      if (magic.type === 'image/webp') {
-        const webpTag = buffer.subarray(8, 12).toString('ascii');
-        if (webpTag !== 'WEBP') continue;
-      }
-      return { type: magic.type, extension: magic.extension };
-    }
-  }
-  return null;
-}
+import {
+  MAX_UPLOAD_BYTES,
+  UPLOAD_ERROR_STATUS,
+  detectImageType,
+  resultToError,
+  uploadError,
+} from '@/lib/upload-validation';
 
 // ─── POST /api/upload ────────────────────────────────────────────────────────
 
@@ -37,7 +18,10 @@ export async function POST(request: NextRequest) {
 
   if (!allowed) {
     return NextResponse.json(
-      { error: 'Demasiadas solicitudes. Intenta de nuevo en unos segundos.' },
+      {
+        code: 'RATE_LIMITED',
+        message: 'Demasiadas solicitudes. Intenta de nuevo en unos segundos.',
+      },
       {
         status: 429,
         headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) },
@@ -52,21 +36,17 @@ export async function POST(request: NextRequest) {
     // ── Validate file exists ──────────────────────────────────────────────
 
     if (!file || !(file instanceof File)) {
-      return NextResponse.json(
-        { error: 'No file provided. Send a file field in multipart/form-data.' },
-        { status: 400 },
-      );
+      const err = uploadError('NO_FILE');
+      return NextResponse.json(err, { status: UPLOAD_ERROR_STATUS.NO_FILE });
     }
 
     // ── Validate file size ────────────────────────────────────────────────
 
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        {
-          error: `File too large: ${(file.size / (1024 * 1024)).toFixed(1)} MB. Maximum is 10 MB.`,
-        },
-        { status: 400 },
-      );
+    if (file.size > MAX_UPLOAD_BYTES) {
+      const err = uploadError('FILE_TOO_LARGE');
+      return NextResponse.json(err, {
+        status: UPLOAD_ERROR_STATUS.FILE_TOO_LARGE,
+      });
     }
 
     // ── Convert to Buffer and validate via magic bytes ────────────────────
@@ -75,23 +55,24 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
 
     const detected = detectImageType(buffer);
-    if (!detected) {
-      return NextResponse.json(
-        { error: 'Invalid file type. Only JPEG, PNG, and WebP images are allowed.' },
-        { status: 400 },
-      );
+    if (detected.kind !== 'accepted') {
+      // HEIC gets a distinct error code with iPhone-specific actionable
+      // copy; other unknown types get the generic "unsupported".
+      const err = resultToError(detected);
+      return NextResponse.json(err, { status: UPLOAD_ERROR_STATUS[err.code] });
     }
 
-    const extension = detected.extension;
-
-    const { key, publicUrl } = await uploadOriginalPhoto(buffer, extension);
+    const { key, publicUrl } = await uploadOriginalPhoto(buffer, detected.extension);
 
     return NextResponse.json({ key, publicUrl }, { status: 201 });
   } catch (error) {
     console.error('[api/upload] Upload failed:', error);
 
     return NextResponse.json(
-      { error: 'Upload failed. Please try again.' },
+      {
+        code: 'INTERNAL_ERROR',
+        message: 'Error inesperado al subir la foto. Intenta de nuevo.',
+      },
       { status: 500 },
     );
   }

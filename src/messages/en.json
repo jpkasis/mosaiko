@@ -21,6 +21,16 @@
   "announcement": {
     "text": "Free shipping on all orders — Customize your magnets today!"
   },
+  "upload": {
+    "errorNoFile": "No file was received.",
+    "errorFileTooLarge": "File exceeds the 20 MB limit.",
+    "errorUnsupportedHeic": "iPhone HEIC photos aren't supported. Switch your camera to JPG in Settings → Camera → Formats → Most Compatible, or upload from your gallery.",
+    "errorUnsupportedType": "Unsupported format. Upload a JPG, PNG, or WebP image.",
+    "errorRateLimited": "Too many requests. Try again in a few seconds.",
+    "errorUnauthorized": "Unauthorized.",
+    "errorInternal": "Unexpected error uploading the photo. Try again.",
+    "errorGeneric": "Could not upload the photo. Try again."
+  },
   "nav": {
     "home": "Home",
     "catalog": "Catalog",

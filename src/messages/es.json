@@ -21,6 +21,16 @@
   "announcement": {
     "text": "Envío gratis en todos los pedidos — ¡Personaliza tus imanes hoy!"
   },
+  "upload": {
+    "errorNoFile": "No se recibió ningún archivo.",
+    "errorFileTooLarge": "El archivo excede el límite de 20 MB.",
+    "errorUnsupportedHeic": "Las fotos HEIC del iPhone no son compatibles. Cambia tu cámara a JPG en Ajustes → Cámara → Formatos → Más compatible, o sube la foto desde tu galería.",
+    "errorUnsupportedType": "Formato no soportado. Sube una imagen JPG, PNG o WebP.",
+    "errorRateLimited": "Demasiadas solicitudes. Intenta de nuevo en unos segundos.",
+    "errorUnauthorized": "No autorizado.",
+    "errorInternal": "Error inesperado al subir la foto. Intenta de nuevo.",
+    "errorGeneric": "No se pudo subir la foto. Intenta de nuevo."
+  },
   "nav": {
     "home": "Inicio",
     "catalog": "Catálogo",

@@ -54,11 +54,70 @@ const slideVariants = {
   }),
 };
 
+/**
+ * Carries both the server's `code` + `message` so the caller can map
+ * to localized copy via next-intl. UAT-3 Phase 2 (Codex audit): the
+ * client prefers its own catalog by `code`, with `message` as fallback.
+ * See `src/lib/upload-validation.ts` for the canonical `UploadApiErrorCode`
+ * set and `src/messages/{es,en}.json` `upload` namespace for the
+ * localized copy.
+ */
+class UploadHttpError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'UploadHttpError';
+  }
+}
+
+/** Maps a server-emitted upload error `code` to the localized i18n key
+ *  in the `upload` namespace. UAT-3 Phase 2 (Codex): codes the server
+ *  may return must each have a corresponding catalog entry. Unknown
+ *  codes (or no code at all) fall back to the server's `message` and
+ *  ultimately to a generic copy. */
+const UPLOAD_ERROR_I18N: Record<string, string> = {
+  NO_FILE: 'errorNoFile',
+  FILE_TOO_LARGE: 'errorFileTooLarge',
+  UNSUPPORTED_HEIC: 'errorUnsupportedHeic',
+  UNSUPPORTED_TYPE: 'errorUnsupportedType',
+  RATE_LIMITED: 'errorRateLimited',
+  UNAUTHORIZED: 'errorUnauthorized',
+  INTERNAL_ERROR: 'errorInternal',
+};
+
+function resolveUploadErrorMessage(
+  error: unknown,
+  tUpload: (key: string) => string,
+): string {
+  // UploadHttpError carries server `code` + `message`. Prefer the
+  // locale-correct copy in the next-intl `upload` namespace.
+  if (error instanceof UploadHttpError) {
+    const i18nKey = UPLOAD_ERROR_I18N[error.code];
+    if (i18nKey) return tUpload(i18nKey);
+    if (error.message) return error.message;
+    return tUpload('errorGeneric');
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return tUpload('errorGeneric');
+}
+
 async function uploadPhoto(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('file', file);
   const res = await fetch('/api/upload', { method: 'POST', body: formData });
-  if (!res.ok) throw new Error('upload failed');
+  if (!res.ok) {
+    let code = 'INTERNAL_ERROR';
+    let message = '';
+    try {
+      const body = await res.json();
+      if (body && typeof body.code === 'string') code = body.code;
+      if (body && typeof body.message === 'string') message = body.message;
+    } catch {
+      // body unparseable — keep code = INTERNAL_ERROR, message = ''
+    }
+    throw new UploadHttpError(code, message);
+  }
   const { publicUrl } = await res.json();
   return publicUrl as string;
 }
@@ -137,6 +196,11 @@ async function requestCartComposite(body: Record<string, unknown>): Promise<Cart
 export function MagnetBuilder() {
   const t = useTranslations('builder');
   const tc = useTranslations('common');
+  // UAT-3 Phase 2: localized upload-error catalog. Client looks up by
+  // the server's `code` first; falls back to the server's `message`
+  // (Spanish) if the code is unknown; finally falls back to a generic
+  // copy if no message either.
+  const tUpload = useTranslations('upload');
   const addItem = useCartStore((s) => s.addItem);
   const searchParams = useSearchParams();
 
@@ -372,13 +436,11 @@ export function MagnetBuilder() {
       });
     } catch (error) {
       console.error('[MagnetBuilder] add-to-cart failed:', error);
-      flow.setAddToCartError(
-        error instanceof Error ? error.message : 'No se pudo preparar tu mosaico. Intenta de nuevo.',
-      );
+      flow.setAddToCartError(resolveUploadErrorMessage(error, tUpload));
     } finally {
       flow.setIsUploading(false);
     }
-  }, [flow, addItem]);
+  }, [flow, addItem, tUpload]);
 
   const allowedGridSizes = useMemo(() => {
     if (!flow.selectedCategory) return undefined;

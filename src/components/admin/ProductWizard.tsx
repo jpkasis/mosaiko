@@ -53,8 +53,11 @@ export function ProductWizard({ onClose, onSaved }: ProductWizardProps) {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Error al analizar');
+        // UAT-3 Phase 2 (Codex audit): admin analyze route now returns
+        // `{ code, message }` instead of `{ error }`. Read both for
+        // back-compat in case the response shape changes again.
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || err.error || 'Error al analizar');
       }
 
       const data = await res.json();
@@ -84,16 +87,14 @@ export function ProductWizard({ onClose, onSaved }: ProductWizardProps) {
     setStep('analysis');
 
     try {
-      const formData = new FormData();
-      // Re-fetch the temp image from R2 — but we need to re-analyze
-      // We'll send the override parameters and let the server use the existing temp image
+      // Re-analyze with forced grid parameters. The server still has
+      // the temp image keyed by `tempImageKey`; we just need to send
+      // the override grid values. (UAT-3 Phase 2 cleanup: removed an
+      // unused outer `formData` declaration shadowed by the inner one.)
       const res = await fetch('/api/admin/products/analyze', {
         method: 'POST',
         body: (() => {
           const fd = new FormData();
-          // For re-analysis, we need the original file. Since we only have the temp key,
-          // we'll need to re-upload. For now, ask user to re-select if they want to override.
-          // Instead, let's just update the detection locally based on forced grid
           fd.append('forceRows', String(rows));
           fd.append('forceCols', String(cols));
           fd.append('forceGridSize', String(gridSize));
