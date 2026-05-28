@@ -122,8 +122,8 @@ async function uploadPhoto(file: File): Promise<string> {
 }
 
 /**
- * Attempts to upload the user's photo to R2. On failure (common in local
- * dev without live R2 creds), falls back to a base64 data URL so the
+ * Attempts to upload the user's photo to Shopify Files. On failure (common in local
+ * dev without live Shopify Files creds), falls back to a base64 data URL so the
  * add-to-cart flow still completes. The composite endpoint accepts either.
  * For production the URL path is preferred (smaller request body).
  */
@@ -175,7 +175,7 @@ interface CartCompositeResponse {
 
 /**
  * Asks the server to assemble the canonical magnet composite for the
- * current builder state and returns the R2 URLs of the full-res PNG + the
+ * current builder state and returns the Shopify Files URLs of the full-res PNG + the
  * JPEG thumbnail. Runs the same Sharp pipeline the order webhook uses, so
  * the cart thumbnail is a faithful preview of what will be printed.
  */

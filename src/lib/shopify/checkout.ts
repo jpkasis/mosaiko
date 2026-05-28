@@ -32,7 +32,7 @@ export interface CheckoutError {
  * - _preview_image_url: visible in Shopify order details (and admin UI)
  * - _grid_type: e.g. "3x3"
  * - category: customization category (kept unprefixed — visible to customer)
- * - _photo_url(s): R2 URL(s) (underscore = hidden from customer receipt)
+ * - _photo_url(s): Shopify Files URL(s) (underscore = hidden from customer receipt)
  * - _customization: full customization JSON
  * - _crop_area(s): crop area JSON
  * - _composite_key / _composite_url / _composite_pipeline_version:

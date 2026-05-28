@@ -16,7 +16,7 @@ export interface CartItem {
   price: number;
   quantity: number;
   /**
-   * Thumbnail shown in the cart. For custom items this is the R2 URL of a
+   * Thumbnail shown in the cart. For custom items this is the Shopify Files URL of a
    * downscaled JPEG produced by /api/cart-composite — the canonical
    * category-aware composite. For predesigned items it's the catalog image.
    */
@@ -43,7 +43,7 @@ export interface CartItem {
     tonosSlots?: TonosSlotConfigs;
     layoutRotated?: boolean;
     /**
-     * R2 key + URL of the canonical composite image produced at add-to-cart.
+     * Shopify Files key + URL of the canonical composite image produced at add-to-cart.
      * Kept alongside the photo metadata so the Shopify webhook can skip
      * re-rendering at order time by splitting the same composite.
      */
@@ -82,7 +82,7 @@ interface CartState {
  * persisted multi-MB `data:image/...` in `previewUrl` or `compositeUrl`
  * overflows the browser quota after a few adds and bricks every subsequent
  * store mutation. The server's /api/cart-composite route is responsible for
- * always returning real URLs (R2 or the /api/cart-composite/blob/ fallback).
+ * always returning real URLs (Shopify Files or the /api/cart-composite/blob/ fallback).
  */
 function assertNoDataUrls(item: Omit<CartItem, 'id'>): void {
   const check = (value: string | undefined, field: string) => {

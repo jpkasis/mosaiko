@@ -17,7 +17,7 @@ import type { SeamData } from '@/lib/catalog-data';
  * have spring-based entry animation + magnetic-shadow hover affordance.
  *
  * Both consumers (catalog + cart) pass the same primitives:
- *   - compositeUrl: full assembled mosaic (R2 URL or /api/cart-composite/blob/{id})
+ *   - compositeUrl: full assembled mosaic (Shopify Files URL or /api/cart-composite/blob/{id})
  *   - rows/cols: grid dimensions
  *   - seamData: optional non-uniform tile boundaries
  *   - categoryType: optional, only Arte uses it (4×3 grid with 9 occupied cells)

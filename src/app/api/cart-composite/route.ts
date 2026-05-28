@@ -29,9 +29,9 @@ interface CropArea {
 // ─── Request body shape ─────────────────────────────────────────────────────
 
 interface SingleImageRequest {
-  /** Remote photo URL. Preferred when R2 is reachable. */
+  /** Remote photo URL. Preferred when Shopify Files upload succeeded. */
   photoUrl?: string;
-  /** Inline base64 data URL for the photo. Fallback when R2 upload failed. */
+  /** Inline base64 data URL for the photo. Fallback when Shopify Files upload failed. */
   photoData?: string;
   customization: Exclude<CategoryCustomization, TonosCustomization>;
   cropArea: CropArea;
@@ -155,7 +155,7 @@ async function fetchPhotoBuffer(url: string): Promise<Buffer> {
  * Generates the canonical composite image for a custom-magnet cart item:
  * runs the server print pipeline, assembles the resulting print tiles into
  * one gapless composite (per the category's layout), uploads a full-res
- * composite and a downscaled JPEG thumbnail to R2 under `cart-composites/`,
+ * composite and a downscaled JPEG thumbnail to Shopify Files under `cart-composites/`,
  * and returns both URLs. The thumbnail is what the cart renders.
  *
  * Cart, checkout, and print output all stem from the same Sharp pipeline,
@@ -413,13 +413,17 @@ export async function POST(request: NextRequest) {
     const { composePrintJob } = await import('@/lib/print-pipeline');
     const composed = await composePrintJob(job, { thumbWidth: 800 });
 
-    // Try to upload full-res composite (PNG) and thumbnail (JPEG) to R2
-    // under `cart-composites/`. Expectation: R2 has a lifecycle rule that
+    // Try to upload full-res composite (PNG) and thumbnail (JPEG) to Shopify Files
+    // under `cart-composites/`. Expectation: Shopify Files lifecycle that
     // expires this prefix after ~30 days so abandoned carts self-clean;
     // paid orders copy the composite into `print-files/` before splitting.
-    // If R2 is unreachable (e.g. local dev with placeholder creds), fall
-    // back to stashing the composite + thumb in a per-process in-memory
-    // cache and return URLs that resolve via /api/cart-composite/blob/[id].
+    // If Shopify Files is unreachable (e.g. local dev with placeholder creds), fall
+    // back to stashing the composite + thumb in a filesystem-backed
+    // cache (see `src/lib/cart-composite-blob-cache.ts`) and return URLs
+    // that resolve via /api/cart-composite/blob/[id]. The cache survives
+    // dev-server restarts because cart items persist via Zustand-persist
+    // + Shopify cookie indefinitely; an in-memory `Map` would 404 on
+    // every restart.
     // The client must never receive data: URLs here — storing those on the
     // Zustand cart item overflows the browser's localStorage quota after a
     // handful of adds. The order flow regenerates from the original photo
@@ -449,7 +453,7 @@ export async function POST(request: NextRequest) {
     } catch (uploadError) {
       if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_BLOB_FALLBACK) {
         console.error(
-          '[api/cart-composite] R2 upload failed in production:',
+          '[api/cart-composite] Shopify Files upload failed in production:',
           uploadError instanceof Error ? uploadError.message : uploadError,
         );
         return NextResponse.json(
@@ -458,7 +462,7 @@ export async function POST(request: NextRequest) {
         );
       }
       console.warn(
-        '[api/cart-composite] R2 upload unavailable, using in-memory blob cache:',
+        '[api/cart-composite] Shopify Files upload unavailable, using filesystem blob cache:',
         uploadError instanceof Error ? uploadError.message : uploadError,
       );
       const compositeBlobId = `${jobId}.png`;

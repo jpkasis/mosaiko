@@ -1,26 +1,29 @@
 /**
  * Filesystem-backed blob cache for the cart-composite fallback path. Only
- * used when R2 is unreachable (typically local dev with placeholder creds).
- * Instead of returning the composite + thumb as base64 data URLs — which
- * would overflow the client's localStorage once persisted by the Zustand
- * cart store — we stash the buffers on disk and hand the client short
- * URLs that resolve via /api/cart-composite/blob/[id].
+ * used when the canonical storage (Shopify Files) is unreachable —
+ * typically local dev with placeholder credentials. Instead of returning
+ * the composite + thumb as base64 data URLs — which would overflow the
+ * client's localStorage once persisted by the Zustand cart store — we
+ * stash the buffers on disk and hand the client short URLs that resolve
+ * via /api/cart-composite/blob/[id].
  *
  * Why on disk, not in memory:
  *   The cart persists across dev-server restarts (Zustand-persist on
  *   localStorage + Shopify cart cookie). An in-memory `Map` evicts every
  *   entry on restart, so cart items added before a restart 404 on their
  *   thumbnail and the UI falls back to the placeholder grid icon. By
- *   writing to a project-local directory (`.cart-composite-cache/`) we
- *   match the cart's durability profile in dev.
+ *   writing to a stable project-local directory in dev we match the
+ *   cart's durability profile.
  *
- * Storage location: `.cart-composite-cache/` at the project root. Outside
- * `.next/` so Turbopack's cache invalidation doesn't wipe entries on
- * config edits. Project-local so it doesn't leak across users; gitignored.
+ * Storage location:
+ *   - production: `/tmp/mosaiko-cart-composite-cache` because Vercel's
+ *     function root is read-only and `/tmp` is the writable scratch area.
+ *   - dev/test: `CART_COMPOSITE_CACHE_DIR` override when set, otherwise
+ *     `.cart-composite-cache/` at the project root for restart durability.
  *
- * Production: never reaches this code in the happy path. R2 holds the
- * canonical composite + thumb at permanent URLs and `/api/cart-composite`
- * returns those.
+ * Production: never reaches this code in the happy path. Shopify Files
+ * holds the canonical composite + thumb at permanent CDN URLs and
+ * `/api/cart-composite` returns those.
  */
 
 import path from 'node:path';
@@ -46,10 +49,17 @@ export const DEFAULT_TTL_MS = 30 * 60 * 1000;
 
 export const BLOB_ID_PATTERN = /^[\w.-]{1,256}$/;
 
-// Module-level constant resolved once. process.cwd() is stable on the
-// Next dev server (it's the project root); each route invocation uses
-// the same dir.
-const CACHE_DIR = path.join(process.cwd(), '.cart-composite-cache');
+// Keep this as direct module-level conditionals. Next/Vercel's output
+// tracer can fold the production branch, but an ungated env-derived
+// filesystem root makes it conservatively trace broad project assets.
+const DEFAULT_CACHE_DIR = process.env.NODE_ENV === 'production'
+  ? path.join('/tmp', 'mosaiko-cart-composite-cache')
+  : path.join(process.cwd(), '.cart-composite-cache');
+
+const CACHE_DIR =
+  process.env.NODE_ENV !== 'production' && process.env.CART_COMPOSITE_CACHE_DIR
+    ? path.resolve(process.env.CART_COMPOSITE_CACHE_DIR)
+    : DEFAULT_CACHE_DIR;
 
 function ensureDir(): void {
   mkdirSync(CACHE_DIR, { recursive: true });
