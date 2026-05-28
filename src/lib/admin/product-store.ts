@@ -8,8 +8,8 @@ import crypto from 'node:crypto';
 
 export interface DynamicProduct extends CatalogProduct {
   isDynamic: true;
-  displayImageKey: string;   // R2 key for composite display image
-  originalImageKey: string;  // R2 key for seamless original
+  displayImageKey: string;   // Shopify Files key for composite display image
+  originalImageKey: string;  // Shopify Files key for seamless original
   createdAt: string;         // ISO date
 }
 
@@ -75,7 +75,7 @@ export async function addProduct(input: {
 
   // Move temp image to permanent key. Shopify Files has no native copy
   // — copyObject downloads + re-uploads. We then resolve the display URL
-  // by filename lookup; with the legacy R2 backend this used the
+  // by filename lookup; with the legacy Shopify Files backend this used the
   // synchronous `getPublicUrl(key)` mapping, which Shopify Files does
   // not expose.
   const displayKey = `${CATALOG_IMAGES_PREFIX}${id}-display.${ext}`;
@@ -141,7 +141,7 @@ export async function deleteProduct(id: string): Promise<boolean> {
   products.splice(idx, 1);
   await saveDynamicProducts(products);
 
-  // Clean up R2 images (fire and forget)
+  // Clean up Shopify Files images (fire and forget)
   await Promise.allSettled([
     deleteFile('uploads', product.displayImageKey),
     deleteFile('uploads', product.originalImageKey),
