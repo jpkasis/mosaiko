@@ -1,7 +1,7 @@
 /**
  * Storage layer — backed by Shopify Files API.
  *
- * The contract preserves the legacy Shopify Files/S3 surface so consumers don't
+ * The contract preserves the legacy R2/S3 surface so consumers don't
  * have to change much, but the semantics differ:
  *
  *   - There is one Shopify Files namespace; the `bucket` parameter is
@@ -27,7 +27,7 @@
  * error) propagates as `UploadFailure` carrying the per-tile breakdown.
  * The Shopify primitive (`uploadShopifyFilesBatch`) does best-effort
  * cleanup of any partially-created Shopify files, so the orphan-tile
- * concern from the Shopify Files era is now handled inside the upload primitive
+ * concern from the R2 era is now handled inside the upload primitive
  * rather than left to the orchestrator.
  */
 
@@ -192,7 +192,7 @@ export function getPublicUrl(_key: string): string {
 }
 
 /**
- * Async `getSignedUrl` shim — historically presigned an Shopify Files URL with a
+ * Async `getSignedUrl` shim — historically presigned an R2 URL with a
  * TTL. Shopify Files URLs are public and persistent; this resolves the
  * key to its current cdn URL and ignores `expiresIn`.
  */

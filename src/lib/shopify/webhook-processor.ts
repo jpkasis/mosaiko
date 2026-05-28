@@ -187,7 +187,7 @@ export interface ProcessingDeps {
   fetchPhoto: (url: string) => Promise<Buffer | null>;
 
   /**
-   * Upload per-tile PNG buffers to Shopify Files. Returns `{ key, publicUrl }` per
+   * Upload per-tile PNG buffers to R2. Returns `{ key, publicUrl }` per
    * tile. Must throw on any failure; callers translate throws into
    * typed `LineItemFailed` results.
    */
@@ -211,7 +211,7 @@ export interface ProcessingDeps {
   /**
    * Delete the cart-composite object after a successful composite-reuse
    * bypass + tile upload. Optional — when absent, composites accumulate
-   * until Shopify Files lifecycle policy reaps them. The route wires
+   * until R2 lifecycle policy reaps them. The route wires
    * `deleteFile('print-files', key)`; tests can pass a stub or omit.
    *
    * Failures are non-fatal — caller logs and proceeds.
@@ -258,7 +258,7 @@ export async function processLineItem(
   // If the cart already produced a canonical composite via
   // `/api/cart-composite`, we can split it directly into the printed
   // tiles instead of re-running the Sharp processor. Saves the second
-  // render and avoids Shopify Files orphans for every successful order. The bypass
+  // render and avoids R2 orphans for every successful order. The bypass
   // is category-agnostic — extracting pixel regions from a composite
   // works identically for Mosaicos, Tonos (tones+logo already baked),
   // STD/Arte/Studio (text already rendered), Spotify, and Polaroid.
@@ -285,11 +285,11 @@ export async function processLineItem(
     if (stored.length === 0) {
       return fail('no_tiles_generated');
     }
-    // Best-effort Shopify Files cleanup — fire-and-forget. The composite is no
+    // Best-effort R2 cleanup — fire-and-forget. The composite is no
     // longer needed once the tiles are in `print-files/<jobId>/`. We
-    // intentionally don't `await` it: a slow Shopify Files delete (or transient
+    // intentionally don't `await` it: a slow R2 delete (or transient
     // failure) shouldn't delay the webhook response or block the next
-    // line item's processing. Shopify Files lifecycle policy on `cart-composites/`
+    // line item's processing. R2 lifecycle policy on `cart-composites/`
     // reaps anything left behind. Codex Phase 3 audit MINOR fix.
     if (deps.deleteComposite) {
       const compositeKey = lineItem.attrs['_composite_key'];
@@ -491,7 +491,7 @@ export async function processLineItem(
  * Priors the orchestrator reads before running any line. Lets the
  * caller (the Shopify webhook handler) carry forward successful line
  * results from a prior run so a retry doesn't redo work that already
- * landed in Shopify Files.
+ * landed in R2.
  */
 export interface PriorLineResult {
   lineItemId: number;
@@ -534,7 +534,7 @@ export async function processWebhookOrder(
   const results: LineItemResult[] = [];
   for (const item of items) {
     // Short-circuit: if a prior run successfully processed this line,
-    // reuse its URLs. No photo fetch, no Sharp work, no Shopify Files write.
+    // reuse its URLs. No photo fetch, no Sharp work, no R2 write.
     const prior = priorByLine.get(item.lineItemId);
     if (prior && prior.kind === 'ok' && prior.urls && prior.urls.length > 0) {
       results.push({

@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Faltan campos requeridos.' }, { status: 400 });
     }
 
-    // Fetch the temp image from Shopify Files to generate the clean original
+    // Fetch the temp image from R2 to generate the clean original
     const tempObj = await getObject('uploads', tempImageKey);
     const tempBuffer = Buffer.from(await tempObj.Body!.transformToByteArray());
 
