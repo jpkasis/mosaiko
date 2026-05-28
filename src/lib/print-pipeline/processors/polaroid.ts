@@ -1,15 +1,18 @@
 import sharp from 'sharp';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
 import { polaroidLayout } from '../../category-layouts/polaroid';
+import { SHARED_LOGOS, TEMPLATE_PATHS } from '../asset-paths';
 
 const TILE = TILE_PRINT_SIZE;
 
-const TEMPLATE_DIR = join(process.cwd(), 'mosaic-categories/polaroid/polaroid-template-PNGs');
-const LOGO_DIR = join(process.cwd(), 'MOSAIKO-logos');
+// Asset paths are centralized in `asset-paths.ts`. UAT-3 B5 context: the
+// legacy `mosaic-categories/` + `MOSAIKO-logos/` dirs were never
+// committed and broke prod; `public/` is auto-bundled into the Vercel
+// function output.
+const POLAROID_ASSETS = TEMPLATE_PATHS.polaroid;
 
 // Per-tile photo cutout bounds sourced from the shared category-layouts
 // contract so the server processor and client preview derive from the same
@@ -90,7 +93,7 @@ export async function processPolaroid(job: SingleImagePrintJob): Promise<TileOut
       const photoTop = Math.round(area.top * scale);
 
       // Load frame template
-      const templateBuffer = await readFile(join(TEMPLATE_DIR, `${index + 1}.png`));
+      const templateBuffer = await readFile(POLAROID_ASSETS.tiles[index]);
       const resizedTemplate = await sharp(templateBuffer)
         .resize(TILE, TILE, { fit: 'fill' })
         .png()
@@ -103,7 +106,7 @@ export async function processPolaroid(job: SingleImagePrintJob): Promise<TileOut
 
       // Add black Mosaiko logo on tile 4
       if (index === 3) {
-        const logoBuffer = await readFile(join(LOGO_DIR, 'LOGO NEGRO.png'));
+        const logoBuffer = await readFile(SHARED_LOGOS.negro);
         const logoResized = await sharp(logoBuffer)
           .resize({ height: Math.round(TILE * 0.06) })
           .png()

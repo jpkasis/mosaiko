@@ -596,13 +596,17 @@ export function MagnetBuilder() {
   // so first-session users on short builder steps (upload, category picker)
   // see the primary controls above the banner instead of behind it. The var
   // resolves to `0px` when the banner is dismissed (fallback).
+  // UAT-3 J12 (Codex audit finding): include `keyboardInset` here so the
+  // form content shifts up by the same amount the sticky CTA does when
+  // the iOS soft keyboard opens. Without this, the CTA rides up but the
+  // content's bottom-padding stays the same, leaving lower form fields
+  // hidden behind the CTA — the exact regression UAT-2 B3 deferred.
   const mobileBottomPadStyle: React.CSSProperties = stickyCta.visible
     ? {
-        paddingBottom:
-          'calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem)',
+        paddingBottom: `calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`,
       }
     : {
-        paddingBottom: 'var(--cookie-banner-offset, 0px)',
+        paddingBottom: `calc(var(--cookie-banner-offset, 0px) + ${keyboardInset}px)`,
       };
 
   return (

@@ -1,15 +1,18 @@
 import sharp from 'sharp';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import type { StudioCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
 import { studioLayout } from '../../category-layouts/studio';
 import { renderTextLayer } from '../utils/text-renderer';
+import { TEMPLATE_PATHS } from '../asset-paths';
 
 const TILE = TILE_PRINT_SIZE;
-const TEMPLATE_DIR = join(process.cwd(), 'mosaic-categories/studio/studio-template-PNGs');
+// Asset paths are centralized in `asset-paths.ts`. UAT-3 B5 context: the
+// legacy `mosaic-categories/` dir was never committed and broke prod;
+// `public/templates/` is auto-bundled into the Vercel function output.
+const STUDIO_ASSETS = TEMPLATE_PATHS.studio;
 
 // Per-tile photo cutout bounds sourced from the shared category-layouts
 // contract so the server processor and client preview derive from the same
@@ -75,7 +78,7 @@ export async function processStudio(job: SingleImagePrintJob): Promise<TileOutpu
         .toBuffer();
 
       // Load frame template
-      const templateBuffer = await readFile(join(TEMPLATE_DIR, `${index + 1}.png`));
+      const templateBuffer = await readFile(STUDIO_ASSETS.tiles[index]);
       const resizedTemplate = await sharp(templateBuffer)
         .resize(TILE, TILE, { fit: 'fill' })
         .png()
@@ -134,7 +137,7 @@ async function renderLeftPanel(
   studioText: string | undefined,
   photoStrip: Buffer,
 ): Promise<Buffer> {
-  const templateBuffer = await readFile(join(TEMPLATE_DIR, '5.png'));
+  const templateBuffer = await readFile(STUDIO_ASSETS.tiles[4]);
   const resizedTemplate = await sharp(templateBuffer)
     .resize(TILE, TILE, { fit: 'fill' })
     .png()
@@ -177,7 +180,7 @@ async function renderRightPanel(
   customText: string,
   photoStrip: Buffer,
 ): Promise<Buffer> {
-  const templateBuffer = await readFile(join(TEMPLATE_DIR, '6.png'));
+  const templateBuffer = await readFile(STUDIO_ASSETS.tiles[5]);
   const resizedTemplate = await sharp(templateBuffer)
     .resize(TILE, TILE, { fit: 'fill' })
     .png()

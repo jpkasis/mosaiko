@@ -1,14 +1,16 @@
 import sharp from 'sharp';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
 import { getTileLayout } from '../../customization-types';
 import type { TonosPrintJob, TileOutput, SharpFilterConfig } from '../types';
 import { cropAndResize } from '../utils/tile-splitter';
 import { getTonosColumnFilter } from '../utils/filter-presets';
+import { SHARED_LOGOS } from '../asset-paths';
 
-const MOSAIKO_LOGO_DIR = join(process.cwd(), 'MOSAIKO-logos');
-const LOGO_BLANCO_PATH = join(MOSAIKO_LOGO_DIR, 'LOGO BLANCO.png');
+// Asset paths are centralized in `asset-paths.ts`. UAT-3 B5 context: the
+// legacy `MOSAIKO-logos/` dir was never committed and broke prod;
+// `public/logos/` is auto-bundled into the Vercel function output.
+const LOGO_BLANCO_PATH = SHARED_LOGOS.blanco;
 
 /**
  * Tonos processor.

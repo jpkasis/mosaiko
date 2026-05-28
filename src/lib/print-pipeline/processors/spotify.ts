@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
 import { TILE_PRINT_SIZE } from '../../grid-config';
+import { SHARED_LOGOS, TEMPLATE_PATHS } from '../asset-paths';
 import type { SpotifyCustomization } from '../../customization-types';
 import type { SingleImagePrintJob, TileOutput } from '../types';
 import { CATEGORY_LAYOUTS } from '../../category-layouts';
@@ -48,10 +48,12 @@ function combinedVisibleRegion() {
   };
 }
 
-// Path to the template PNGs (relative to project root)
-const TEMPLATE_DIR = join(process.cwd(), 'mosaic-categories/spotify/spotify-template-PNGs');
-const LOGO_DIR = join(process.cwd(), 'mosaic-categories/spotify');
-const MOSAIKO_LOGO_DIR = join(process.cwd(), 'MOSAIKO-logos');
+// Asset paths come from the centralized `asset-paths` module so the
+// integrity test and every processor pull from a single source of
+// truth. UAT-3 B5: `public/` is auto-bundled into the Vercel function
+// output; the legacy `mosaic-categories/` + `MOSAIKO-logos/` dirs were
+// never committed and caused ENOENT on production.
+const SPOTIFY_ASSETS = TEMPLATE_PATHS.spotify;
 
 /**
  * Spotify processor — uses actual PNG templates from the client.
@@ -100,8 +102,7 @@ export async function processSpotify(job: SingleImagePrintJob): Promise<TileOutp
   // Step 2: Overlay PNG template frames on each photo tile
   const framedPhotoTiles = await Promise.all(
     photoTiles.map(async (photoBuffer, index) => {
-      const templatePath = join(TEMPLATE_DIR, `${index + 1}.png`);
-      const templateBuffer = await readFile(templatePath);
+      const templateBuffer = await readFile(SPOTIFY_ASSETS.tiles[index]);
       const resizedTemplate = await sharp(templateBuffer)
         .resize(TILE, TILE, { fit: 'fill' })
         .png()
@@ -148,7 +149,7 @@ async function renderBottomLeftTile(
   artistName: string,
 ): Promise<Buffer> {
   // Load and resize the template background
-  const templateBuffer = await readFile(join(TEMPLATE_DIR, '5.png'));
+  const templateBuffer = await readFile(SPOTIFY_ASSETS.tiles[4]);
   const baseBuffer = await sharp(templateBuffer)
     .resize(TILE, TILE, { fit: 'fill' })
     .png()
@@ -190,7 +191,7 @@ async function renderBottomLeftTile(
   });
 
   // Load and resize Spotify logo
-  const spotifyLogoBuffer = await readFile(join(LOGO_DIR, 'LOGO SPOTIFY.png'));
+  const spotifyLogoBuffer = await readFile(SPOTIFY_ASSETS.spotifyLogo);
   const spotifyLogoResized = await sharp(spotifyLogoBuffer)
     .resize({ height: Math.round(TILE * 0.06) })
     .png()
@@ -216,14 +217,14 @@ async function renderBottomLeftTile(
  */
 async function renderBottomRightTile(): Promise<Buffer> {
   // Load and resize the template background
-  const templateBuffer = await readFile(join(TEMPLATE_DIR, '6.png'));
+  const templateBuffer = await readFile(SPOTIFY_ASSETS.tiles[5]);
   const baseBuffer = await sharp(templateBuffer)
     .resize(TILE, TILE, { fit: 'fill' })
     .png()
     .toBuffer();
 
   // Load and resize Mosaiko white logo
-  const mosaikoLogoBuffer = await readFile(join(MOSAIKO_LOGO_DIR, 'LOGO BLANCO.png'));
+  const mosaikoLogoBuffer = await readFile(SHARED_LOGOS.blanco);
   const mosaikoLogoResized = await sharp(mosaikoLogoBuffer)
     .resize({ height: Math.round(TILE * 0.05) })
     .png()
