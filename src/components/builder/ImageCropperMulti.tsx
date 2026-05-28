@@ -22,7 +22,7 @@ interface ImageCropperMultiProps {
   intensity: TonosIntensity;
   slots: [TonosSlot, TonosSlot, TonosSlot];
   /** Phase 6.2 — per-slot remount counter. React key={resetSeq[i]} on
-   *  each TonosCropSlot forces a fresh mount when reset/replace is
+   *  each MultiPhotoCropSlot forces a fresh mount when reset/replace is
    *  invoked, clearing local crop/zoom/imageSize/debounce in one shot. */
   resetSeq: [number, number, number];
   onCropChange: (index: MultiPhotoIndex, cropAreaPixels: CropArea) => void;
@@ -133,7 +133,7 @@ export function ImageCropperMulti({
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         {imageSrcs.map((src, i) => (
-          <TonosCropSlot
+          <MultiPhotoCropSlot
             key={`${i}-${resetSeq[i]}`}
             index={i as MultiPhotoIndex}
             imageSrc={src}
@@ -172,7 +172,7 @@ export function ImageCropperMulti({
 
 // ─── Slot ───────────────────────────────────────────────────────────────────
 
-function TonosCropSlot({
+function MultiPhotoCropSlot({
   index,
   imageSrc,
   slot,

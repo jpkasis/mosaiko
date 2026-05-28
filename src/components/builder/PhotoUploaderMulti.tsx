@@ -76,7 +76,7 @@ export function PhotoUploaderMulti({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {([0, 1, 2] as MultiPhotoIndex[]).map((idx) => (
-          <TonosSlot
+          <PhotoSlot
             key={idx}
             index={idx}
             src={imageSrcs[idx]}
@@ -115,7 +115,7 @@ export function PhotoUploaderMulti({
 
 // ─── Slot ───────────────────────────────────────────────────────────────────
 
-function TonosSlot({
+function PhotoSlot({
   index,
   src,
   label,
