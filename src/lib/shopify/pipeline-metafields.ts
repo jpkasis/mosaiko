@@ -193,7 +193,7 @@ export function parseShopifyFileBindingFromUrl(
 
 /**
  * @deprecated Renamed to `parseShopifyFileBindingFromUrl` after the
- * R2 → Shopify Files migration. Re-exported here so any straggler
+ * Shopify Files → Shopify Files migration. Re-exported here so any straggler
  * imports keep compiling; new code should use the new name.
  */
 export const parseR2KeyFromPublicUrl = parseShopifyFileBindingFromUrl;

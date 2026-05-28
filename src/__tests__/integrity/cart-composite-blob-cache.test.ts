@@ -3,19 +3,43 @@
  *
  * Background: cart items persist via Zustand-persist + Shopify cart
  * cookie indefinitely. Their `previewUrl` may resolve to
- * `/api/cart-composite/blob/{id}` when R2 is unreachable (dev fallback).
- * The previous in-memory implementation evicted on dev-server restart,
- * so cart items added before a restart 404'd on their thumbnail and the
- * UI fell back to the placeholder grid icon.
+ * `/api/cart-composite/blob/{id}` when Shopify Files is unreachable
+ * (dev fallback). The previous in-memory implementation evicted on
+ * dev-server restart, so cart items added before a restart 404'd on
+ * their thumbnail and the UI fell back to the placeholder grid icon.
  *
  * These tests pin the durability contract: a put-then-process-restart
  * scenario (simulated by re-reading from a fresh module require — the
  * cache itself reads from the filesystem each `get`, so the same module
  * already exercises the post-restart path) returns the same bytes.
+ *
+ * UAT-3 Phase 4 (Codex audit): the module now resolves its cache dir
+ * from `CART_COMPOSITE_CACHE_DIR` (env override) or `os.tmpdir()`. We
+ * set the env to a test-specific tmp directory via `vi.hoisted` BEFORE
+ * the module import, so the assertion target stays in sync with what
+ * the module actually uses.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
+
+// Hoisted: runs before the module imports below pick up
+// `CART_COMPOSITE_CACHE_DIR`. Uses inline `require` because import
+// statements are hoisted ABOVE this callback's binding.
+const { TEST_CACHE_DIR } = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const os = require('node:os') as typeof import('node:os');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const p = require('node:path') as typeof import('node:path');
+  const dir = p.join(
+    os.tmpdir(),
+    `mosaiko-cart-composite-cache-test-${process.pid}`,
+  );
+  process.env.CART_COMPOSITE_CACHE_DIR = dir;
+  return { TEST_CACHE_DIR: dir };
+});
+
 import {
   put,
   get,
@@ -24,7 +48,14 @@ import {
   __clear,
 } from '@/lib/cart-composite-blob-cache';
 
-const CACHE_DIR = path.join(process.cwd(), '.cart-composite-cache');
+const CACHE_DIR = TEST_CACHE_DIR;
+// Sanity: ensure the resolved dir is under tmpdir() and not the repo root.
+if (!CACHE_DIR.startsWith(tmpdir())) {
+  throw new Error(
+    `Test cache dir resolved outside tmpdir(): ${CACHE_DIR}. ` +
+      `The env override path is misconfigured.`,
+  );
+}
 
 beforeEach(() => {
   // Ensure clean slate. Tests cohabit with a real dev cache; clear and

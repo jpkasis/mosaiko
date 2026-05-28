@@ -23,14 +23,14 @@ async function fetchTileBytes(publicUrl: string): Promise<Buffer> {
 //
 // Phase 5 (Appendix I) rewrite: status-gated, metafield-driven.
 //
-// Pre-Phase-5, this endpoint enumerated raw R2 prefixes via `listFiles`.
-// That returned WHATEVER R2 had at that prefix — including partial-upload
+// Pre-Phase-5, this endpoint enumerated raw Shopify Files prefixes via `listFiles`.
+// That returned WHATEVER Shopify Files had at that prefix — including partial-upload
 // survivors from prior failed runs — and the admin UI happily showed
 // them as downloadable. An admin shipping a `partial`/`failed` order
 // would silently include incomplete tiles.
 //
 // Now: read the order's `print_pipeline_status` + `print_pipeline_results`
-// metafields; expose downloads ONLY when status === 'complete'; parse R2
+// metafields; expose downloads ONLY when status === 'complete'; parse Shopify Files
 // keys from the URLs in `results[].urls` (no schema bump — see
 // `parseR2KeyFromPublicUrl`); return 409 + retry CTA payload for
 // partial/failed/missing-metafield states.
@@ -131,7 +131,7 @@ function isWellFormedResult(r: unknown): r is PriorLineResult {
 interface TileDescriptor {
   index: number;
   key: string;
-  /** Public R2 URL for in-app img preview. Distinct from the proxied
+  /** Public Shopify Files URL for in-app img preview. Distinct from the proxied
    *  download URL (which streams via this route to attach the
    *  Content-Disposition header for the admin's download flow). */
   publicUrl: string;
@@ -253,7 +253,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Missing metafields entirely → unknown legacy state. Codex's
-    // explicit policy: do NOT fall back to listing R2 (that's the bug
+    // explicit policy: do NOT fall back to listing Shopify Files (that's the bug
     // we're fixing). Surface a retry CTA instead.
     if (meta.status === null) {
       return NextResponse.json(

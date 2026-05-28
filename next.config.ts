@@ -52,11 +52,6 @@ const nextConfig: NextConfig = {
         hostname: 'cdn.shopify.com',
         pathname: '/s/files/**',
       },
-      {
-        protocol: 'https',
-        hostname: 'r2.mosaiko.mx',
-        pathname: '/**',
-      },
     ],
   },
   async headers() {
@@ -71,8 +66,8 @@ const nextConfig: NextConfig = {
           "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com",
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "font-src 'self' https://fonts.gstatic.com",
-          "img-src 'self' data: blob: https://cdn.shopify.com https://r2.mosaiko.mx https://www.google-analytics.com",
-          "connect-src 'self' https://cdn.shopify.com https://r2.mosaiko.mx https://www.google-analytics.com https://www.googletagmanager.com",
+          "img-src 'self' data: blob: https://cdn.shopify.com https://www.google-analytics.com",
+          "connect-src 'self' https://cdn.shopify.com https://www.google-analytics.com https://www.googletagmanager.com",
           "frame-ancestors 'none'",
           "base-uri 'self'",
           "form-action 'self'",

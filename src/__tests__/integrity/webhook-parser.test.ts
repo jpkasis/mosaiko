@@ -3,7 +3,7 @@
  *
  * The webhook handler at `src/app/api/webhooks/shopify/route.ts` lives
  * behind HMAC verification, a Next.js `after()` background queue, and a
- * handful of live-service integrations (Shopify Admin API, R2, Resend).
+ * handful of live-service integrations (Shopify Admin API, Shopify Files, Resend).
  * None of that is under test here — the three pure helpers in
  * `src/lib/shopify/webhook-parser.ts` are.
  *
@@ -17,7 +17,7 @@
  *   3. Malformed JSON inputs return `null` (not throw) so the route can
  *      log + skip a single line item without killing the whole order.
  *
- * The webhook's own failure modes (photo-fetch silent drop, R2 partial
+ * The webhook's own failure modes (photo-fetch silent drop, Shopify Files partial
  * upload) are covered in `webhook-failure-modes.test.ts`.
  */
 import { describe, test, expect } from 'vitest';

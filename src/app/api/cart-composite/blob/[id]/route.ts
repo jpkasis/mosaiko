@@ -3,7 +3,7 @@ import { BLOB_ID_PATTERN, get as getBlob } from '@/lib/cart-composite-blob-cache
 
 /**
  * Serves the in-memory composite + thumb blobs stashed by the cart-composite
- * fallback path when R2 is unreachable. Capability-based access via the
+ * fallback path when Shopify Files is unreachable. Capability-based access via the
  * server-generated jobId (see /api/cart-composite route — 122 bits of
  * randomness, unenumerable).
  */
