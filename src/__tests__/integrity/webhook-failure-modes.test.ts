@@ -7,7 +7,7 @@
  *     integrity audit. Tests under §"BLOCKER #1 — webhook photo-fetch
  *     silent drop (post-fix behaviour)" pin the typed `LineItemResult`
  *     contract and 7 distinct failure reasons.
- *   - BLOCKER #2 (Shopify Files upload partial state) — Phase 4 of the integrity
+ *   - BLOCKER #2 (R2 upload partial state) — Phase 4 of the integrity
  *     audit. Tests under §"Phase 4 fix" pin `Promise.allSettled` +
  *     `UploadFailure { succeeded, failed }` shape + per-line idempotency
  *     reuse/retry.
@@ -86,7 +86,7 @@ function mockShopifyFiles(
   return { uploadShopifyFilesBatch, uploadShopifyFile };
 }
 
-// ─── BLOCKER #2 — Shopify Files partial state (FIXED in Phase 4) ──────────────────────
+// ─── BLOCKER #2 — R2 partial state (FIXED in Phase 4) ──────────────────────
 
 describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => {
   // Phase 4 replaced the Promise.all first-rejection semantics with
@@ -131,7 +131,7 @@ describe('BLOCKER #2 — uploadPrintTiles partial-state on tile failure', () => 
     // failure on any one input throws AFTER best-effort cleanup of the
     // others. The storage layer surfaces this as `UploadFailure` with
     // every input under `failed[]` (succeeded[] is empty). This is a
-    // STRICTER all-or-nothing than the prior Shopify Files partial-state contract;
+    // STRICTER all-or-nothing than the prior R2 partial-state contract;
     // it removes the orphan-tile concern by handling cleanup inside
     // the primitive rather than leaving it to the orchestrator.
     mockShopifyFiles(async (inputs) => {
@@ -631,7 +631,7 @@ describe('BLOCKER #1 — webhook photo-fetch silent drop (post-fix behaviour)', 
       {
         fetchPhoto: async () => Buffer.from('ok'),
         uploadPrintTiles: async () => {
-          throw new Error('Shopify Files quota exceeded');
+          throw new Error('R2 quota exceeded');
         },
         processPrintJob: async () => ({
           tiles: [{ index: 0, buffer: Buffer.from('t'), filename: 't0.png' }],
