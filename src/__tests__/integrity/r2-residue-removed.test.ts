@@ -70,7 +70,11 @@ describe('UAT-3 Phase 4 — residue removed (Codex audit cleanup)', () => {
     expect(en).toMatch(/Mercado Pago/);
   });
 
-  test('C6/C7: archived cleanup scripts live under scripts/archive/', () => {
+  test.skip('C6/C7: archived cleanup scripts live under scripts/archive/', () => {
+    // BISECT (Phase 4 deploy failure): tsconfig.json + scripts/archive/
+    // are temporarily reverted to confirm they were the deploy-breaking
+    // change. Re-enable + re-archive in a follow-up commit once Vercel
+    // accepts the rest of the Phase 4 cleanup.
     const archived = [
       'scripts/archive/cleanup-stale-metafields.mts',
       'scripts/archive/cleanup-orphan-r2-tiles.mts',
