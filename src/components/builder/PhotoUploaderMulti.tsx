@@ -4,11 +4,11 @@ import { useCallback, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/Button';
-import type { TonosIndex } from './useBuilderFlow';
+import type { MultiPhotoIndex } from './useBuilderFlow';
 
 interface PhotoUploaderMultiProps {
   imageSrcs: [string | null, string | null, string | null];
-  onImageSelected: (index: TonosIndex, file: File) => void;
+  onImageSelected: (index: MultiPhotoIndex, file: File) => void;
   onAllReady: () => void;
   /** UAT-1b: i18n keys override for non-Tonos multi-photo flows
    *  (e.g. STD-3 uses `stdMultiUploadTitle` / `stdMultiUploadHint`).
@@ -17,12 +17,12 @@ interface PhotoUploaderMultiProps {
   hintKey?: string;
   /** UAT-1b: per-slot label override. Tonos shows warm/neutral/cool;
    *  STD-3 uses plain "Foto 1/2/3" without tone hints. */
-  slotLabels?: Record<TonosIndex, { label: string; hint: string }>;
+  slotLabels?: Record<MultiPhotoIndex, { label: string; hint: string }>;
 }
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-const TONOS_SLOT_LABELS: Record<TonosIndex, { label: string; hint: string }> = {
+const TONOS_SLOT_LABELS: Record<MultiPhotoIndex, { label: string; hint: string }> = {
   0: { label: 'Foto 1', hint: 'Columna cálida' },
   1: { label: 'Foto 2', hint: 'Columna neutra' },
   2: { label: 'Foto 3', hint: 'Columna fría' },
@@ -43,7 +43,7 @@ export function PhotoUploaderMulti({
   const [error, setError] = useState<string | null>(null);
 
   const validateAndSelect = useCallback(
-    (index: TonosIndex, file: File) => {
+    (index: MultiPhotoIndex, file: File) => {
       setError(null);
       if (!file.type.startsWith('image/')) {
         setError('Por favor selecciona un archivo de imagen.');
@@ -75,7 +75,7 @@ export function PhotoUploaderMulti({
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {([0, 1, 2] as TonosIndex[]).map((idx) => (
+        {([0, 1, 2] as MultiPhotoIndex[]).map((idx) => (
           <TonosSlot
             key={idx}
             index={idx}
@@ -122,7 +122,7 @@ function TonosSlot({
   hint,
   onFile,
 }: {
-  index: TonosIndex;
+  index: MultiPhotoIndex;
   src: string | null;
   label: string;
   hint: string;

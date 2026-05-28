@@ -9,7 +9,7 @@ import type { CropArea } from '@/lib/canvas-utils';
 import type { TonosIntensity } from '@/lib/customization-types';
 import { Button } from '@/components/ui/Button';
 import type {
-  TonosIndex,
+  MultiPhotoIndex,
   TonosFitMode,
   TonosRotation,
   TonosSlot,
@@ -25,18 +25,18 @@ interface ImageCropperMultiProps {
    *  each TonosCropSlot forces a fresh mount when reset/replace is
    *  invoked, clearing local crop/zoom/imageSize/debounce in one shot. */
   resetSeq: [number, number, number];
-  onCropChange: (index: TonosIndex, cropAreaPixels: CropArea) => void;
-  onCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
+  onCropChange: (index: MultiPhotoIndex, cropAreaPixels: CropArea) => void;
+  onCropComplete: (index: MultiPhotoIndex, cropAreaPixels: CropArea) => void;
   onIntensityChange: (intensity: TonosIntensity) => void;
-  onFitModeChange: (index: TonosIndex, mode: TonosFitMode) => void;
-  onToggleRotation: (index: TonosIndex) => void;
+  onFitModeChange: (index: MultiPhotoIndex, mode: TonosFitMode) => void;
+  onToggleRotation: (index: MultiPhotoIndex) => void;
   /** Phase 6.2 — per-slot reset (clears fitMode/rotation/cropAreas;
    *  keeps the photo). Undo affordance for one slot. */
-  onSlotReset: (index: TonosIndex) => void;
+  onSlotReset: (index: MultiPhotoIndex) => void;
   /** Phase 6.2 — per-slot photo replace. Wired to a hidden file input
    *  inside each slot's toolbar so users don't have to navigate back
    *  to the upload step to swap one photo. */
-  onSlotReplacePhoto: (index: TonosIndex, file: File) => void;
+  onSlotReplacePhoto: (index: MultiPhotoIndex, file: File) => void;
   onAllDone: () => void;
   /**
    * UAT-1b: which UI controls render. Tonos exposes intensity selector,
@@ -67,7 +67,7 @@ interface ImageCropperMultiProps {
 
 const INTENSITY_ORDER: TonosIntensity[] = ['mild', 'medium', 'strong'];
 
-const COLUMN_LABELS: Record<TonosIndex, { label: string; hint: string; swatch: string }> = {
+const COLUMN_LABELS: Record<MultiPhotoIndex, { label: string; hint: string; swatch: string }> = {
   0: { label: 'Foto 1', hint: 'Cálida', swatch: '#E8A87C' },
   1: { label: 'Foto 2', hint: 'Original', swatch: '#D9CFBF' },
   2: { label: 'Foto 3', hint: 'Fría', swatch: '#7FB5D5' },
@@ -105,7 +105,7 @@ export function ImageCropperMulti({
 
   // UAT-1b — when not Tonos, render plain "Foto 1/2/3" labels without
   // tone hints. Tonos keeps its warm/neutral/cool affordance.
-  const effectiveLabels: Record<TonosIndex, { label: string; hint?: string; swatch?: string }> = (
+  const effectiveLabels: Record<MultiPhotoIndex, { label: string; hint?: string; swatch?: string }> = (
     slotLabels
       ? { 0: slotLabels[0], 1: slotLabels[1], 2: slotLabels[2] }
       : isTonosVariant
@@ -135,7 +135,7 @@ export function ImageCropperMulti({
         {imageSrcs.map((src, i) => (
           <TonosCropSlot
             key={`${i}-${resetSeq[i]}`}
-            index={i as TonosIndex}
+            index={i as MultiPhotoIndex}
             imageSrc={src}
             slot={slots[i]}
             onCropChange={onCropChange}
@@ -144,7 +144,7 @@ export function ImageCropperMulti({
             onToggleRotation={onToggleRotation}
             onSlotReset={onSlotReset}
             onSlotReplacePhoto={onSlotReplacePhoto}
-            label={effectiveLabels[i as TonosIndex]}
+            label={effectiveLabels[i as MultiPhotoIndex]}
             showFitModeSelector={isTonosVariant}
             showRotation={isTonosVariant}
           />
@@ -186,15 +186,15 @@ function TonosCropSlot({
   showFitModeSelector = true,
   showRotation = true,
 }: {
-  index: TonosIndex;
+  index: MultiPhotoIndex;
   imageSrc: string | null;
   slot: TonosSlot;
-  onCropChange: (index: TonosIndex, cropAreaPixels: CropArea) => void;
-  onCropComplete: (index: TonosIndex, cropAreaPixels: CropArea) => void;
-  onFitModeChange: (index: TonosIndex, mode: TonosFitMode) => void;
-  onToggleRotation: (index: TonosIndex) => void;
-  onSlotReset: (index: TonosIndex) => void;
-  onSlotReplacePhoto: (index: TonosIndex, file: File) => void;
+  onCropChange: (index: MultiPhotoIndex, cropAreaPixels: CropArea) => void;
+  onCropComplete: (index: MultiPhotoIndex, cropAreaPixels: CropArea) => void;
+  onFitModeChange: (index: MultiPhotoIndex, mode: TonosFitMode) => void;
+  onToggleRotation: (index: MultiPhotoIndex) => void;
+  onSlotReset: (index: MultiPhotoIndex) => void;
+  onSlotReplacePhoto: (index: MultiPhotoIndex, file: File) => void;
   label?: { label: string; hint?: string; swatch?: string };
   showFitModeSelector?: boolean;
   /** UAT-1b: STD-3 ("plain") hides per-slot 90° rotation because the
@@ -596,7 +596,7 @@ function SlotToolbar({
   resetLabel,
   replaceLabel,
 }: {
-  index: TonosIndex;
+  index: MultiPhotoIndex;
   onReset: () => void;
   onReplaceFile: (file: File) => void;
   resetLabel: string;

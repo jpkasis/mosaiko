@@ -59,10 +59,6 @@ export type TonosSlot = TonosSlotConfig;
 export type MultiPhotoIndex = 0 | 1 | 2;
 export type MultiPhotoSlots<T> = [T, T, T];
 
-/** @deprecated use `MultiPhotoIndex`. Re-exported for cross-file
- *  callers that haven't migrated yet. */
-export type TonosIndex = MultiPhotoIndex;
-
 /**
  * Generic multi-photo state shared by Tonos and STD-3. Per Codex's
  * Phase 3b plan (state-decouple-implementation): ownership separation.
