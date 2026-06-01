@@ -2,20 +2,28 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createCart } from '@/lib/shopify/mutations/cart';
 import { buildCartLines } from '@/lib/shopify/checkout';
+import {
+  CART_COOKIE,
+  CART_COOKIE_OPTIONS,
+  STATE_ATTR_KEY,
+} from '@/lib/shopify/cart-cookie';
 import type { CartItem } from '@/lib/cart-store';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const CART_COOKIE = 'mosaiko_cart_id';
-// Shopify anonymous carts live ~10 days after last modification — match it.
-const CART_COOKIE_MAX_AGE_S = 10 * 24 * 60 * 60;
 // Cart attributes in Shopify have a practical size budget. Keep the JSON
 // blob comfortably small; line-item attributes still carry the full
 // customization and feed the webhook regardless.
 const STATE_ATTR_MAX_BYTES = 4_000;
-const STATE_ATTR_KEY = 'mosaiko_state';
 
 // ─── POST /api/cart/save ────────────────────────────────────────────────────
+//
+// Empty-cart behavior (UAT-6 PR1): empty saves are a no-op that NEVER deletes
+// the cookie. The Shopify cart object is the source of truth — only
+// `cart(id:) === null` from Shopify can invalidate the cookie. This prevents
+// the lost-cart bug where clicking "Pagar" wiped the cookie before the redirect
+// (the local empty save raced through and deleted the cookie that
+// CartHydrator needed to find the cart on return-from-checkout).
 
 export async function POST(request: Request) {
   // Shopify config gate — silently unavailable if creds missing, so client can
@@ -46,19 +54,13 @@ export async function POST(request: Request) {
 
   const items = body.items as CartItem[];
 
-  // Empty cart: clear the cookie so CartHydrator can't restore the prior
-  // Shopify cart on the next page load. Without this, removing every item
-  // (or returning from a successful checkout) would resurrect the previous
-  // session because the cookie still points at a living anonymous cart.
-  // (Phase 3.3 — empty-cart resurrect fix.)
-  //
-  // We don't try to delete the remote cart from Shopify — anonymous carts
-  // age out on their own (~10 days), and `cartUpdate` with empty lines is
-  // not a no-op (it'd still leave a referenced empty cart). Cookie clear
-  // alone is sufficient: the next save will create a fresh cart.
+  // Empty cart: no-op. Cookie is preserved. The Shopify cart (if any) keeps
+  // its current lines — accepted tradeoff so the cart-empty-on-checkout-back
+  // bug can't recur. A user who explicitly empties their cart and closes the
+  // browser will see their items resurrect on return from /api/cart/load
+  // (the items came FROM their session, not a stranger's). Follow-up could
+  // add `cartLinesRemove` to mirror empty-state into Shopify.
   if (items.length === 0) {
-    const jar = await cookies();
-    jar.delete(CART_COOKIE);
     return new NextResponse(null, { status: 204 });
   }
 
@@ -90,11 +92,7 @@ export async function POST(request: Request) {
     jar.set({
       name: CART_COOKIE,
       value: cart.id,
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: CART_COOKIE_MAX_AGE_S,
+      ...CART_COOKIE_OPTIONS,
     });
 
     return NextResponse.json({

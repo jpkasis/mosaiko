@@ -10,11 +10,15 @@ export function CheckoutButton() {
   const t = useTranslations('cart');
   const items = useCartStore((s) => s.items);
   const total = useCartStore(selectCartTotal);
-  const clearCart = useCartStore((s) => s.clearCart);
   const setCheckoutInProgress = useCartStore((s) => s.setCheckoutInProgress);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // UAT-6 PR1: Shopify cart is the source of truth. We do NOT clear local
+  // Zustand on redirect — if the user backs out from Shopify checkout, the
+  // local cart should still be there. CartHydrator on the return trip will
+  // reconcile against /api/cart/load, which detects a converted cart via
+  // `cart(id:) === null` and clears local state at that point.
   async function handleCheckout() {
     if (isLoading || items.length === 0) return;
 
@@ -36,7 +40,6 @@ export function CheckoutButton() {
       if (saveRes.ok) {
         const data = (await saveRes.json()) as { checkoutUrl?: string };
         if (data.checkoutUrl) {
-          clearCart();
           window.location.href = data.checkoutUrl;
           return;
         }
@@ -62,7 +65,6 @@ export function CheckoutButton() {
         return;
       }
 
-      clearCart();
       window.location.href = data.checkoutUrl;
     } catch {
       setError('Error de conexión. Verifica tu internet e intenta de nuevo.');

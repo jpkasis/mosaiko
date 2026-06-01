@@ -225,13 +225,6 @@ if (typeof window !== 'undefined') {
   // resurrecting the just-checked-out cart. AbortController + "newest
   // wins" policy: every new performSync aborts whatever's in flight.
   let inFlightAbort: AbortController | null = null;
-  // Tracks whether we've ever fired a performSync this session. The
-  // pagehide handler uses this to distinguish "initial load with empty
-  // cart, never synced" (skip beacon) from "user did something then
-  // navigated away" (always flush — including empty, including the
-  // case where the immediate-fire empty failed/was dropped).
-  let hasEverSynced = false;
-
   let hasHydrated = useCartStore.persist.hasHydrated();
   useCartStore.persist.onFinishHydration(() => {
     hasHydrated = true;
@@ -250,7 +243,6 @@ if (typeof window !== 'undefined') {
     }
     const ctrl = new AbortController();
     inFlightAbort = ctrl;
-    hasEverSynced = true;
     fetch(SAVE_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -290,11 +282,22 @@ if (typeof window !== 'undefined') {
   useCartStore.subscribe((state, prev) => {
     if (!hasHydrated) return;
     if (state.items === prev.items) return;
-    // Transition to empty (clearCart, last-item-removed, post-checkout
-    // wipe): bypass debounce so the empty save races ahead of any
-    // pending non-empty timer. `performSync` aborts any in-flight
-    // request as well, so an older non-empty fetch can't re-set the
-    // cookie after the empty save lands.
+    // UAT-6 PR1 guard: while the user is being redirected to Shopify
+    // checkout, do not sync ANY cart change. The redirect path used to
+    // call clearCart() locally, which fired an empty-cart sync that
+    // deleted the mosaiko_cart_id cookie — and on return-from-checkout
+    // CartHydrator had no cookie to find the Shopify cart with. With
+    // the new architecture the Shopify cart is the source of truth, so
+    // the local store doesn't need to push anything during checkout
+    // navigation.
+    if (state.checkoutInProgress) return;
+    // Transition to empty (clearCart, last-item-removed): bypass debounce
+    // so the empty save races ahead of any pending non-empty timer.
+    // `performSync` aborts any in-flight request, so an older non-empty
+    // fetch can't re-set the cookie after the empty save lands.
+    //
+    // /api/cart/save now treats empty items as a no-op (cookie preserved)
+    // — only Shopify's `cart(id:) === null` can invalidate the cookie.
     if (state.items.length === 0 && prev.items.length > 0) {
       if (pendingSync) {
         clearTimeout(pendingSync);
@@ -309,27 +312,21 @@ if (typeof window !== 'undefined') {
   // Best-effort flush on tab close — sendBeacon is fire-and-forget and
   // completes after the page is gone, so the pending debounce still lands.
   //
-  // Codex Phase 3 audit (round 3) MAJOR fix: the prior `!hadPendingSync`
-  // guard skipped the beacon for the checkout flow because the empty
-  // transition fires `performSync([])` immediately (no debounce, no
-  // pendingSync). If that keepalive empty fetch was dropped or failed,
-  // pagehide skipped the beacon → cookie survived → CartHydrator
-  // resurrected the just-checked-out cart. Replace with a `hasEverSynced`
-  // gate: we always flush on pagehide as long as the current items
-  // differ from the last successful sync AND we've ever synced this
-  // session (otherwise initial-load empty would spuriously delete).
+  // UAT-6 PR1 guards:
+  //   1. checkoutInProgress: skip the beacon entirely during the
+  //      checkout redirect (no inadvertent empty-save during navigation).
+  //   2. items.length === 0: never beacon an empty cart. /api/cart/save's
+  //      empty-cart path is a no-op anyway, but skipping the beacon saves a
+  //      pointless request.
   window.addEventListener('pagehide', () => {
     if (pendingSync) {
       clearTimeout(pendingSync);
       pendingSync = null;
     }
-    const items = useCartStore.getState().items;
-    // Skip only when we've never synced AND the cart is empty —
-    // i.e. initial-load empty, no user action, no in-flight state to
-    // flush. If the user added their first item but left within the
-    // 800ms debounce, we MUST still flush (otherwise their first add
-    // never reaches Shopify). Codex Phase 3 round-4 fix.
-    if (!hasEverSynced && items.length === 0) return;
+    const state = useCartStore.getState();
+    if (state.checkoutInProgress) return;
+    const items = state.items;
+    if (items.length === 0) return;
     // Already up-to-date with the last successful sync. Skip.
     if (items === lastSyncedItems) return;
     if (typeof navigator === 'undefined' || !navigator.sendBeacon) return;
