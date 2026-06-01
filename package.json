@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "shopify:seed-metaobjects": "node --env-file=.env.local --experimental-strip-types scripts/seed-metaobject-definitions.mts"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.2.8",
