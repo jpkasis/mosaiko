@@ -59,6 +59,29 @@ export const HOME_COPY_TRANSLATIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * Translatable-content digests. PR3 admin save path requires these for
+ * `translationsRegister` — Shopify rejects translation writes without a
+ * fresh per-field digest. Digests change when the base (es) content
+ * changes, so the admin route must fetch them AFTER any `metaobjectUpdate`
+ * call within the same request.
+ *
+ * Docs: https://shopify.dev/docs/api/admin-graphql/latest/queries/translatableresource
+ */
+export const TRANSLATABLE_RESOURCE_CONTENT_QUERY = /* GraphQL */ `
+  query TranslatableResourceContent($resourceId: ID!) {
+    translatableResource(resourceId: $resourceId) {
+      resourceId
+      translatableContent {
+        key
+        value
+        digest
+        locale
+      }
+    }
+  }
+`;
+
 interface HomeCopyMetaobjectResponse {
   metaobjectByHandle: HomeCopyMetaobject | null;
 }
@@ -67,6 +90,20 @@ interface HomeCopyTranslationsResponse {
   translatableResource: {
     resourceId: string;
     translations: TranslationEntry[];
+  } | null;
+}
+
+export interface TranslatableContentEntry {
+  key: string;
+  value: string | null;
+  digest: string;
+  locale: string;
+}
+
+interface TranslatableContentResponse {
+  translatableResource: {
+    resourceId: string;
+    translatableContent: TranslatableContentEntry[];
   } | null;
 }
 
@@ -97,4 +134,26 @@ export async function getHomeCopyTranslations(
     options: { cache: 'no-store' },
   });
   return data.translatableResource?.translations ?? [];
+}
+
+/**
+ * Returns a `{ fieldKey: digest }` map for the given resource. Used by the
+ * PR3 admin save path to feed `translationsRegister` (Shopify requires a
+ * fresh digest per translation input).
+ *
+ * MUST be called AFTER any `metaobjectUpdate` for the same resource — base
+ * content changes invalidate previous digests.
+ */
+export async function getTranslatableContentDigests(
+  resourceId: string,
+): Promise<Record<string, string>> {
+  const data = await shopifyAdminFetch<TranslatableContentResponse>({
+    query: TRANSLATABLE_RESOURCE_CONTENT_QUERY,
+    variables: { resourceId },
+    options: { cache: 'no-store' },
+  });
+  const entries = data.translatableResource?.translatableContent ?? [];
+  const out: Record<string, string> = {};
+  for (const e of entries) out[e.key] = e.digest;
+  return out;
 }
