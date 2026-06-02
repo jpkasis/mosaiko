@@ -146,6 +146,11 @@ export interface TranslationInput {
  * AFTER any base-content writes within the same logical request.
  *
  * Throws `ShopifyUserErrorsError` on any rejection.
+ *
+ * NOTE: Shopify only returns a digest for fields whose BASE value is
+ * non-empty. Don't include a translation for a field whose base was
+ * just cleared — there'd be no digest to register against. Use
+ * `removeTranslations` for that case instead.
  */
 export async function registerTranslations(
   resourceId: string,
@@ -168,5 +173,68 @@ export async function registerTranslations(
   const result = data.translationsRegister;
   if (result.userErrors.length > 0) {
     throw new ShopifyUserErrorsError('translationsRegister', result.userErrors);
+  }
+}
+
+// ─── translationsRemove (UAT-6 PR3.1) ───────────────────────────────────────
+//
+// Used to clear a previously-registered translation when the admin sends an
+// explicit empty string for an EN field. Without this, the PUT handler would
+// try registerTranslations on a field whose base was just cleared — and
+// Shopify stops returning a digest for empty base values, so the register
+// call would fail with "missing digest".
+//
+// Docs: https://shopify.dev/docs/api/admin-graphql/latest/mutations/translationsremove
+
+export const TRANSLATIONS_REMOVE_MUTATION = /* GraphQL */ `
+  mutation TranslationsRemove(
+    $resourceId: ID!
+    $translationKeys: [String!]!
+    $locales: [String!]!
+  ) {
+    translationsRemove(
+      resourceId: $resourceId
+      translationKeys: $translationKeys
+      locales: $locales
+    ) {
+      translations {
+        key
+        locale
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+interface TranslationsRemoveResponse {
+  translationsRemove: {
+    translations: Array<{ key: string; locale: string }>;
+    userErrors: ShopifyUserError[];
+  };
+}
+
+/**
+ * Removes per-locale translations from a metaobject (or any translatable
+ * resource). No-op when `translationKeys` is empty (saves a network call
+ * for the common "no clears" save path). Throws `ShopifyUserErrorsError`
+ * on rejection.
+ */
+export async function removeTranslations(
+  resourceId: string,
+  locale: 'en',
+  translationKeys: string[],
+): Promise<void> {
+  if (translationKeys.length === 0) return;
+  const data = await shopifyAdminFetch<TranslationsRemoveResponse>({
+    query: TRANSLATIONS_REMOVE_MUTATION,
+    variables: { resourceId, translationKeys, locales: [locale] },
+    options: { cache: 'no-store' },
+  });
+  const result = data.translationsRemove;
+  if (result.userErrors.length > 0) {
+    throw new ShopifyUserErrorsError('translationsRemove', result.userErrors);
   }
 }

@@ -30,6 +30,7 @@ vi.mock('@/lib/shopify/queries/metaobjects', () => ({
 
 const mockUpdateMetaobjectFields = vi.fn();
 const mockRegisterTranslations = vi.fn();
+const mockRemoveTranslations = vi.fn();
 const ShopifyUserErrorsError = class extends Error {
   userErrors: Array<{ field?: string[]; message: string }>;
   constructor(op: string, errs: Array<{ field?: string[]; message: string }>) {
@@ -42,6 +43,8 @@ vi.mock('@/lib/shopify/mutations/metaobjects', () => ({
     mockUpdateMetaobjectFields(id, fields),
   registerTranslations: (id: string, locale: string, translations: unknown) =>
     mockRegisterTranslations(id, locale, translations),
+  removeTranslations: (id: string, locale: string, keys: unknown) =>
+    mockRemoveTranslations(id, locale, keys),
   ShopifyUserErrorsError,
 }));
 
@@ -64,6 +67,7 @@ beforeEach(() => {
   mockGetTranslatableContentDigests.mockReset();
   mockUpdateMetaobjectFields.mockReset();
   mockRegisterTranslations.mockReset();
+  mockRemoveTranslations.mockReset();
   mockRevalidateTag.mockReset();
 });
 
@@ -338,7 +342,91 @@ describe('PUT /api/admin/configuracion/contenido', () => {
     expect(res.status).toBe(200);
     expect(mockGetTranslatableContentDigests).not.toHaveBeenCalled();
     expect(mockRegisterTranslations).not.toHaveBeenCalled();
+    expect(mockRemoveTranslations).not.toHaveBeenCalled();
     // Cache still revalidated
     expect(mockRevalidateTag).toHaveBeenCalledTimes(2);
+  });
+
+  // ─── PR3.1: clear-EN-translation flow (translationsRemove) ──────────────
+  test('PR3.1: empty EN value → removeTranslations, skips digest+register', async () => {
+    mockVerifySession.mockResolvedValue(true);
+    mockGetHomeCopyMetaobject.mockResolvedValue({ id: 'gid://1', fields: [] });
+    mockRemoveTranslations.mockResolvedValue(undefined);
+    const { PUT } = await import(
+      '@/app/api/admin/configuracion/contenido/route'
+    );
+    const res = await PUT(
+      makeRequest({ es: {}, en: { 'hero.title': '' } }),
+    );
+    expect(res.status).toBe(200);
+    expect(mockUpdateMetaobjectFields).not.toHaveBeenCalled(); // ES is empty
+    expect(mockRemoveTranslations).toHaveBeenCalledTimes(1);
+    const removeCall = mockRemoveTranslations.mock.calls[0];
+    expect(removeCall[0]).toBe('gid://1');
+    expect(removeCall[1]).toBe('en');
+    expect(removeCall[2]).toEqual(['hero_title']);
+    expect(mockGetTranslatableContentDigests).not.toHaveBeenCalled();
+    expect(mockRegisterTranslations).not.toHaveBeenCalled();
+    expect(mockRevalidateTag).toHaveBeenCalledTimes(2);
+  });
+
+  test('PR3.1: mixed empty + non-empty EN partitions correctly', async () => {
+    mockVerifySession.mockResolvedValue(true);
+    mockGetHomeCopyMetaobject.mockResolvedValue({ id: 'gid://1', fields: [] });
+    mockUpdateMetaobjectFields.mockResolvedValue({ id: 'gid://1', fields: [] });
+    mockRemoveTranslations.mockResolvedValue(undefined);
+    mockGetTranslatableContentDigests.mockResolvedValue({
+      hero_cta: 'digest-cta',
+    });
+    mockRegisterTranslations.mockResolvedValue(undefined);
+
+    const { PUT } = await import(
+      '@/app/api/admin/configuracion/contenido/route'
+    );
+    const res = await PUT(
+      makeRequest({
+        es: { 'hero.title': 'Tu foto' },
+        en: { 'hero.title': '', 'hero.cta': 'Save' },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(mockUpdateMetaobjectFields).toHaveBeenCalledTimes(1);
+    // Remove: only the empty key
+    expect(mockRemoveTranslations).toHaveBeenCalledWith(
+      'gid://1',
+      'en',
+      ['hero_title'],
+    );
+    // Register: only the non-empty key
+    expect(mockRegisterTranslations).toHaveBeenCalledTimes(1);
+    const regTranslations = mockRegisterTranslations.mock.calls[0][2] as Array<{
+      key: string;
+      value: string;
+    }>;
+    expect(regTranslations).toHaveLength(1);
+    expect(regTranslations[0].key).toBe('hero_cta');
+    expect(regTranslations[0].value).toBe('Save');
+    // Digest fetch happened (since toRegister was non-empty)
+    expect(mockGetTranslatableContentDigests).toHaveBeenCalledTimes(1);
+  });
+
+  test('PR3.1: removeTranslations userErrors → 502 with details', async () => {
+    mockVerifySession.mockResolvedValue(true);
+    mockGetHomeCopyMetaobject.mockResolvedValue({ id: 'gid://1', fields: [] });
+    mockRemoveTranslations.mockRejectedValue(
+      new ShopifyUserErrorsError('translationsRemove', [
+        { message: 'invalid translation key' },
+      ]),
+    );
+    const { PUT } = await import(
+      '@/app/api/admin/configuracion/contenido/route'
+    );
+    const res = await PUT(
+      makeRequest({ es: {}, en: { 'hero.title': '' } }),
+    );
+    expect(res.status).toBe(502);
+    const data = await res.json();
+    expect(data.error).toContain('eliminación');
+    expect(data.details).toBeDefined();
   });
 });

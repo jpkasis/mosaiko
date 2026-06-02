@@ -14,6 +14,7 @@ import {
 import {
   updateMetaobjectFields,
   registerTranslations,
+  removeTranslations,
   ShopifyUserErrorsError,
 } from '@/lib/shopify/mutations/metaobjects';
 import {
@@ -130,7 +131,24 @@ export async function GET(): Promise<NextResponse> {
   }
 }
 
-// ─── PUT: save (validate → update ES → fetch digests → register EN → revalidate) ──
+// ─── PUT: save ──────────────────────────────────────────────────────────────
+//
+// Sequence:
+//   1. verifySession + validateContenidoBody
+//   2. getHomeCopyMetaobject (resolve id) — 404 if metaobject not seeded
+//   3. updateMetaobjectFields (ES base) — if validated.es non-empty
+//   4. Partition validated.en into:
+//        - toRemove: keys whose value is '' (intentional clear)
+//        - toRegister: keys whose value is non-empty
+//   5. removeTranslations(toRemove) — only if non-empty. Done BEFORE register
+//      so stale translations against newly-emptied base values are cleared
+//      before we try to register anything (Shopify won't return a digest for
+//      an empty base, so a register attempt would 502).
+//   6. getTranslatableContentDigests — only if toRegister non-empty (must run
+//      AFTER step 3 because base changes invalidate previous digests).
+//   7. registerTranslations(toRegister) with the fresh digests.
+//   8. revalidateTag × 2 ('site-copy', 'site-copy:home') for immediate
+//      storefront refresh.
 
 export async function PUT(request: Request): Promise<NextResponse> {
   if (!(await verifySession())) return unauthorized();
@@ -203,10 +221,47 @@ export async function PUT(request: Request): Promise<NextResponse> {
     }
   }
 
-  // 3. Fetch fresh digests (MUST be after step 2; base changes invalidate
-  //    previous digests). Skip if no EN values to register.
-  const enFieldEntries = Object.entries(validated.en);
-  if (enFieldEntries.length > 0) {
+  // 3. Partition EN entries: empty strings → translationsRemove,
+  //    non-empty strings → translationsRegister. Shopify stops returning
+  //    a digest for a field whose base value is empty, so a register call
+  //    on a just-cleared field would 502 with "missing digest" — clear
+  //    those via translationsRemove instead.
+  const toRemove: string[] = [];
+  const toRegister: Array<{ fieldKey: string; value: string }> = [];
+  for (const [path, value] of Object.entries(validated.en)) {
+    const fieldKey = pathToFieldKey(path as CopyPath);
+    if (value === '') toRemove.push(fieldKey);
+    else toRegister.push({ fieldKey, value });
+  }
+
+  // 4. Remove first (clears stale EN translations whose base is now empty).
+  //    No-op when toRemove is empty (mutation helper short-circuits).
+  if (toRemove.length > 0) {
+    try {
+      await removeTranslations(resourceId, 'en', toRemove);
+    } catch (error) {
+      if (error instanceof ShopifyUserErrorsError) {
+        return NextResponse.json(
+          { error: 'Shopify rechazó la eliminación de traducciones.', details: error.userErrors },
+          { status: 502 },
+        );
+      }
+      console.error('[admin/contenido PUT] translationsRemove failed:', error);
+      return NextResponse.json(
+        {
+          error: isTranslationScopeError(error)
+            ? TRANSLATION_SCOPE_MESSAGE
+            : 'No se pudieron eliminar las traducciones.',
+        },
+        { status: 502 },
+      );
+    }
+  }
+
+  // 5. Fetch fresh digests (MUST be after step 2; base changes invalidate
+  //    previous digests). ONLY needed for non-empty EN values that we're
+  //    about to register — clears already happened in step 4.
+  if (toRegister.length > 0) {
     let digests: Record<string, string>;
     try {
       digests = await getTranslatableContentDigests(resourceId);
@@ -222,11 +277,12 @@ export async function PUT(request: Request): Promise<NextResponse> {
       );
     }
 
-    // 4. Build translation inputs (fail fast if any digest is missing)
+    // 6. Build translation inputs (fail fast if any digest is missing for
+    //    a non-empty value — empty values were handled in step 4 and are
+    //    not in toRegister).
     const translations: Array<{ key: string; value: string; translatableContentDigest: string }> = [];
     const missingDigests: string[] = [];
-    for (const [path, value] of enFieldEntries) {
-      const fieldKey = pathToFieldKey(path as CopyPath);
+    for (const { fieldKey, value } of toRegister) {
       const digest = digests[fieldKey];
       if (!digest) {
         missingDigests.push(fieldKey);
@@ -244,7 +300,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
       );
     }
 
-    // 5. Register translations
+    // 7. Register non-empty translations
     try {
       await registerTranslations(resourceId, 'en', translations);
     } catch (error) {

@@ -125,3 +125,55 @@ describe('registerTranslations', () => {
     ).rejects.toBeInstanceOf(ShopifyUserErrorsError);
   });
 });
+
+describe('removeTranslations (PR3.1)', () => {
+  test('posts TranslationsRemove with resourceId + keys + locales[en]', async () => {
+    mockAdminFetch.mockResolvedValue({
+      translationsRemove: {
+        translations: [
+          { key: 'hero_title', locale: 'en' },
+          { key: 'hero_cta', locale: 'en' },
+        ],
+        userErrors: [],
+      },
+    });
+    const { removeTranslations } = await import(
+      '@/lib/shopify/mutations/metaobjects'
+    );
+    await removeTranslations('resource-id', 'en', ['hero_title', 'hero_cta']);
+    expect(mockAdminFetch).toHaveBeenCalledTimes(1);
+    const call = mockAdminFetch.mock.calls[0][0] as {
+      query: string;
+      variables: Record<string, unknown>;
+    };
+    expect(call.query).toContain('translationsRemove');
+    expect(call.variables).toEqual({
+      resourceId: 'resource-id',
+      translationKeys: ['hero_title', 'hero_cta'],
+      locales: ['en'],
+    });
+  });
+
+  test('no-op when translationKeys is empty (no fetch call)', async () => {
+    const { removeTranslations } = await import(
+      '@/lib/shopify/mutations/metaobjects'
+    );
+    await removeTranslations('resource-id', 'en', []);
+    expect(mockAdminFetch).not.toHaveBeenCalled();
+  });
+
+  test('throws ShopifyUserErrorsError on userErrors', async () => {
+    mockAdminFetch.mockResolvedValue({
+      translationsRemove: {
+        translations: [],
+        userErrors: [{ message: 'invalid key' }],
+      },
+    });
+    const { removeTranslations, ShopifyUserErrorsError } = await import(
+      '@/lib/shopify/mutations/metaobjects'
+    );
+    await expect(
+      removeTranslations('rid', 'en', ['bad_key']),
+    ).rejects.toBeInstanceOf(ShopifyUserErrorsError);
+  });
+});
