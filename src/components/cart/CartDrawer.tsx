@@ -159,7 +159,7 @@ export function CartDrawer() {
             <Link
               href="/catalogo"
               onClick={closeDrawer}
-              className="mt-1 inline-flex min-h-[48px] w-full items-center justify-center rounded-lg text-sm font-medium text-charcoal transition-colors hover:text-terracotta focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+              className="mt-1 inline-flex min-h-[48px] w-full items-center justify-center rounded-lg text-sm font-medium text-cta transition-colors hover:text-cta-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cta"
             >
               {t('continueShopping')}
             </Link>

@@ -95,7 +95,7 @@ export function CartPage() {
           >
             <Link
               href="/catalogo"
-              className="group inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border-2 border-charcoal/15 bg-white px-6 py-3 text-sm font-semibold text-charcoal transition-colors hover:border-terracotta/40 hover:text-terracotta sm:w-auto"
+              className="group inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border-2 border-cta/30 bg-white px-6 py-3 text-sm font-semibold text-cta transition-colors hover:border-cta/60 hover:text-cta-hover sm:w-auto"
             >
               <svg
                 width="14"
