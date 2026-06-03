@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { ContactContent } from '@/components/contact/ContactContent';
+import { getBusinessSettings, type SupportedLocale } from '@/lib/site-content';
 
 export async function generateMetadata({
   params,
@@ -24,5 +25,15 @@ export default async function ContactPage({
   const { locale } = await params;
   setRequestLocale(locale);
 
-  return <ContactContent />;
+  const business = await getBusinessSettings(locale as SupportedLocale);
+
+  return (
+    <ContactContent
+      business={{
+        whatsapp: business.whatsapp,
+        phone: business.phone,
+        address: business.address,
+      }}
+    />
+  );
 }

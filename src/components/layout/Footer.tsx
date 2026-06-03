@@ -1,6 +1,7 @@
-import { useTranslations } from 'next-intl';
+import { getTranslations, getLocale } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { MosaikoLogo } from '@/components/ui/MosaikoLogo';
+import { getBusinessSettings, type SupportedLocale } from '@/lib/site-content';
 
 const SHOP_LINKS = [
   { href: '/catalogo' as const, key: 'catalog' },
@@ -19,11 +20,34 @@ const LEGAL_LINKS = [
   { href: '/politica-cookies' as const, key: 'cookies' },
 ] as const;
 
-export function Footer() {
-  const t = useTranslations('footer');
-  const tNav = useTranslations('nav');
+function InstagramIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <rect x="2" y="2" width="20" height="20" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function FacebookIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M14 9h3V5h-3a4 4 0 0 0-4 4v2H7v4h3v6h4v-6h3l1-4h-4V9a1 1 0 0 1 1-1z" />
+    </svg>
+  );
+}
+
+export async function Footer() {
+  const locale = (await getLocale()) as SupportedLocale;
+  const t = await getTranslations('footer');
+  const tNav = await getTranslations('nav');
+  const business = await getBusinessSettings(locale);
 
   const currentYear = new Date().getFullYear();
+  const taglineText = business.footerCopy || t('tagline');
+  const hasSocials = business.instagramUrl || business.facebookUrl;
+  const hasContact = business.phone || business.address;
 
   return (
     <footer className="mt-auto bg-terracotta text-cream">
@@ -36,8 +60,42 @@ export function Footer() {
               <MosaikoLogo variant="light" size={28} />
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-cream/70">
-              {t('tagline')}
+              {taglineText}
             </p>
+
+            {hasContact && (
+              <div className="mt-4 space-y-1 text-xs text-cream/60">
+                {business.phone && <p>{business.phone}</p>}
+                {business.address && <p>{business.address}</p>}
+              </div>
+            )}
+
+            {hasSocials && (
+              <div className="mt-4 flex items-center gap-3">
+                {business.instagramUrl && (
+                  <a
+                    href={business.instagramUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Instagram"
+                    className="text-cream/70 transition-colors hover:text-cream"
+                  >
+                    <InstagramIcon />
+                  </a>
+                )}
+                {business.facebookUrl && (
+                  <a
+                    href={business.facebookUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Facebook"
+                    className="text-cream/70 transition-colors hover:text-cream"
+                  >
+                    <FacebookIcon />
+                  </a>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Shop Links */}
@@ -103,7 +161,7 @@ export function Footer() {
       <div className="border-t border-cream/10">
         <div className="container-mosaiko flex flex-col items-center justify-between gap-3 py-5 sm:flex-row">
           <p className="text-xs text-cream/50">
-            &copy; {currentYear} Mosaiko. {t('rights')}.
+            &copy; {currentYear} {business.businessName || 'Mosaiko'}. {t('rights')}.
           </p>
           <p className="text-xs text-cream/50">
             {t('madeWith')}{' '}

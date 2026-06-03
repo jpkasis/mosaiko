@@ -22,12 +22,14 @@ import { unstable_cache } from 'next/cache';
 import {
   getHomeCopyMetaobject,
   getHomeCopyTranslations,
+  getBusinessSettingsMetaobject,
   type MetaobjectField,
   type TranslationEntry,
 } from '@/lib/shopify/queries/metaobjects';
 
 export const SITE_COPY_TAG = 'site-copy';
 export const SITE_COPY_HOME_TAG = 'site-copy:home';
+export const SITE_COPY_BUSINESS_TAG = 'site-copy:business';
 export const SITE_COPY_REVALIDATE_S = 60 * 60; // 1h soft TTL; admin save bypasses via revalidateTag
 
 export type SupportedLocale = 'es' | 'en';
@@ -197,3 +199,106 @@ export async function getCopy(
 
 // Re-exports for tests + PR3
 export type { CopyPath };
+
+// ─── Business settings (UAT-6 PR4) ──────────────────────────────────────────
+//
+// The `mosaiko_business_settings` metaobject holds the client's contact +
+// social + identity info. Two fields are localized (business_name,
+// footer_copy); the rest are locale-neutral. `notification_email` is
+// admin-only and MUST NOT appear in the public read shape.
+
+/** Metaobject field key → public camelCase property. Localized flag drives
+ *  whether the EN value comes from translations vs the ES base. */
+export const BUSINESS_SETTINGS_MAP = {
+  business_name: { prop: 'businessName', localized: true },
+  footer_copy: { prop: 'footerCopy', localized: true },
+  address: { prop: 'address', localized: false },
+  phone: { prop: 'phone', localized: false },
+  whatsapp: { prop: 'whatsapp', localized: false },
+  instagram_url: { prop: 'instagramUrl', localized: false },
+  facebook_url: { prop: 'facebookUrl', localized: false },
+} as const;
+
+/** Admin-only field — never returned in the PUBLIC shape. */
+export const BUSINESS_NOTIFICATION_EMAIL_KEY = 'notification_email';
+
+/** Public business settings consumed by Footer + Contact (no notificationEmail). */
+export interface PublicBusinessSettings {
+  businessName: string;
+  footerCopy: string;
+  address: string;
+  phone: string;
+  whatsapp: string;
+  instagramUrl: string;
+  facebookUrl: string;
+}
+
+const EMPTY_PUBLIC_SETTINGS: PublicBusinessSettings = {
+  businessName: '',
+  footerCopy: '',
+  address: '',
+  phone: '',
+  whatsapp: '',
+  instagramUrl: '',
+  facebookUrl: '',
+};
+
+async function buildBusinessSettingsUncached(
+  locale: SupportedLocale,
+): Promise<PublicBusinessSettings> {
+  if (!shopifyAdminAvailable()) return EMPTY_PUBLIC_SETTINGS;
+
+  const metaobject = await getBusinessSettingsMetaobject();
+  if (!metaobject) return EMPTY_PUBLIC_SETTINGS;
+
+  const baseMap = fieldsToMap(metaobject.fields);
+  // EN translations only needed for localized fields when locale !== es.
+  let translationMap: Map<string, string> | null = null;
+  if (locale !== DEFAULT_LOCALE) {
+    const translations = await getHomeCopyTranslations(metaobject.id, locale);
+    translationMap = fieldsToMap(translations);
+  }
+
+  const out: PublicBusinessSettings = { ...EMPTY_PUBLIC_SETTINGS };
+  for (const [fieldKey, { prop, localized }] of Object.entries(BUSINESS_SETTINGS_MAP)) {
+    let value: string | undefined;
+    if (localized && translationMap) {
+      // EN: prefer translation, fall back to ES base (business identity
+      // should still show *something* if EN translation is blank).
+      value = translationMap.get(fieldKey) ?? baseMap.get(fieldKey);
+    } else {
+      value = baseMap.get(fieldKey);
+    }
+    if (value !== undefined) {
+      (out as unknown as Record<string, string>)[prop] = value;
+    }
+  }
+  return out;
+}
+
+const fetchBusinessSettingsCached = unstable_cache(
+  async (locale: SupportedLocale) => buildBusinessSettingsUncached(locale),
+  ['site-content', 'business-settings'],
+  {
+    tags: [SITE_COPY_TAG, SITE_COPY_BUSINESS_TAG],
+    revalidate: SITE_COPY_REVALIDATE_S,
+  },
+);
+
+/**
+ * Public business settings for the given locale, consumed by Footer +
+ * Contact. Localized fields (businessName, footerCopy) resolve per-locale;
+ * neutral fields are returned as-is. `notification_email` is intentionally
+ * omitted. On Shopify error → all-empty object (callers conditionally
+ * render each field).
+ */
+export async function getBusinessSettings(
+  locale: SupportedLocale,
+): Promise<PublicBusinessSettings> {
+  try {
+    return await fetchBusinessSettingsCached(locale);
+  } catch (error) {
+    console.warn('[site-content] business settings fetch failed:', error);
+    return EMPTY_PUBLIC_SETTINGS;
+  }
+}

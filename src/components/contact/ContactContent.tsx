@@ -189,9 +189,23 @@ function SendIcon() {
 /* ── Form state type ── */
 type FormStatus = 'idle' | 'sending' | 'success' | 'error';
 
+/* ── Business settings prop (subset relevant to the contact page) ── */
+export interface ContactBusiness {
+  whatsapp: string;
+  phone: string;
+  address: string;
+}
+
+/** Builds a wa.me link from a stored WhatsApp number (digits only). */
+function waLink(whatsapp: string): string | null {
+  const digits = whatsapp.replace(/[^\d]/g, '');
+  return digits.length >= 8 ? `https://wa.me/${digits}` : null;
+}
+
 /* ── Component ── */
-export function ContactContent() {
+export function ContactContent({ business }: { business?: ContactBusiness }) {
   const t = useTranslations('contactPage');
+  const whatsappHref = business?.whatsapp ? waLink(business.whatsapp) : null;
 
   /* Refs for scroll-triggered animations */
   const headerRef = useRef<HTMLDivElement>(null);
@@ -500,32 +514,34 @@ export function ContactContent() {
             animate={formSectionInView ? 'visible' : 'hidden'}
             className="space-y-6 lg:col-span-2"
           >
-            {/* WhatsApp card */}
-            <div className="rounded-2xl border border-[#25D366]/20 bg-[#25D366]/5 p-6 sm:p-7">
-              <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#25D366]/15 text-[#25D366]">
+            {/* WhatsApp card — only shown when a number is configured in
+                Configuración → Negocio. */}
+            {whatsappHref && (
+              <div className="rounded-2xl border border-[#25D366]/20 bg-[#25D366]/5 p-6 sm:p-7">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#25D366]/15 text-[#25D366]">
+                    <WhatsAppIcon />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-serif text-lg font-semibold text-charcoal">
+                      {t('whatsappTitle')}
+                    </h3>
+                    <p className="mt-1 text-sm leading-relaxed text-warm-gray">
+                      {t('whatsappText')}
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={whatsappHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-5 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-6 py-3 text-sm font-bold text-white shadow-md shadow-[#25D366]/20 transition-all duration-300 hover:bg-[#22c55e] hover:shadow-lg hover:shadow-[#25D366]/30 active:scale-[0.98]"
+                >
                   <WhatsAppIcon />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="font-serif text-lg font-semibold text-charcoal">
-                    {t('whatsappTitle')}
-                  </h3>
-                  <p className="mt-1 text-sm leading-relaxed text-warm-gray">
-                    {t('whatsappText')}
-                  </p>
-                </div>
+                  {t('whatsappCta')}
+                </a>
               </div>
-              <a
-                // TODO: Replace with real WhatsApp number when provided by client
-                href="https://wa.me/5215512345678"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-5 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-6 py-3 text-sm font-bold text-white shadow-md shadow-[#25D366]/20 transition-all duration-300 hover:bg-[#22c55e] hover:shadow-lg hover:shadow-[#25D366]/30 active:scale-[0.98]"
-              >
-                <WhatsAppIcon />
-                {t('whatsappCta')}
-              </a>
-            </div>
+            )}
 
             {/* Info card */}
             <div className="rounded-2xl border border-light-gray bg-white p-6 shadow-sm sm:p-7">
@@ -554,15 +570,27 @@ export function ContactContent() {
                   </p>
                 </div>
 
-                {/* Location */}
+                {/* Location — admin address overrides the static copy when set. */}
                 <div className="flex items-start gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cream text-charcoal">
                     <MapPinIcon />
                   </div>
                   <p className="pt-1 text-sm leading-relaxed text-warm-gray">
-                    {t('location')}
+                    {business?.address || t('location')}
                   </p>
                 </div>
+
+                {/* Phone — only when configured. */}
+                {business?.phone && (
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cream text-charcoal">
+                      <WhatsAppIcon />
+                    </div>
+                    <p className="pt-1 text-sm leading-relaxed text-warm-gray">
+                      {business.phone}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>

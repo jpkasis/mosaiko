@@ -1,7 +1,16 @@
-import { ConfiguracionContent } from '@/components/admin/ConfiguracionContent';
+import {
+  ConfiguracionContent,
+  type ConfiguracionTab,
+} from '@/components/admin/ConfiguracionContent';
 import { HOME_COPY_MAP } from '@/lib/site-content';
 import esMessages from '@/messages/es.json';
 import enMessages from '@/messages/en.json';
+
+function parseTab(raw: string | string[] | undefined): ConfiguracionTab {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (v === 'negocio' || v === 'cuenta') return v;
+  return 'contenido';
+}
 
 type CopyPath = keyof typeof HOME_COPY_MAP;
 type Fallbacks = Partial<Record<CopyPath, string>>;
@@ -25,11 +34,21 @@ function extractFallbacks(messages: Record<string, unknown>): Fallbacks {
   return out;
 }
 
-export default function ConfiguracionPage() {
+export default async function ConfiguracionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string | string[] }>;
+}) {
   // Static next-intl JSON values become the placeholders in the admin form.
   // Shows the admin what will render on the storefront if they leave a
   // Shopify field blank.
   const esFallbacks = extractFallbacks(esMessages as unknown as Record<string, unknown>);
   const enFallbacks = extractFallbacks(enMessages as unknown as Record<string, unknown>);
-  return <ConfiguracionContent fallbacks={{ es: esFallbacks, en: enFallbacks }} />;
+  const { tab } = await searchParams;
+  return (
+    <ConfiguracionContent
+      fallbacks={{ es: esFallbacks, en: enFallbacks }}
+      initialTab={parseTab(tab)}
+    />
+  );
 }

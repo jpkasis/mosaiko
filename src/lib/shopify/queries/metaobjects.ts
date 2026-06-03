@@ -120,6 +120,39 @@ export async function getHomeCopyMetaobject(): Promise<HomeCopyMetaobject | null
   return data.metaobjectByHandle ?? null;
 }
 
+// ─── Business settings (UAT-6 PR4) ──────────────────────────────────────────
+
+export const BUSINESS_SETTINGS_METAOBJECT_QUERY = /* GraphQL */ `
+  query BusinessSettingsMetaobject {
+    metaobjectByHandle(handle: { type: "mosaiko_business_settings", handle: "singleton" }) {
+      id
+      handle
+      fields {
+        key
+        value
+      }
+    }
+  }
+`;
+
+interface BusinessSettingsMetaobjectResponse {
+  metaobjectByHandle: HomeCopyMetaobject | null;
+}
+
+/**
+ * Fetches the business-settings metaobject (singleton). Same shape as
+ * home-copy: id + handle + fields[]. Returns `null` when not seeded.
+ * The translation + digest helpers below are generic by resourceId, so
+ * PR4 reuses them for EN business_name/footer_copy.
+ */
+export async function getBusinessSettingsMetaobject(): Promise<HomeCopyMetaobject | null> {
+  const data = await shopifyAdminFetch<BusinessSettingsMetaobjectResponse>({
+    query: BUSINESS_SETTINGS_METAOBJECT_QUERY,
+    options: { cache: 'no-store' },
+  });
+  return data.metaobjectByHandle ?? null;
+}
+
 /**
  * Fetches the English translations for a given metaobject resource id.
  * Returns an empty array when no translations have been registered yet.
