@@ -142,10 +142,16 @@ export function CartDrawer() {
               <CheckoutButton />
             </div>
 
+            {/* UAT-6 PR6: secondary footer links are real ≥48px tap targets
+                (mirrors the empty-cart button pattern above). Previously bare
+                ~20px text — "Seguir comprando" especially was hard to hit and
+                low-contrast (text-warm-gray), crammed against the iOS home
+                bar. Hierarchy preserved: gold checkout > terracotta "Ver
+                carrito completo" > charcoal "Seguir comprando". */}
             <Link
               href="/carrito"
               onClick={closeDrawer}
-              className="mt-2 block w-full text-center text-sm font-medium text-terracotta transition-colors hover:text-terracotta-dark"
+              className="mt-2 inline-flex min-h-[48px] w-full items-center justify-center rounded-lg text-sm font-medium text-terracotta transition-colors hover:text-terracotta-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
             >
               Ver carrito completo
             </Link>
@@ -153,7 +159,7 @@ export function CartDrawer() {
             <Link
               href="/catalogo"
               onClick={closeDrawer}
-              className="mt-3 block w-full text-center text-sm text-warm-gray transition-colors hover:text-charcoal"
+              className="mt-1 inline-flex min-h-[48px] w-full items-center justify-center rounded-lg text-sm font-medium text-charcoal transition-colors hover:text-terracotta focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
             >
               {t('continueShopping')}
             </Link>

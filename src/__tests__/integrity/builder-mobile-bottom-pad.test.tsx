@@ -1,17 +1,20 @@
 // @vitest-environment jsdom
 /**
- * UAT-3 J12 (Codex audit finding) contract test:
+ * UAT-3 J12 (Codex audit finding) contract test, updated for UAT-6 PR6:
  *
  * On iOS Safari, when the soft keyboard opens, `useKeyboardInset` returns
- * the keyboard height. The sticky CTA's `bottom` already includes that
- * inset (Phase 6.1). But the form content's `paddingBottom` ALSO needs
- * the inset, or the lower form fields hide behind the CTA at the bottom
- * of the visual viewport. This is the real root cause of UAT-2's
- * deferred B3 "Siguiente button blocks input editing" bug.
+ * the keyboard height, and the builder content's `paddingBottom` includes
+ * that inset so the lower form area gains scroll-room above the keyboard.
+ *
+ * UAT-6 PR6 removed the floating sticky CTA from the customize step (lifted
+ * above the keyboard it jittered and covered the fields). The customize CTA
+ * is now an inline button at the END of the form. The bottom-padding
+ * contract still holds — and is precisely what lets that inline button be
+ * scrolled clear of the keyboard. (`mobileBottomPadStyle`'s else-branch,
+ * taken when no sticky CTA is visible, still includes `keyboardInset`.)
  *
  * Contract: with `keyboardInset > 0`, the wrapping container's
- * `paddingBottom` MUST include the inset value in pixels. Without it,
- * the content doesn't gain bottom scroll-room to clear the lifted CTA.
+ * `paddingBottom` MUST include the inset value in pixels.
  */
 import { describe, test, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
@@ -241,7 +244,7 @@ describe('MagnetBuilder mobile bottom padding — keyboardInset wiring (UAT-3 J1
     const padding = wrap.style.paddingBottom;
     expect(
       padding,
-      'paddingBottom must include the keyboardInset value so form content shifts up with the sticky CTA',
+      'paddingBottom must include the keyboardInset value so the form content (and the inline CTA at its end) can scroll clear of the keyboard',
     ).toContain(`${KEYBOARD_INSET_PX}px`);
   });
 });

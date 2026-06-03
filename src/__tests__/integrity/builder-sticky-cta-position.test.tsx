@@ -96,8 +96,11 @@ vi.mock('@/components/builder/useKeyboardInset', () => ({
   useKeyboardInset: () => 0,
 }));
 
-// useBuilderFlow stub. Pins the flow into the `customize` step where
-// the sticky CTA is unconditionally `visible: true` per MagnetBuilder.
+// useBuilderFlow stub. Pins the flow into the `upload` step where the
+// sticky CTA is `visible: true` per MagnetBuilder. (UAT-6 PR6 removed the
+// sticky CTA from the `customize` step — its primary action is now the
+// inline button in CustomizationEditor — so the ancestry contract is
+// asserted on `upload`, where the fixed CTA still renders.)
 vi.mock('@/components/builder/useBuilderFlow', () => {
   const stepSequence = [
     'category',
@@ -119,7 +122,7 @@ vi.mock('@/components/builder/useBuilderFlow', () => {
   return {
     STEP_I18N_MAP,
     useBuilderFlow: () => ({
-      currentStepId: 'customize',
+      currentStepId: 'upload',
       stepSequence,
       direction: 1,
       selectedCategory: 'studio',

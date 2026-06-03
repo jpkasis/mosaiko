@@ -529,7 +529,18 @@ export function MagnetBuilder() {
     flow.multiPhoto.cropAreas,
   ]);
 
-  const showPreviewFab = canPreview && !previewDrawerOpen;
+  // UAT-6 PR6: hide the FAB while the iOS soft keyboard is open on the
+  // customize step. There a focused text input lifts this `position: fixed`
+  // FAB via `keyboardInset`, floating it over the form fields — the same
+  // complaint that motivated dropping the sticky CTA on this step. Scope to
+  // `customize` (the only step with text inputs) and require a >8px inset so
+  // fractional iOS visual-viewport deltas on the keyboard-less crop step
+  // can't hide it (Codex PR6 audit). The FAB returns when the keyboard
+  // dismisses.
+  const keyboardOpenOnCustomize =
+    flow.currentStepId === 'customize' && keyboardInset > 8;
+  const showPreviewFab =
+    canPreview && !previewDrawerOpen && !keyboardOpenOnCustomize;
 
   // Mobile sticky bottom CTA. Keeps the primary action anchored so it never
   // drifts out of the thumb zone as step content changes. Rendered on
@@ -537,9 +548,11 @@ export function MagnetBuilder() {
   //   - upload    → flow.handleImageSelected / flow.handleMultiPhotoImagesSelected
   //                 (Phase 6.3: PhotoUploader emits readiness via
   //                 onReadyChange; Tonos derives from imageSrcs)
-  //   - customize → flow.handleCustomizeComplete (always eligible to advance)
   //   - preview   → handleAddToCart (disabled while upload is in flight)
-  // Crop step keeps its inline CTA — proceed lives inside the cropper.
+  // Crop + customize steps keep their INLINE CTA — proceed lives inside the
+  // cropper / at the end of CustomizationEditor's form. UAT-6 PR6 dropped the
+  // floating sticky CTA from customize (it jittered over the iOS keyboard and
+  // covered the text fields).
   const stickyCta = useMemo<
     | { visible: false }
     | {
@@ -575,14 +588,12 @@ export function MagnetBuilder() {
         },
       };
     }
-    if (flow.currentStepId === 'customize') {
-      return {
-        visible: true,
-        label: tc('next'),
-        canAdvance: true,
-        onAdvance: flow.handleCustomizeComplete,
-      };
-    }
+    // UAT-6 PR6: the customize step no longer uses the floating sticky CTA.
+    // Lifted above the iOS keyboard it jittered and covered the text fields
+    // (client report). The customize step's primary action is now the inline
+    // "Siguiente" button at the end of CustomizationEditor's form, which
+    // scrolls with the content and never floats. `handleCustomizeComplete`
+    // is still the advance path — wired via CustomizationEditor's onComplete.
     if (flow.currentStepId === 'preview' && flow.gridConfig) {
       return {
         visible: true,
@@ -598,7 +609,6 @@ export function MagnetBuilder() {
     flow.currentStepId,
     flow.gridConfig,
     flow.isUploading,
-    flow.handleCustomizeComplete,
     flow.handleImageSelected,
     flow.handleMultiPhotoImagesSelected,
     flow.multiPhoto.imageSrcs,
@@ -917,57 +927,65 @@ export function MagnetBuilder() {
           CTA footer is visible the FAB lifts above it so the two don't
           stack on top of each other. */}
       {showPreviewFab && (
-        <>
-          <button
-            type="button"
-            onClick={() => setPreviewDrawerOpen(true)}
-            className="fixed right-4 flex h-14 w-14 items-center justify-center rounded-full bg-terracotta text-white shadow-lg transition-transform hover:scale-105 active:scale-[0.98] lg:hidden pb-safe"
-            style={{
-              ['--safe-min' as string]: '0.5rem',
-              zIndex: 'var(--z-toast)',
-              // Lift above sticky CTA (if shown) AND above the cookie banner
-              // (if visible). `--cookie-banner-offset` is set by CookieBanner
-              // on :root via ResizeObserver while the banner is onscreen.
-              // Phase 6.1: also lift above the iOS soft keyboard when open
-              // (keyboardInset is 0 on desktop / when closed).
-              bottom: stickyCta.visible
-                ? `calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`
-                : `calc(var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`,
-            }}
-            aria-label="Ver vista previa"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </button>
+        <button
+          type="button"
+          onClick={() => setPreviewDrawerOpen(true)}
+          className="fixed right-4 flex h-14 w-14 items-center justify-center rounded-full bg-terracotta text-white shadow-lg transition-transform hover:scale-105 active:scale-[0.98] lg:hidden pb-safe"
+          style={{
+            ['--safe-min' as string]: '0.5rem',
+            zIndex: 'var(--z-toast)',
+            // Lift above sticky CTA (if shown) AND above the cookie banner
+            // (if visible). `--cookie-banner-offset` is set by CookieBanner
+            // on :root via ResizeObserver while the banner is onscreen.
+            // Phase 6.1: also lift above the iOS soft keyboard when open
+            // (keyboardInset is 0 on desktop / when closed).
+            bottom: stickyCta.visible
+              ? `calc(var(--mobile-footer-height) + var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`
+              : `calc(var(--cookie-banner-offset, 0px) + 1rem + ${keyboardInset}px)`,
+          }}
+          aria-label="Ver vista previa"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+      )}
 
-          <Overlay
-            open={previewDrawerOpen}
-            onOpenChange={setPreviewDrawerOpen}
-            variant="drawer-bottom"
-            zLayer="drawer"
-            ariaLabel="Vista previa del mosaico"
-            contentClassName="pb-safe"
-          >
-            <OverlayTitle className="sr-only">Vista previa del mosaico</OverlayTitle>
-            <div className="overflow-y-auto p-4">
-              <div className="mx-auto w-full max-w-sm">
-                <LivePreviewSidebar
-                  currentStepId={flow.currentStepId}
-                  selectedGrid={flow.selectedGrid}
-                  imageSrc={flow.imageSrc}
-                  gridConfig={flow.gridConfig}
-                  liveCropArea={flow.liveCropArea}
-                  cropAreaPixels={flow.cropAreaPixels}
-                  selectedCategory={flow.selectedCategory}
-                  textFields={flow.customizationValues}
-                  tonos={tonosForSidebar}
-                />
-              </div>
+      {/* Preview drawer — controlled SOLELY by `previewDrawerOpen`, rendered
+          independently of the FAB. Codex PR6 audit (MAJOR): the Overlay must
+          NOT sit inside the `showPreviewFab` conditional — `showPreviewFab`
+          includes `!previewDrawerOpen`, so opening the drawer (FAB click sets
+          previewDrawerOpen=true) would unmount the Overlay before it could
+          show. Gated on `canPreview` so it only mounts when there's content;
+          `canPreview` stays true for the whole drawer session (same step),
+          so the open→close animation is preserved. */}
+      {canPreview && (
+        <Overlay
+          open={previewDrawerOpen}
+          onOpenChange={setPreviewDrawerOpen}
+          variant="drawer-bottom"
+          zLayer="drawer"
+          ariaLabel="Vista previa del mosaico"
+          contentClassName="pb-safe"
+        >
+          <OverlayTitle className="sr-only">Vista previa del mosaico</OverlayTitle>
+          <div className="overflow-y-auto p-4">
+            <div className="mx-auto w-full max-w-sm">
+              <LivePreviewSidebar
+                currentStepId={flow.currentStepId}
+                selectedGrid={flow.selectedGrid}
+                imageSrc={flow.imageSrc}
+                gridConfig={flow.gridConfig}
+                liveCropArea={flow.liveCropArea}
+                cropAreaPixels={flow.cropAreaPixels}
+                selectedCategory={flow.selectedCategory}
+                textFields={flow.customizationValues}
+                tonos={tonosForSidebar}
+              />
             </div>
-          </Overlay>
-        </>
+          </div>
+        </Overlay>
       )}
 
       {/* Mobile sticky CTA footer. Single primary action anchored to the

@@ -52,6 +52,7 @@ export function CustomizationEditor({
   onComplete,
 }: CustomizationEditorProps) {
   const t = useTranslations('builder');
+  const tc = useTranslations('common');
 
   return (
     <div className="flex flex-col gap-6">
@@ -92,15 +93,20 @@ export function CustomizationEditor({
           <SaveTheDateFields values={values} onChange={onValueChange} />
         )}
 
-        {/* Inline CTA. Hidden on mobile (< lg) because the sticky footer in
-            MagnetBuilder provides the primary action there; mobile users who
-            see both buttons get confused by the redundancy. */}
-        <motion.div variants={itemVariants} className="hidden lg:block">
+        {/* Inline CTA — the customize step's primary action on ALL
+            breakpoints. UAT-6 PR6: the mobile floating sticky CTA was
+            removed on this step because, lifted above the iOS soft
+            keyboard, it jittered and covered the text fields. This inline
+            button lives at the end of the form: it scrolls with the
+            content (reachable above the keyboard) and can never float over
+            the inputs. Desktop already used this button. */}
+        <motion.div variants={itemVariants} className="block">
           <button
+            type="button"
             onClick={onComplete}
             className="min-h-[48px] w-full rounded-xl bg-btn-primary px-6 py-3 text-base font-semibold text-btn-text transition-colors hover:bg-btn-primary-hover cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btn-primary"
           >
-            {t('continue')}
+            {tc('next')}
           </button>
         </motion.div>
       </motion.div>
