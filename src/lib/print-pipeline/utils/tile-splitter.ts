@@ -18,6 +18,20 @@ export interface CropAndResizeOptions {
   fitMode?: 'fill' | 'fit' | 'stretch';
   /** RGBA background colour for `'fit'` letterbox. Ignored otherwise. */
   background?: { r: number; g: number; b: number; alpha: number };
+  /**
+   * Photo rotation in degrees (0 | 90 | 180 | 270). When nonzero, the
+   * SOURCE is rotated FIRST, then the crop area is extracted from the
+   * rotated buffer. The crop area must therefore be expressed in the
+   * rotated coordinate space (90/270 swap the source's width/height) —
+   * the cropper UI already emits rotated bounds. Default 0 (no rotation),
+   * preserving legacy single-image behaviour.
+   *
+   * UAT-6 PR5: this centralizes what `processTonos` previously did inline
+   * (`sharp(buf).rotate(deg)` before crop), so single-photo categories
+   * get rotation too. Byte-identical to the old Tonos path for the same
+   * inputs.
+   */
+  rotation?: number;
 }
 
 const FIT_MODE_TO_SHARP: Record<
@@ -43,8 +57,16 @@ export async function cropAndResize(
   height: number,
   options?: CropAndResizeOptions,
 ): Promise<Buffer> {
+  // UAT-6 PR5: rotate the SOURCE first when a nonzero rotation is given,
+  // then crop from the rotated buffer. The cropArea is already in rotated
+  // bounds (the cropper swaps W/H on 90/270). Byte-identical to the legacy
+  // Tonos inline `sharp(buf).rotate(deg).png().toBuffer()` path.
+  const deg = options?.rotation ?? 0;
+  const source =
+    deg === 0 ? imageBuffer : await sharp(imageBuffer).rotate(deg).png().toBuffer();
+
   // Validate crop coordinates against source image dimensions
-  const metadata = await sharp(imageBuffer).metadata();
+  const metadata = await sharp(source).metadata();
   const imgWidth = metadata.width ?? 0;
   const imgHeight = metadata.height ?? 0;
 
@@ -73,7 +95,7 @@ export async function cropAndResize(
     : 'fill';
   const background = options?.background ?? DEFAULT_LETTERBOX_BG;
 
-  return sharp(imageBuffer)
+  return sharp(source)
     .extract({
       left,
       top,

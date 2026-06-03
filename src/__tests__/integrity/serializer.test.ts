@@ -367,6 +367,70 @@ describe('Tonos — fitMode end-to-end (FIXED, was MAJOR)', () => {
   });
 });
 
+describe('UAT-6 PR5 — single-photo imageRotation round-trip', () => {
+  test('buildPrintCustomization emits imageRotation on each single-photo variant', () => {
+    // Spread across the categories the rotate-photo button is exposed on.
+    expect(
+      buildPrintCustomization({ categoryType: 'mosaicos', gridSize: 9, imageRotation: 90 }),
+    ).toEqual({ categoryType: 'mosaicos', gridSize: 9, imageRotation: 90 });
+
+    expect(
+      buildPrintCustomization({ categoryType: 'spotify', gridSize: 6, imageRotation: 180 }),
+    ).toMatchObject({ categoryType: 'spotify', gridSize: 6, imageRotation: 180 });
+
+    expect(
+      buildPrintCustomization({ categoryType: 'polaroid', gridSize: 4, imageRotation: 270 }),
+    ).toEqual({ categoryType: 'polaroid', gridSize: 4, imageRotation: 270 });
+
+    // STD-6/9 are single-photo → rotation rides along with the STD knobs.
+    expect(
+      buildPrintCustomization({ categoryType: 'save-the-date', gridSize: 6, imageRotation: 90 }),
+    ).toMatchObject({ categoryType: 'save-the-date', gridSize: 6, imageRotation: 90 });
+  });
+
+  test('absent / 0 imageRotation → field omitted (pre-PR5 carts print unchanged)', () => {
+    const r0 = buildPrintCustomization({ categoryType: 'mosaicos', gridSize: 9 });
+    const rZero = buildPrintCustomization({
+      categoryType: 'mosaicos',
+      gridSize: 9,
+      imageRotation: 0,
+    });
+    expect('imageRotation' in r0).toBe(false);
+    expect('imageRotation' in rZero).toBe(false);
+  });
+
+  test('toPrintCustomization lifts imageRotation from CartItem customizations', () => {
+    const item: CartItem = {
+      id: 'rot',
+      type: 'custom',
+      gridSize: 9,
+      gridLayout: { rows: 3, cols: 3 },
+      name: 'test',
+      price: 480,
+      quantity: 1,
+      previewUrl: '',
+      tileUrls: [],
+      customizations: {
+        categoryType: 'mosaicos',
+        imageRotation: 90,
+      },
+    };
+    const out = toPrintCustomization(item) as { imageRotation?: number };
+    expect(out.imageRotation).toBe(90);
+  });
+
+  test('imageRotation survives JSON round-trip through the Shopify cart attribute', () => {
+    const built = buildPrintCustomization({
+      categoryType: 'arte',
+      gridSize: 9,
+      textFields: { title: 'T', artist: 'A', year: '1999' },
+      imageRotation: 270,
+    });
+    expect(roundTripJson(built)).toEqual(built);
+    expect((built as { imageRotation?: number }).imageRotation).toBe(270);
+  });
+});
+
 describe('JSON round-trip (Shopify cart attribute serialization)', () => {
   // These simulate the exact JSON.stringify → JSON.parse roundtrip that
   // happens between buildCartLines and the webhook handler.

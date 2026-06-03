@@ -52,6 +52,7 @@ export async function processPolaroid(job: SingleImagePrintJob): Promise<TileOut
     job.cropArea,
     printPhotoW,
     printPhotoH,
+    { rotation: job.imageRotation ?? 0 },
   );
 
   // Split the cropped photo into 4 portions matching each tile's visible area

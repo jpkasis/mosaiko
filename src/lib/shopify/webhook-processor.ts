@@ -23,6 +23,7 @@ import {
   extractCustomizedLineItems,
   whitelistTonosRotations,
   whitelistTonosFitModes,
+  whitelistImageRotation,
   safeJsonParse,
   type CustomizedLineItem,
   type ShopifyOrderWebhook,
@@ -449,6 +450,11 @@ export async function processLineItem(
   const cropArea = safeJsonParse<CropArea>(cropAreaRaw);
   if (!cropArea) return fail('crop_parse_error');
 
+  // UAT-6 PR5: single-photo 90° rotation. Re-validate the cart attribute
+  // server-side (0/90/180/270; anything else → 0) so a tampered or pre-PR5
+  // order prints unrotated rather than trusting the raw payload.
+  const imageRotation = whitelistImageRotation(lineItem.attrs['_image_rotation']);
+
   const imageBuffer = await deps.fetchPhoto(photoUrl);
   if (!imageBuffer) return fail('photo_fetch_failed');
 
@@ -458,6 +464,7 @@ export async function processLineItem(
       imageBuffer,
       customization,
       cropArea,
+      imageRotation,
       jobId,
     });
   } catch (error) {

@@ -7,6 +7,8 @@
  * background-processing orchestration.
  */
 
+import type { ImageRotation } from '../customization-types';
+
 export interface ShopifyLineItemProperty {
   name: string;
   value: string;
@@ -111,6 +113,19 @@ export function whitelistTonosFitModes(
       : 'fill';
   });
   return [fs[0], fs[1], fs[2]];
+}
+
+/**
+ * UAT-6 PR5: whitelist a single-photo 90° rotation to the four
+ * quarter-turns the print pipeline supports (0/90/180/270). Accepts the
+ * raw value from either the `_image_rotation` cart attribute (a string
+ * like `"90"`) or the `_customization` JSON (a number). Anything else —
+ * missing, non-numeric, out-of-set — snaps to 0, so pre-PR5 orders and
+ * malformed payloads print unrotated.
+ */
+export function whitelistImageRotation(raw: unknown): ImageRotation {
+  const num = typeof raw === 'string' ? Number(raw) : raw;
+  return num === 90 || num === 180 || num === 270 ? num : 0;
 }
 
 /**

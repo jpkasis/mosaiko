@@ -6,6 +6,7 @@ import {
   type CategoryType,
   type TonosIntensity,
   type TonosSlotConfigs,
+  type ImageRotation,
   type STDFontFamily,
   type STDSize,
   type STDAnchor,
@@ -48,6 +49,13 @@ export interface PrintCustomizationInput {
    * `MosaicosCustomization` discriminated-union variant.
    */
   layoutRotated?: boolean;
+  /**
+   * UAT-6 PR5: 90° photo rotation for single-image categories. Forwarded
+   * into the discriminated-union variant's `imageRotation` field (emitted
+   * only when nonzero). Ignored for Tonos (per-slot rotation lives in
+   * `tonosSlots`).
+   */
+  imageRotation?: ImageRotation;
 }
 
 export function toPrintCustomization(item: CartItem): CategoryCustomization {
@@ -62,6 +70,7 @@ export function toPrintCustomization(item: CartItem): CategoryCustomization {
     tonosIntensity: c.tonosIntensity,
     tonosSlots: c.tonosSlots,
     layoutRotated: c.layoutRotated,
+    imageRotation: c.imageRotation,
   });
 }
 
@@ -76,6 +85,9 @@ export function buildPrintCustomization(
 ): CategoryCustomization {
   const { categoryType, gridSize } = input;
   const tf = input.textFields ?? {};
+  // UAT-6 PR5: emit imageRotation only when nonzero (0 is falsy → omitted),
+  // matching the "absent === 0" reading convention in the print processor.
+  const rot = input.imageRotation ? { imageRotation: input.imageRotation } : {};
 
   switch (categoryType) {
     case 'mosaicos':
@@ -86,6 +98,7 @@ export function buildPrintCustomization(
         // matches the "absent === false" reading convention in the
         // print processor.
         ...(input.layoutRotated ? { layoutRotated: true } : {}),
+        ...rot,
       };
 
     case 'spotify':
@@ -94,6 +107,7 @@ export function buildPrintCustomization(
         gridSize: 6,
         songName: tf.songName ?? '',
         artistName: tf.artistName ?? '',
+        ...rot,
       };
 
     case 'arte':
@@ -103,6 +117,7 @@ export function buildPrintCustomization(
         title: tf.title ?? '',
         artist: tf.artist ?? '',
         year: tf.year ?? '',
+        ...rot,
       };
 
     case 'studio':
@@ -113,6 +128,7 @@ export function buildPrintCustomization(
         japaneseText: tf.japaneseText ?? '',
         customText: tf.customText ?? '',
         studioText: tf.studioText ?? '',
+        ...rot,
       };
 
     case 'save-the-date': {
@@ -133,6 +149,9 @@ export function buildPrintCustomization(
         treatment: (tf.treatment as STDTextTreatment) || STD_DEFAULTS.treatment,
         intensity: (tf.intensity as STDTextIntensity) || STD_DEFAULTS.intensity,
         ...(input.layoutRotated ? { layoutRotated: true } : {}),
+        // STD-6/9 are single-photo (rotation applies); STD-3 is multi-photo
+        // and its processor branch ignores imageRotation (PR5 scope).
+        ...rot,
       };
     }
 
@@ -155,6 +174,7 @@ export function buildPrintCustomization(
       return {
         categoryType: 'polaroid',
         gridSize: 4,
+        ...rot,
       };
   }
 }

@@ -57,6 +57,7 @@ export async function processStudio(job: SingleImagePrintJob): Promise<TileOutpu
     job.cropArea,
     printPhotoW,
     printPhotoH,
+    { rotation: job.imageRotation ?? 0 },
   );
 
   // Extract each tile's photo portion and composite with PNG frame

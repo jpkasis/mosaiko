@@ -83,6 +83,7 @@ export async function processSpotify(job: SingleImagePrintJob): Promise<TileOutp
     job.cropArea,
     visibleW,
     visibleH,
+    { rotation: job.imageRotation ?? 0 },
   );
 
   const canvasBuffer = await sharp({

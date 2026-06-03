@@ -6,6 +6,7 @@ import Cropper from 'react-easy-crop';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { GridConfig } from '@/lib/grid-config';
 import type { CropArea } from '@/lib/canvas-utils';
+import type { ImageRotation } from '@/lib/customization-types';
 import { Button } from '@/components/ui/Button';
 
 // ─── Fit mode types ─────────────────────────────────────────────────────────
@@ -121,10 +122,20 @@ interface ImageCropperProps {
   overlayBorderInsets?: { top: number; bottom: number; left: number; right: number };
   /** Explicit row split positions as % (overrides even row division). */
   overlayRowSplits?: number[];
-  /** Layout rotation controls */
+  /** Layout rotation controls (rotates the mosaic GRID, not the photo). */
   onLayoutRotate?: () => void;
   canRotateLayout?: boolean;
   layoutRotated?: boolean;
+  /**
+   * UAT-6 PR5 — single-photo 90° PHOTO rotation. `imageRotation` is the
+   * current angle (0/90/180/270); `onToggleImageRotation` cycles it. The
+   * parent (useBuilderFlow) owns the state and clears the crop areas on
+   * change so the cropper re-emits against the rotated bounds. Distinct
+   * from `onLayoutRotate`, which rotates the mosaic grid. Client feedback
+   * was explicit: "rotate the PHOTO, not the mosaic itself".
+   */
+  imageRotation?: ImageRotation;
+  onToggleImageRotation?: () => void;
   /**
    * Replaces the current photo with a new one. The cropper doesn't own the
    * image state, so it emits this and the parent (MagnetBuilder) handles
@@ -155,6 +166,8 @@ export function ImageCropper({
   onLayoutRotate,
   canRotateLayout = false,
   layoutRotated = false,
+  imageRotation = 0,
+  onToggleImageRotation,
   onReplacePhoto,
   ctaLabel,
 }: ImageCropperProps) {
@@ -187,11 +200,24 @@ export function ImageCropper({
     img.src = imageSrc;
   }, [imageSrc]);
 
-  // Reset crop position when fit mode changes
+  // Reset crop position when fit mode OR photo rotation changes. The
+  // <Cropper> is also remounted via its `key` on rotation, so resetting
+  // the controlled crop/zoom here keeps the two in sync (a stale pan/zoom
+  // applied to a freshly-rotated image would frame the wrong region).
+  //
+  // Codex PR5 audit (MAJOR): also clear the FINAL crop areas. react-easy-crop
+  // emits cropAreaPixels in the rotated frame, so the crop captured before a
+  // turn describes the wrong region after it. Clearing disables Continue
+  // (canProceed checks finalCropAreaPixels) until the remounted cropper emits
+  // a fresh onCropComplete — otherwise tapping "Girar foto" then "Continuar"
+  // in quick succession would advance with the pre-rotation coordinates.
+  // Mirrors the same guard in handleReset.
   useEffect(() => {
     setCrop({ x: 0, y: 0 });
     setZoom(1);
-  }, [fitMode]);
+    setFinalCropArea(null);
+    setFinalCropAreaPixels(null);
+  }, [fitMode, imageRotation]);
 
   // Clean up debounce timer
   useEffect(() => {
@@ -212,14 +238,24 @@ export function ImageCropper({
     [],
   );
 
-  // Emit full-image crop area when entering stretch mode (Cropper is hidden)
+  // Emit full-image crop area when entering stretch mode (Cropper is
+  // hidden). For 90/270 the server rotates the source first, so its
+  // rotated bounds swap W/H — the synthetic full-image cropArea must
+  // match, otherwise `cropAndResize` clamps to a corner slice instead of
+  // the whole rotated image. Mirrors `ImageCropperMulti`'s stretch path.
   useEffect(() => {
     if (fitMode === 'stretch' && imageSize) {
       clearTimeout(cropChangeTimerRef.current);
-      const fullArea: CropArea = { x: 0, y: 0, width: imageSize.width, height: imageSize.height };
+      const isQuarterTurn = imageRotation === 90 || imageRotation === 270;
+      const fullArea: CropArea = {
+        x: 0,
+        y: 0,
+        width: isQuarterTurn ? imageSize.height : imageSize.width,
+        height: isQuarterTurn ? imageSize.width : imageSize.height,
+      };
       onCropChangeRef.current?.(fullArea);
     }
-  }, [fitMode, imageSize]);
+  }, [fitMode, imageSize, imageRotation]);
 
   const handleRotateLayout = useCallback(() => {
     onLayoutRotate?.();
@@ -248,13 +284,16 @@ export function ImageCropper({
 
   function handleProceed() {
     if (fitMode === 'stretch' && imageSize) {
-      // Stretch: use the full image as the crop area
+      // Stretch: use the full image as the crop area. Swap the pixel
+      // bounds on 90/270 so they describe the rotated source (see the
+      // stretch useEffect above).
+      const isQuarterTurn = imageRotation === 90 || imageRotation === 270;
       const fullCropArea: CropArea = { x: 0, y: 0, width: 100, height: 100 };
       const fullCropAreaPixels: CropArea = {
         x: 0,
         y: 0,
-        width: imageSize.width,
-        height: imageSize.height,
+        width: isQuarterTurn ? imageSize.height : imageSize.width,
+        height: isQuarterTurn ? imageSize.width : imageSize.height,
       };
       onCropComplete(fullCropArea, fullCropAreaPixels);
     } else if (finalCropArea && finalCropAreaPixels) {
@@ -291,10 +330,13 @@ export function ImageCropper({
         onChange={setFitMode}
       />
 
-      {/* Ergonomics toolbar: Restablecer (zoom/pan) + Cambiar foto.
-          Codex's cropper concern: "users abandon when they can't undo".
-          Reset snaps zoom back to 1 and recenters; Replace clears the
-          photo + navigates back to upload so the user can pick again. */}
+      {/* Ergonomics toolbar: Restablecer (zoom/pan) + Girar foto + Cambiar
+          foto. Codex's cropper concern: "users abandon when they can't
+          undo". Reset snaps zoom back to 1 and recenters; Girar foto turns
+          the PHOTO 90° (UAT-6 client request); Replace clears the photo +
+          navigates back to upload so the user can pick again. Kept here as
+          a toolbar control, NOT an overlay — overlays fight mobile crop
+          gestures. */}
       <div className="mx-auto flex w-full max-w-[500px] gap-2">
         <button
           type="button"
@@ -307,6 +349,29 @@ export function ImageCropper({
           </svg>
           {t('cropReset')}
         </button>
+        {onToggleImageRotation && (
+          <button
+            type="button"
+            onClick={onToggleImageRotation}
+            aria-label={`${t('rotatePhoto')} (${imageRotation}°)`}
+            title={`${t('rotatePhoto')} (${imageRotation}°)`}
+            className={[
+              'flex min-h-[48px] flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition-colors active:scale-[0.98]',
+              imageRotation !== 0
+                ? 'border-terracotta bg-terracotta/10 text-terracotta'
+                : 'border-light-gray bg-white text-warm-gray hover:border-terracotta/40 hover:text-charcoal',
+            ].join(' ')}
+          >
+            {/* Photo (rect) + a quarter-turn arrow — distinct from the
+                Restablecer refresh glyph so the two don't read alike. */}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="2" y="10" width="11" height="11" rx="2" />
+              <path d="M14 7a6 6 0 0 1 6 6" />
+              <polyline points="13.5 3.5 14.5 7 18 6" />
+            </svg>
+            {t('rotatePhoto')}
+          </button>
+        )}
         {onReplacePhoto && (
           <button
             type="button"
@@ -389,14 +454,15 @@ export function ImageCropper({
             gridConfig={gridConfig}
             hintText={t('fitModeStretchHint')}
             gridOverlayStyle={gridOverlayStyle}
+            rotation={imageRotation}
           />
         ) : (
           <Cropper
-            key={fitMode}
+            key={`${fitMode}-${imageRotation}`}
             image={imageSrc}
             crop={crop}
             zoom={zoom}
-            rotation={0}
+            rotation={imageRotation}
             aspect={gridConfig.aspect}
             objectFit={objectFit}
             onCropChange={setCrop}
@@ -622,11 +688,13 @@ function StretchPreview({
   gridConfig,
   hintText,
   gridOverlayStyle,
+  rotation,
 }: {
   imageSrc: string;
   gridConfig: GridConfig;
   hintText: string;
   gridOverlayStyle: React.CSSProperties;
+  rotation: ImageRotation;
 }) {
   // Calculate the crop area dimensions to match the grid aspect ratio
   // inside the 1:1 container
@@ -646,6 +714,16 @@ function StretchPreview({
 
   const offsetX = (containerSize - displayWidth) / 2;
   const offsetY = (containerSize - displayHeight) / 2;
+
+  // For a 90/270 turn the image is rotated inside the non-square display
+  // box. To keep it filling the box after rotation, swap the <img>'s own
+  // width/height (in % of the box) before rotating: a pre-rotation box of
+  // (displayHeight × displayWidth) becomes (displayWidth × displayHeight)
+  // once turned a quarter. 0/180 leave it at 100% × 100%. This mirrors the
+  // server, which rotates the source then fill-resizes into the grid box.
+  const isQuarterTurn = rotation === 90 || rotation === 270;
+  const imgWidthPct = isQuarterTurn ? (displayHeight / displayWidth) * 100 : 100;
+  const imgHeightPct = isQuarterTurn ? (displayWidth / displayHeight) * 100 : 100;
 
   return (
     <div className="absolute inset-0 flex items-center justify-center" style={{ borderRadius: '0.75rem' }}>
@@ -669,8 +747,14 @@ function StretchPreview({
         <img
           src={imageSrc}
           alt=""
-          className="h-full w-full"
-          style={{ objectFit: 'fill' }}
+          className="absolute left-1/2 top-1/2"
+          style={{
+            width: `${imgWidthPct}%`,
+            height: `${imgHeightPct}%`,
+            objectFit: 'fill',
+            transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+            transformOrigin: 'center',
+          }}
           draggable={false}
         />
       </div>

@@ -45,8 +45,9 @@ import type {
   TonosRotation,
   TonosSlotConfig,
   TonosSlotConfigs,
+  ImageRotation,
 } from '@/lib/customization-types';
-export type { TonosFitMode, TonosRotation, TonosSlotConfigs };
+export type { TonosFitMode, TonosRotation, TonosSlotConfigs, ImageRotation };
 export type TonosSlot = TonosSlotConfig;
 
 /**
@@ -129,6 +130,15 @@ export interface BuilderFlowState {
   liveCropArea: CropArea | null;
   handleCropComplete: (croppedArea: CropArea, croppedAreaPixels: CropArea) => void;
   handleCropChange: (croppedAreaPixels: CropArea) => void;
+  /**
+   * UAT-6 PR5 — single-photo 90° rotation. Cycles 0→90→180→270→0 and
+   * clears the stale crop areas so the cropper re-emits against the
+   * rotated photo. Distinct from `layoutRotated`, which rotates the
+   * mosaic grid rather than the photo (client feedback was explicit:
+   * "rotate the PHOTO, not the mosaic itself").
+   */
+  imageRotation: ImageRotation;
+  toggleImageRotation: () => void;
 
   // Multi-photo (Tonos + STD-3): shared image/crop state
   multiPhoto: MultiPhotoState;
@@ -243,6 +253,8 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   // ─── Single crop ───
   const [cropAreaPixels, setCropAreaPixels] = useState<CropArea | null>(null);
   const [liveCropArea, setLiveCropArea] = useState<CropArea | null>(null);
+  // UAT-6 PR5 — single-photo 90° rotation (0/90/180/270).
+  const [imageRotation, setImageRotation] = useState<ImageRotation>(0);
 
   // ─── Tonos multi-image ───
   const multiPhotoFileRefs = useRef<[File | null, File | null, File | null]>([null, null, null]);
@@ -364,6 +376,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setImageSrc(null);
     setCropAreaPixels(null);
     setLiveCropArea(null);
+    setImageRotation(0);
   }, [imageSrc]);
 
   const clearTonos = useCallback(() => {
@@ -410,6 +423,7 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   const handleGridSelect = useCallback((grid: GridSize) => {
     setSelectedGrid(grid);
     setLayoutRotated(false);
+    setImageRotation(0);
     setTimeout(() => {
       setDirection(1);
       setCurrentStepId('upload');
@@ -647,6 +661,18 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     setLayoutRotated((prev) => !prev);
   }, []);
 
+  // ─── Single-photo rotation (UAT-6 PR5) ───
+  // Rotates the PHOTO itself in 90° steps — the literal client request
+  // ("rotate the picture, not the mosaic"). Mirrors `toggleTonosRotation`:
+  // advance the angle, then clear the stale crop areas so react-easy-crop
+  // re-emits `cropAreaPixels` in the new rotated bounds. Kept separate
+  // from `handleLayoutRotate`, which rotates the mosaic grid.
+  const toggleImageRotation = useCallback(() => {
+    setImageRotation((prev) => nextRotation(prev));
+    setCropAreaPixels(null);
+    setLiveCropArea(null);
+  }, []);
+
   // ─── Customization handlers ───
   const setCustomizationValue = useCallback((field: string, value: string) => {
     setCustomizationValues((prev) => ({ ...prev, [field]: value }));
@@ -704,6 +730,8 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     liveCropArea,
     handleCropComplete,
     handleCropChange,
+    imageRotation,
+    toggleImageRotation,
 
     multiPhoto,
     handleMultiPhotoImageSelected,

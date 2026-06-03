@@ -24,6 +24,7 @@ import { describe, test, expect } from 'vitest';
 import {
   extractCustomizedLineItems,
   whitelistTonosRotations,
+  whitelistImageRotation,
   safeJsonParse,
   type ShopifyOrderWebhook,
 } from '@/lib/shopify/webhook-parser';
@@ -293,6 +294,42 @@ describe('whitelistTonosRotations', () => {
         { rotation: 270 },
       ]),
     ).toBeUndefined();
+  });
+});
+
+// ─── UAT-6 PR5: single-photo rotation whitelist ─────────────────────────────
+describe('whitelistImageRotation', () => {
+  test('accepts the four quarter-turns as numbers', () => {
+    expect(whitelistImageRotation(0)).toBe(0);
+    expect(whitelistImageRotation(90)).toBe(90);
+    expect(whitelistImageRotation(180)).toBe(180);
+    expect(whitelistImageRotation(270)).toBe(270);
+  });
+
+  test('coerces the four quarter-turns from their string form', () => {
+    // The `_image_rotation` cart attribute is always a string.
+    expect(whitelistImageRotation('0')).toBe(0);
+    expect(whitelistImageRotation('90')).toBe(90);
+    expect(whitelistImageRotation('180')).toBe(180);
+    expect(whitelistImageRotation('270')).toBe(270);
+  });
+
+  test('non-quarter-turn angles snap to 0', () => {
+    expect(whitelistImageRotation(45)).toBe(0);
+    expect(whitelistImageRotation(359)).toBe(0);
+    expect(whitelistImageRotation(-90)).toBe(0);
+    expect(whitelistImageRotation('45')).toBe(0);
+    expect(whitelistImageRotation(360)).toBe(0);
+  });
+
+  test('missing / malformed input snaps to 0 (pre-PR5 + tampered orders)', () => {
+    expect(whitelistImageRotation(undefined)).toBe(0);
+    expect(whitelistImageRotation(null)).toBe(0);
+    expect(whitelistImageRotation('')).toBe(0);
+    expect(whitelistImageRotation('ninety')).toBe(0);
+    expect(whitelistImageRotation(NaN)).toBe(0);
+    expect(whitelistImageRotation({})).toBe(0);
+    expect(whitelistImageRotation([90])).toBe(0);
   });
 });
 

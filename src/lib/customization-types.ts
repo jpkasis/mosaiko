@@ -31,7 +31,15 @@ export type TonosToneColumn = 'warm' | 'none' | 'cool';
 export type TonosFitMode = 'fill' | 'fit' | 'stretch';
 
 /** The four quarter-turns supported by the print pipeline. */
-export type TonosRotation = 0 | 90 | 180 | 270;
+export type ImageRotation = 0 | 90 | 180 | 270;
+
+/** @deprecated alias kept for Tonos consumers; use {@link ImageRotation}. */
+export type TonosRotation = ImageRotation;
+
+/** Runtime guard: coerce an unknown value to a valid quarter-turn (else 0). */
+export function toImageRotation(v: unknown): ImageRotation {
+  return v === 90 || v === 180 || v === 270 ? v : 0;
+}
 
 /** Per-slot (one of three) fit + rotation user controls in the cropper. */
 export interface TonosSlotConfig {
@@ -56,6 +64,13 @@ export type TonosSlotConfigs = [
 
 // ─── Per-category customization data (discriminated union) ──────────────────
 
+/**
+ * UAT-6 PR5: 90° rotation of the uploaded PHOTO (distinct from
+ * `layoutRotated`, which rotates the mosaic grid). Applied server-side in
+ * `cropAndResize` BEFORE the crop; the cropper emits the crop area in
+ * rotated bounds. Optional + defaults to 0 — pre-PR5 cart items print
+ * unchanged.
+ */
 export interface MosaicosCustomization {
   categoryType: 'mosaicos';
   gridSize: 3 | 6 | 9;
@@ -66,6 +81,7 @@ export interface MosaicosCustomization {
    * cropping + splitting. Rotation is a no-op on gridSize 9 (square).
    */
   layoutRotated?: boolean;
+  imageRotation?: ImageRotation;
 }
 
 export interface SpotifyCustomization {
@@ -73,6 +89,7 @@ export interface SpotifyCustomization {
   gridSize: 6;
   songName: string;
   artistName: string;
+  imageRotation?: ImageRotation;
 }
 
 export interface TonosCustomization {
@@ -128,6 +145,9 @@ export interface SaveTheDateCustomization {
    * on STD-9 (square).
    */
   layoutRotated?: boolean;
+  /** UAT-6 PR5: photo rotation for STD-9/STD-6 single-photo grids. STD-3
+   *  is multi-photo and does not use this (rotation stays hidden there). */
+  imageRotation?: ImageRotation;
 }
 
 export const STD_DEFAULTS = {
@@ -198,6 +218,7 @@ export interface ArteCustomization {
   title: string;
   artist: string;
   year: string;
+  imageRotation?: ImageRotation;
 }
 
 export interface StudioCustomization {
@@ -207,11 +228,13 @@ export interface StudioCustomization {
   japaneseText: string;
   customText: string;
   studioText: string;
+  imageRotation?: ImageRotation;
 }
 
 export interface PolaroidCustomization {
   categoryType: 'polaroid';
   gridSize: 4;
+  imageRotation?: ImageRotation;
 }
 
 export type CategoryCustomization =

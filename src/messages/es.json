@@ -197,7 +197,8 @@
     "uploadErrorSize": "Imagen muy grande ({size}). Máximo 20 MB.",
     "uploadErrorRead": "No pudimos leer esta imagen. Prueba con otra.",
     "replacePhoto": "Cambiar foto",
-    "cropReset": "Restablecer"
+    "cropReset": "Restablecer",
+    "rotatePhoto": "Girar foto"
   },
   "cart": {
     "title": "Tu carrito",

@@ -35,20 +35,20 @@ export async function processTonos(job: TonosPrintJob): Promise<TileOutput[]> {
   const { customization, imageBuffers, cropAreas, rotations, fitModes } = job;
   const tileDescriptors = getTileLayout(customization);
 
-  // Apply rotation per image (if any), then crop each source to TILE_PRINT_SIZE
-  // honouring the per-slot fitMode. Default to `'fill'` for backward
+  // Crop each source to TILE_PRINT_SIZE honouring the per-slot rotation +
+  // fitMode. UAT-6 PR5: rotation is now applied INSIDE cropAndResize
+  // (`{ rotation }`) — byte-identical to the old inline
+  // `sharp(buf).rotate(deg)` path, just centralized so single-photo
+  // categories share it. Default fitMode `'fill'` for backward
   // compatibility with pre-fitMode webhook payloads.
   const croppedPerSource = await Promise.all(
-    imageBuffers.map(async (buf, i) => {
-      const deg = rotations?.[i] ?? 0;
-      const source = deg === 0
-        ? buf
-        : await sharp(buf).rotate(deg).png().toBuffer();
-      return cropAndResize(source, cropAreas[i], TILE_PRINT_SIZE, TILE_PRINT_SIZE, {
+    imageBuffers.map(async (buf, i) =>
+      cropAndResize(buf, cropAreas[i], TILE_PRINT_SIZE, TILE_PRINT_SIZE, {
+        rotation: rotations?.[i] ?? 0,
         fitMode: fitModes?.[i] ?? 'fill',
         background: TONOS_LETTERBOX_BG,
-      });
-    }),
+      }),
+    ),
   );
 
   const lastIndex = tileDescriptors.length - 1;

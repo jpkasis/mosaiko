@@ -5,6 +5,7 @@ import type {
   CategoryType,
   TonosIntensity,
   TonosSlotConfigs,
+  ImageRotation,
 } from './customization-types';
 
 export interface CartItem {
@@ -32,6 +33,9 @@ export interface CartItem {
     // Single-image categories
     photoStorageUrl?: string;
     cropArea?: { x: number; y: number; width: number; height: number };
+    /** UAT-6 PR5: 90° photo rotation (0|90|180|270) for single-image
+     *  categories. Applied server-side before the crop. Default 0. */
+    imageRotation?: ImageRotation;
     // Tonos (multi-image)
     photoStorageUrls?: [string, string, string];
     cropAreas?: [

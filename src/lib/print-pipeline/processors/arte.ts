@@ -28,6 +28,7 @@ export async function processArte(job: SingleImagePrintJob): Promise<TileOutput[
     job.cropArea,
     4 * TILE,
     2 * TILE,
+    { rotation: job.imageRotation ?? 0 },
   );
 
   const allTiles = await splitIntoTiles(croppedBuffer, 2, 4);

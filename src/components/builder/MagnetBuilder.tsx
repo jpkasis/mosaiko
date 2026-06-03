@@ -11,6 +11,7 @@ import {
   type CategoryType,
   type TonosIntensity,
   type TonosSlotConfigs,
+  type ImageRotation,
 } from '@/lib/customization-types';
 import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
 import { deriveCropperOverlay, isMultiPhotoInput } from '@/lib/category-layouts/derive';
@@ -397,16 +398,20 @@ export function MagnetBuilder() {
         categoryType: flow.selectedCategory,
         gridSize: flow.gridConfig.size,
         layoutRotated: flow.layoutRotated,
+        imageRotation: flow.imageRotation,
         textFields:
           Object.keys(flow.customizationValues).length > 0
             ? flow.customizationValues
             : undefined,
       });
 
+      // UAT-6 PR5: forward the photo rotation at the top level of the
+      // cart-composite request — the route whitelists it onto the
+      // SingleImagePrintJob so the live thumbnail matches the print.
       const composite = await requestCartComposite(
         uploaded.kind === 'url'
-          ? { photoUrl: uploaded.url, cropArea: flow.cropAreaPixels, customization }
-          : { photoData: uploaded.data, cropArea: flow.cropAreaPixels, customization },
+          ? { photoUrl: uploaded.url, cropArea: flow.cropAreaPixels, customization, imageRotation: flow.imageRotation }
+          : { photoData: uploaded.data, cropArea: flow.cropAreaPixels, customization, imageRotation: flow.imageRotation },
       );
 
       addItem({
@@ -427,6 +432,7 @@ export function MagnetBuilder() {
           photoStorageUrl,
           cropArea: flow.cropAreaPixels,
           layoutRotated: flow.layoutRotated,
+          imageRotation: flow.imageRotation,
           compositeJobId: composite.jobId,
           compositeKey: composite.compositeKey,
           compositeUrl: composite.compositeUrl,
@@ -794,6 +800,8 @@ export function MagnetBuilder() {
                     onLayoutRotate={flow.handleLayoutRotate}
                     canRotateLayout={flow.canRotateLayout}
                     layoutRotated={flow.layoutRotated}
+                    imageRotation={flow.imageRotation}
+                    onToggleImageRotation={flow.toggleImageRotation}
                     onReplacePhoto={flow.handleReplaceSingleImage}
                     ctaLabel={cropCtaLabel}
                   />
@@ -878,6 +886,7 @@ export function MagnetBuilder() {
                       categoryType={flow.selectedCategory ?? undefined}
                       textFields={flow.customizationValues}
                       tonos={tonosForPreview}
+                      imageRotation={isTonos ? 0 : flow.imageRotation}
                     />
                   </div>
                 )}
@@ -897,6 +906,7 @@ export function MagnetBuilder() {
             selectedCategory={flow.selectedCategory}
             textFields={flow.customizationValues}
             tonos={tonosForSidebar}
+            imageRotation={flow.imageRotation}
           />
         </aside>
       </div>
@@ -1112,6 +1122,7 @@ function LivePreviewSidebar({
   selectedCategory,
   textFields,
   tonos,
+  imageRotation = 0,
 }: {
   currentStepId: StepId;
   selectedGrid: GridSize | null;
@@ -1121,6 +1132,7 @@ function LivePreviewSidebar({
   cropAreaPixels?: CropArea | null;
   selectedCategory: CategoryType | null;
   textFields?: Record<string, string>;
+  imageRotation?: ImageRotation;
   tonos?: {
     imageSrcs: [string | null, string | null, string | null];
     cropAreas: [CropArea | null, CropArea | null, CropArea | null];
@@ -1228,6 +1240,7 @@ function LivePreviewSidebar({
                 gridConfig={gridConfig}
                 categoryType={selectedCategory ?? undefined}
                 textFields={textFields}
+                imageRotation={imageRotation}
               />
             </motion.div>
           )}

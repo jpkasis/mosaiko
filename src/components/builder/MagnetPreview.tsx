@@ -18,6 +18,7 @@ import {
   type STDSize,
   type STDTextTreatment,
   type STDTextIntensity,
+  type ImageRotation,
 } from '@/lib/customization-types';
 import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
 import { deriveClientInset, isMultiPhotoInput } from '@/lib/category-layouts/derive';
@@ -60,6 +61,13 @@ interface MagnetPreviewProps {
   textFields?: Record<string, string>;
   /** Tonos-only: 3 image sources + 3 crop areas + intensity. */
   tonos?: TonosInputs;
+  /**
+   * UAT-6 PR5 — single-photo 90° rotation (0/90/180/270). Forwarded into
+   * the canvas helpers (which rotate-then-crop, mirroring the server's
+   * `cropAndResize`) so the live tile preview matches the printed output.
+   * Ignored for Tonos (its rotation is per-slot via `tonos.rotations`).
+   */
+  imageRotation?: ImageRotation;
   /** Compact mode: render only the tile grid. Used in sidebar preview. */
   compact?: boolean;
 }
@@ -74,6 +82,7 @@ export function MagnetPreview({
   categoryType = 'mosaicos',
   textFields = EMPTY_TEXT_FIELDS,
   tonos,
+  imageRotation = 0,
   compact = false,
 }: MagnetPreviewProps) {
   const t = useTranslations('builder');
@@ -192,7 +201,7 @@ export function MagnetPreview({
         // Polaroid: weighted vertical split proportional to transparent areas.
         if (categoryType === 'polaroid') {
           const tileSize = 200;
-          const fullCanvas = getCroppedCanvas(image, cropArea, tileSize * 2, tileSize * 2, 0);
+          const fullCanvas = getCroppedCanvas(image, cropArea, tileSize * 2, tileSize * 2, imageRotation);
           const vSplit = 0.5596;
           const topH = Math.round(tileSize * 2 * vSplit);
           const botH = tileSize * 2 - topH;
@@ -231,7 +240,7 @@ export function MagnetPreview({
         // row is 612/1152. Mirror the server processor's offset math.
         if (categoryType === 'spotify') {
           const tileSize = 200;
-          const fullCanvas = getCroppedCanvas(image, cropArea, tileSize * 2, tileSize * 2, 0);
+          const fullCanvas = getCroppedCanvas(image, cropArea, tileSize * 2, tileSize * 2, imageRotation);
           const hSplit = 555 / 1109;
           const vSplit = 540 / 1152;
           const leftW  = Math.round(tileSize * 2 * hSplit);
@@ -269,7 +278,7 @@ export function MagnetPreview({
         if (categoryType === 'studio') {
           const BUF_W = 1055;
           const BUF_H = 1204;
-          const fullCanvas = getCroppedCanvas(image, cropArea, BUF_W, BUF_H, 0);
+          const fullCanvas = getCroppedCanvas(image, cropArea, BUF_W, BUF_H, imageRotation);
           const regions = [
             { sx: 0,   sy: 0,    sw: 528, sh: 526 }, // tile 1: top-left photo
             { sx: 528, sy: 0,    sw: 527, sh: 526 }, // tile 2: top-right photo
@@ -310,7 +319,7 @@ export function MagnetPreview({
           cols: photoCols,
         };
 
-        const tileDataUrls = splitImageIntoTiles(image, cropArea, splitConfig, 0);
+        const tileDataUrls = splitImageIntoTiles(image, cropArea, splitConfig, imageRotation);
         if (cancelled) return;
 
         setTiles(tileDataUrls);
@@ -335,6 +344,7 @@ export function MagnetPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     imageSrc, cropArea, gridConfig, categoryType, photoTileCount, tileLayout,
+    imageRotation,
     tonos?.imageSrcs[0], tonos?.imageSrcs[1], tonos?.imageSrcs[2],
     tonos?.cropAreas[0], tonos?.cropAreas[1], tonos?.cropAreas[2],
     tonos?.rotations?.[0], tonos?.rotations?.[1], tonos?.rotations?.[2],

@@ -39,6 +39,7 @@ import {
   assembleTilesToComposite,
   getCompositeLayout,
 } from '@/lib/print-pipeline';
+import { cropAndResize } from '@/lib/print-pipeline/utils/tile-splitter';
 
 // ─── Fixture: a valid, decodable input image ────────────────────────────────
 
@@ -471,6 +472,159 @@ describe('processor contract — tonos (multi-image)', () => {
     const result = await processPrintJob(job);
     await assertTileContract(result.tiles, { count: 9, jobId: job.jobId });
   }, 45_000);
+});
+
+// ─── Single-photo imageRotation (UAT-6 PR5) ─────────────────────────────────
+
+describe('processor contract — single-photo imageRotation (UAT-6 PR5)', () => {
+  /**
+   * Asymmetric source so a quarter-turn genuinely relocates pixels — a
+   * solid fill is rotation-invariant and would let a no-op "rotation"
+   * pass. Black top band + white left band: rotating 90° moves the white
+   * band to the top, so at least one tile's bytes must change.
+   */
+  let ROT_SOURCE: Buffer;
+  const ROT_CROP = { x: 0, y: 0, width: 1200, height: 1200 };
+
+  beforeAll(async () => {
+    ROT_SOURCE = await sharp({
+      create: {
+        width: 1200,
+        height: 1200,
+        channels: 3,
+        background: { r: 210, g: 70, b: 100 },
+      },
+    })
+      .composite([
+        {
+          input: Buffer.from(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200">
+              <rect x="0" y="0" width="1200" height="240" fill="black"/>
+              <rect x="0" y="0" width="240" height="1200" fill="white"/>
+            </svg>`,
+          ),
+          top: 0,
+          left: 0,
+        },
+      ])
+      .jpeg({ quality: 90 })
+      .toBuffer();
+  }, 15_000);
+
+  test('mosaicos: imageRotation=90 relocates pixels vs the unrotated job', async () => {
+    const base = await processPrintJob({
+      imageBuffer: ROT_SOURCE,
+      customization: { categoryType: 'mosaicos', gridSize: 9 },
+      cropArea: ROT_CROP,
+      jobId: 'pr5-m9-rot0',
+    });
+    const rotated = await processPrintJob({
+      imageBuffer: ROT_SOURCE,
+      customization: { categoryType: 'mosaicos', gridSize: 9 },
+      cropArea: ROT_CROP,
+      imageRotation: 90,
+      jobId: 'pr5-m9-rot90',
+    });
+
+    await assertTileContract(rotated.tiles, { count: 9, jobId: 'pr5-m9-rot90' });
+
+    const anyTileDiffers = rotated.tiles.some((rt) => {
+      const match = base.tiles.find((bt) => bt.index === rt.index);
+      return !match || !rt.buffer.equals(match.buffer);
+    });
+    expect(anyTileDiffers).toBe(true);
+  }, 60_000);
+
+  test('imageRotation=0 is byte-identical to omitting the field (pre-PR5 carts unchanged)', async () => {
+    const omitted = await processPrintJob({
+      imageBuffer: ROT_SOURCE,
+      customization: { categoryType: 'mosaicos', gridSize: 9 },
+      cropArea: ROT_CROP,
+      jobId: 'pr5-zero',
+    });
+    const zero = await processPrintJob({
+      imageBuffer: ROT_SOURCE,
+      customization: { categoryType: 'mosaicos', gridSize: 9 },
+      cropArea: ROT_CROP,
+      imageRotation: 0,
+      jobId: 'pr5-zero',
+    });
+
+    expect(zero.tiles).toHaveLength(omitted.tiles.length);
+    for (const zt of zero.tiles) {
+      const match = omitted.tiles.find((ot) => ot.index === zt.index);
+      expect(match).toBeDefined();
+      expect(zt.buffer.equals(match!.buffer)).toBe(true);
+    }
+  }, 60_000);
+});
+
+// ─── cropAndResize rotation: Tonos byte-identical regression guard ──────────
+
+describe('cropAndResize — centralized rotation byte-identical to legacy inline path', () => {
+  /**
+   * PR5 moved Tonos's inline `sharp(buf).rotate(deg)` into a `rotation`
+   * option on `cropAndResize`. This pins that the refactor is a pure
+   * relocation: the option must produce the SAME bytes as pre-rotating
+   * the source and cropping without it — for every quarter-turn. If this
+   * ever diverges, Tonos output silently changes for existing orders.
+   */
+  test('rotation option == pre-rotate-then-crop for deg ∈ {90,180,270}', async () => {
+    const src = await sharp({
+      create: { width: 600, height: 400, channels: 3, background: { r: 10, g: 180, b: 90 } },
+    })
+      .composite([
+        {
+          input: Buffer.from(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400">
+              <rect x="0" y="0" width="600" height="80" fill="black"/>
+              <rect x="0" y="0" width="80" height="400" fill="white"/>
+            </svg>`,
+          ),
+          top: 0,
+          left: 0,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+    for (const deg of [90, 180, 270] as const) {
+      // The cropArea is expressed in ROTATED bounds (the cropper swaps
+      // W/H on quarter turns), matching the live contract.
+      const isQuarter = deg === 90 || deg === 270;
+      const crop = {
+        x: 0,
+        y: 0,
+        width: isQuarter ? 400 : 600,
+        height: isQuarter ? 600 : 400,
+      };
+
+      // New: rotation handled inside cropAndResize.
+      const centralized = await cropAndResize(src, crop, 827, 827, {
+        rotation: deg,
+        fitMode: 'fill',
+      });
+
+      // Legacy: rotate the source first (what processTonos did inline),
+      // then cropAndResize without the rotation option.
+      const pre = await sharp(src).rotate(deg).png().toBuffer();
+      const legacy = await cropAndResize(pre, crop, 827, 827, { fitMode: 'fill' });
+
+      expect(centralized.equals(legacy)).toBe(true);
+    }
+  }, 30_000);
+
+  test('rotation=0 is byte-identical to no rotation option', async () => {
+    const src = await sharp({
+      create: { width: 500, height: 500, channels: 3, background: { r: 120, g: 30, b: 200 } },
+    })
+      .png()
+      .toBuffer();
+    const crop = { x: 0, y: 0, width: 500, height: 500 };
+    const withZero = await cropAndResize(src, crop, 827, 827, { rotation: 0, fitMode: 'fill' });
+    const without = await cropAndResize(src, crop, 827, 827, { fitMode: 'fill' });
+    expect(withZero.equals(without)).toBe(true);
+  }, 20_000);
 });
 
 // ─── Tonos fitMode end-to-end (FIXED, was MAJOR) ────────────────────────────

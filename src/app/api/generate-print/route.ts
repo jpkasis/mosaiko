@@ -10,7 +10,7 @@ import { CATEGORY_REGISTRY } from '@/lib/customization-types';
 import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
 import { isMultiPhotoInput } from '@/lib/category-layouts/derive';
 import type { GridSize } from '@/lib/grid-config';
-import { whitelistTonosFitModes } from '@/lib/shopify/webhook-parser';
+import { whitelistTonosFitModes, whitelistImageRotation } from '@/lib/shopify/webhook-parser';
 import type {
   ProcessorResult,
   PrintJob,
@@ -34,6 +34,8 @@ interface SingleImageRequest {
   photoUrl: string;
   customization: Exclude<CategoryCustomization, TonosCustomization>;
   cropArea: CropArea;
+  /** UAT-6 PR5: single-photo 90° rotation. Untrusted — whitelisted server-side. */
+  imageRotation?: number;
   orderId?: string;
 }
 
@@ -369,6 +371,7 @@ export async function POST(request: NextRequest) {
         imageBuffer,
         customization: singleBody.customization,
         cropArea: singleBody.cropArea,
+        imageRotation: whitelistImageRotation(singleBody.imageRotation),
         jobId: orderId,
       };
       job = singleJob;

@@ -8,7 +8,7 @@ import type {
   TonosCustomization,
 } from '@/lib/customization-types';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
-import { whitelistTonosFitModes } from '@/lib/shopify/webhook-parser';
+import { whitelistTonosFitModes, whitelistImageRotation } from '@/lib/shopify/webhook-parser';
 import { PIPELINE_VERSION } from '@/lib/print-pipeline/version';
 import type {
   PrintJob,
@@ -35,6 +35,8 @@ interface SingleImageRequest {
   photoData?: string;
   customization: Exclude<CategoryCustomization, TonosCustomization>;
   cropArea: CropArea;
+  /** UAT-6 PR5: single-photo 90° rotation. Untrusted — whitelisted server-side. */
+  imageRotation?: number;
 }
 
 interface TonosRequest {
@@ -405,6 +407,7 @@ export async function POST(request: NextRequest) {
         imageBuffer,
         customization: singleBody.customization,
         cropArea: singleBody.cropArea,
+        imageRotation: whitelistImageRotation(singleBody.imageRotation),
         jobId,
       };
       job = singleJob;

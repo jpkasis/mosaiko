@@ -15,8 +15,14 @@ export interface SingleImagePrintJob {
   imageBuffer: Buffer;
   /** Customization config (excludes tonos) */
   customization: Exclude<CategoryCustomization, TonosCustomization>;
-  /** Crop area selected by the user */
+  /** Crop area selected by the user (in rotated bounds when imageRotation is 90/270) */
   cropArea: CropArea;
+  /**
+   * UAT-6 PR5: 90° photo rotation (0 | 90 | 180 | 270). Applied inside
+   * `cropAndResize` BEFORE the crop. Optional; defaults to 0 so pre-PR5
+   * jobs print unchanged.
+   */
+  imageRotation?: number;
   /** Unique order/job identifier for filename generation */
   jobId: string;
 }

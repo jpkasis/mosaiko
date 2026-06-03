@@ -30,6 +30,7 @@ export async function processMosaicos(job: SingleImagePrintJob): Promise<TileOut
     job.cropArea,
     cols * 827,
     rows * 827,
+    { rotation: job.imageRotation ?? 0 },
   );
 
   // Step 2: Split the cropped image into 827x827 tiles

@@ -156,6 +156,15 @@ export function buildCartLines(
             value: JSON.stringify(item.customizations.cropArea),
           });
         }
+        // UAT-6 PR5: single-photo 90° rotation. Emit only when nonzero —
+        // absence === 0 keeps pre-PR5 carts/orders printing unchanged. The
+        // webhook re-validates via `whitelistImageRotation` (0/90/180/270).
+        if (item.customizations.imageRotation) {
+          attributes.push({
+            key: '_image_rotation',
+            value: String(item.customizations.imageRotation),
+          });
+        }
       }
 
       // Composite-reuse forwarding (Phase 3.1). Only include when the

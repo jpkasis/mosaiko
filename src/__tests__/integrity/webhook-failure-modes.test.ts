@@ -1214,3 +1214,51 @@ describe('Phase 3.1 — composite-reuse bypass', () => {
     expect(processPrintJobSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+// ─── UAT-6 PR5: single-photo rotation through the webhook ───────────────────
+describe('UAT-6 PR5 — single-photo imageRotation', () => {
+  const singlePhotoLine = (rotationAttr?: string) => ({
+    lineItemId: 7,
+    title: 'Mosaicos 9 — rotated',
+    quantity: 1,
+    attrs: {
+      _customization: JSON.stringify({ categoryType: 'mosaicos', gridSize: 9 }),
+      _photo_url:
+        'https://cdn.shopify.com/s/files/1/0984/4562/3587/files/mosaiko-uploads--rot.jpg',
+      _crop_area: JSON.stringify({ x: 0, y: 0, width: 1, height: 1 }),
+      ...(rotationAttr !== undefined ? { _image_rotation: rotationAttr } : {}),
+    },
+  });
+
+  async function capture(rotationAttr?: string): Promise<number | undefined> {
+    const { processLineItem } = await import('@/lib/shopify/webhook-processor');
+    let captured: { imageRotation?: number } | null = null;
+    const result = await processLineItem(1, singlePhotoLine(rotationAttr), {
+      fetchPhoto: async () => Buffer.from('ok'),
+      uploadPrintTiles: async () => [
+        { key: 'k0', publicUrl: 'https://r2.mosaiko.mx/k0' },
+      ],
+      processPrintJob: async (job) => {
+        captured = job as { imageRotation?: number };
+        return {
+          tiles: [{ index: 0, buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]), filename: 'a' }],
+        };
+      },
+    });
+    expect(result.kind).toBe('ok');
+    expect(captured).not.toBeNull();
+    return (captured as unknown as { imageRotation?: number }).imageRotation;
+  }
+
+  test('_image_rotation = "90" → SingleImagePrintJob.imageRotation === 90', async () => {
+    expect(await capture('90')).toBe(90);
+  });
+
+  test('missing _image_rotation → imageRotation defaults to 0 (pre-PR5 orders)', async () => {
+    expect(await capture(undefined)).toBe(0);
+  });
+
+  test('tampered _image_rotation = "45" → snaps to 0 (server re-validates)', async () => {
+    expect(await capture('45')).toBe(0);
+  });
+});

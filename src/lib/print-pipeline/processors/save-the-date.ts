@@ -77,6 +77,7 @@ export async function processSaveTheDate(
       job.cropArea,
       compositeW,
       compositeH,
+      { rotation: job.imageRotation ?? 0 },
     );
   }
 
