@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createCart } from '@/lib/shopify/mutations/cart';
-import { buildCartLines, assertCartTotalMatchesDisplay } from '@/lib/shopify/checkout';
+import {
+  buildCartLines,
+  assertCartTotalMatchesDisplay,
+  assertCartSubtotalMeetsMinimum,
+} from '@/lib/shopify/checkout';
 import {
   CART_COOKIE,
   CART_COOKIE_OPTIONS,
@@ -113,6 +117,20 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: gate.message, code: gate.code, total: gate.total },
         { status: gate.status },
+      );
+    }
+
+    // PR-C: a lone single-tile order can't reach checkout (minimum order).
+    const minBlock = await assertCartSubtotalMeetsMinimum(cart.cost.subtotalAmount);
+    if (minBlock) {
+      return NextResponse.json(
+        {
+          error: minBlock.message,
+          code: minBlock.code,
+          minimum: minBlock.minimum,
+          total: minBlock.total,
+        },
+        { status: minBlock.status },
       );
     }
 

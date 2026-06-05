@@ -17,7 +17,7 @@
  */
 import type { CategoryType } from '../customization-types';
 import { CATEGORY_REGISTRY } from '../customization-types';
-import type { GridSize } from '../grid-config';
+import { GRID_CONFIGS, type GridSize } from '../grid-config';
 
 /** Handle of the v2 pricing product. Env-overridable for staging/tests. */
 export const PRICING_PRODUCT_HANDLE =
@@ -92,7 +92,9 @@ export const SEED_PRICE_MATRIX: Record<
   CategoryType,
   Partial<Record<GridSize, number>>
 > = {
-  mosaicos: { 3: 200, 6: 360, 9: 480 },
+  // PR-C: 1 (single tile) is DERIVED — GRID_CONFIGS[1].price = ⌈200/3⌉ = 67.
+  // The live value is kept in sync in Shopify by the admin save (derive-on-save).
+  mosaicos: { 1: GRID_CONFIGS[1].price, 3: 200, 6: 360, 9: 480 },
   studio: { 6: 480 },
   arte: { 9: 480 },
   'save-the-date': { 3: 200, 6: 360, 9: 480 },

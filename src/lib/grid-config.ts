@@ -1,6 +1,6 @@
 import { CATEGORY_LAYOUTS } from './category-layouts';
 
-export type GridSize = 3 | 4 | 6 | 9;
+export type GridSize = 1 | 3 | 4 | 6 | 9;
 
 export interface GridConfig {
   size: GridSize;
@@ -11,7 +11,27 @@ export interface GridConfig {
   label: string; // i18n key suffix
 }
 
+/**
+ * PR-C — the single-tile (1 pieza) price is DERIVED from the Mosaicos 3-piece
+ * price: ⌈price₃ ÷ 3⌉ to whole pesos. This is the ONE place the formula lives;
+ * the admin price editor uses it to keep the Shopify `mosaicos:1` variant in
+ * sync whenever the 3-piece price changes, and the seed below uses it too.
+ */
+export function singleTilePriceFrom(threePiecePrice: number): number {
+  return Math.ceil(threePiecePrice / 3);
+}
+
 export const GRID_CONFIGS: Record<GridSize, GridConfig> = {
+  1: {
+    size: 1,
+    rows: 1,
+    cols: 1,
+    aspect: 1 / 1,
+    // Seed/fallback only — the live price comes from Shopify, derived from the
+    // editable 3-piece price (200) via singleTilePriceFrom → 67.
+    price: singleTilePriceFrom(200),
+    label: 'grid1',
+  },
   3: {
     size: 3,
     rows: 1,

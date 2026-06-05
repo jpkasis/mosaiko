@@ -39,10 +39,13 @@ vi.mock('@/lib/shopify/checkout', async (importOriginal) => {
 });
 
 // Loading the real checkout module above pulls in prices.ts, which imports
-// `server-only` (absent in this env). Mock prices so only the piece checkout.ts
-// imports (getPricingForCheckout) is present — buildCartLines is stubbed anyway.
+// `server-only` (absent in this env). Mock prices so the pieces checkout.ts
+// imports are present — buildCartLines is stubbed anyway.
+// getCheapestStandardPrice feeds the PR-C minimum-order gate (controllable).
+const mockCheapestStandard = vi.fn(async (): Promise<number | null> => 1);
 vi.mock('@/lib/shopify/prices', () => ({
   getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
+  getCheapestStandardPrice: () => mockCheapestStandard(),
 }));
 
 function makeRequest(body: unknown): Request {
@@ -59,6 +62,8 @@ beforeEach(() => {
   mockGet.mockReset();
   mockCreateCart.mockReset();
   mockBuildCartLines.mockReset();
+  mockCheapestStandard.mockReset();
+  mockCheapestStandard.mockResolvedValue(1); // minimum met by default
   vi.stubEnv('NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN', 'mosaiko.myshopify.com');
   vi.stubEnv('NEXT_PUBLIC_SHOPIFY_STOREFRONT_TOKEN', 'test-token');
   vi.stubEnv('NODE_ENV', 'test');
@@ -170,5 +175,28 @@ describe('POST /api/cart/save', () => {
     const body = await res.json();
     expect(body.code).toBe('CART_SUBTOTAL_UNAVAILABLE');
     expect(body.checkoutUrl).toBeUndefined();
+  });
+
+  test('PR-C: under minimum order → 422 MINIMUM_ORDER_NOT_MET, NO checkoutUrl', async () => {
+    mockCheapestStandard.mockResolvedValue(200);
+    mockBuildCartLines.mockReturnValue([
+      { merchandiseId: 'gid://shopify/ProductVariant/100', quantity: 1 },
+    ]);
+    mockCreateCart.mockResolvedValue({
+      id: 'gid://shopify/Cart/new',
+      checkoutUrl: 'https://shop.example/checkout/123',
+      cost: { subtotalAmount: { amount: '67', currencyCode: 'MXN' } }, // lone single tile
+    });
+
+    const items = [{ id: 'a', name: 'Item', price: 67, quantity: 1, type: 'custom' }];
+    const { POST } = await import('@/app/api/cart/save/route');
+    const res = await POST(makeRequest({ items, displayedTotal: 67 }));
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.code).toBe('MINIMUM_ORDER_NOT_MET');
+    expect(body.minimum).toBe(200);
+    expect(body.checkoutUrl).toBeUndefined();
+    // The cart was still persisted (cookie set) so adding more items works.
+    expect(mockSet).toHaveBeenCalledTimes(1);
   });
 });

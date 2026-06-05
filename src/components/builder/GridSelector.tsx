@@ -14,7 +14,8 @@ interface GridSelectorProps {
   category?: CategoryType | null;
 }
 
-const GRID_OPTIONS: GridSize[] = [3, 4, 6, 9];
+// PR-C: 1 (single tile) leads the ladder; categories filter via allowedSizes.
+const GRID_OPTIONS: GridSize[] = [1, 3, 4, 6, 9];
 
 /** Visual SVG icon for each grid layout — all tiles are square (like real magnets). */
 function GridIcon({ size, isSelected }: { size: GridSize; isSelected: boolean }) {
@@ -107,8 +108,13 @@ export function GridSelector({ onSelect, selected, allowedSizes, category }: Gri
         {options.map((size) => {
           const config = GRID_CONFIGS[size];
           const isSelected = selected === size;
-          const label = config.label as 'grid3' | 'grid4' | 'grid6' | 'grid9';
-          const descKey = `${label}Desc` as 'grid3Desc' | 'grid4Desc' | 'grid6Desc' | 'grid9Desc';
+          const label = config.label as 'grid1' | 'grid3' | 'grid4' | 'grid6' | 'grid9';
+          const descKey = `${label}Desc` as
+            | 'grid1Desc'
+            | 'grid3Desc'
+            | 'grid4Desc'
+            | 'grid6Desc'
+            | 'grid9Desc';
 
           return (
             <motion.button

@@ -15,6 +15,9 @@ interface PriceRow {
   gridSize: number;
   price: number;
   editable: boolean;
+  /** PR-C: single-tile row — auto-calculated (⅓ of the 3-piece), read-only. */
+  derived?: boolean;
+  derivedLabel?: string;
 }
 
 const inputClass =
@@ -134,9 +137,16 @@ export function PreciosContent() {
                   const key = `${r.category}:${r.gridSize}`;
                   return (
                     <div key={key} className="flex items-center justify-between gap-4">
-                      <label htmlFor={`price-${key}`} className="text-sm text-charcoal">
-                        {sizeLabel(r.gridSize)}
-                      </label>
+                      <div className="flex flex-col">
+                        <label htmlFor={`price-${key}`} className="text-sm text-charcoal">
+                          {sizeLabel(r.gridSize)}
+                        </label>
+                        {r.derived && r.derivedLabel && (
+                          <span className="text-xs text-warm-gray/80">
+                            {r.derivedLabel} (automático)
+                          </span>
+                        )}
+                      </div>
                       <div className="relative">
                         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-warm-gray">
                           $

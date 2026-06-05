@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createCheckout, assertCartTotalMatchesDisplay } from '@/lib/shopify/checkout';
+import {
+  createCheckout,
+  assertCartTotalMatchesDisplay,
+  assertCartSubtotalMeetsMinimum,
+} from '@/lib/shopify/checkout';
 import type { CartItem } from '@/lib/cart-store';
 
 // ─── POST /api/checkout ─────────────────────────────────────────────────────
@@ -61,6 +65,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: gate.message, code: gate.code, total: gate.total },
         { status: gate.status },
+      );
+    }
+
+    // PR-C: enforce the minimum order (a lone single tile can't check out).
+    const minBlock = await assertCartSubtotalMeetsMinimum(result.subtotal);
+    if (minBlock) {
+      return NextResponse.json(
+        {
+          error: minBlock.message,
+          code: minBlock.code,
+          minimum: minBlock.minimum,
+          total: minBlock.total,
+        },
+        { status: minBlock.status },
       );
     }
 

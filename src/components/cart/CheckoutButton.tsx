@@ -4,7 +4,11 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { useCartStore } from '@/lib/cart-store';
-import { usePriceMap, useRefreshPrices } from '@/components/pricing/PricesProvider';
+import {
+  usePriceMap,
+  useRefreshPrices,
+  cheapestStandardPrice,
+} from '@/components/pricing/PricesProvider';
 import { cartLiveTotal } from '@/lib/cart-pricing';
 import { formatPrice } from '@/lib/grid-config';
 
@@ -18,13 +22,22 @@ export function CheckoutButton() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // PR-C: a lone single-tile order can't reach checkout. Mirror the server's
+  // minimum-order gate so the button disables before the round trip; the
+  // routes enforce it authoritatively (422 MINIMUM_ORDER_NOT_MET).
+  const minimum = cheapestStandardPrice(priceMap);
+  const belowMinimum =
+    minimum != null &&
+    items.length > 0 &&
+    Math.round(total * 100) < Math.round(minimum * 100);
+
   // UAT-6 PR1: Shopify cart is the source of truth. We do NOT clear local
   // Zustand on redirect — if the user backs out from Shopify checkout, the
   // local cart should still be there. CartHydrator on the return trip will
   // reconcile against /api/cart/load, which detects a converted cart via
   // `cart(id:) === null` and clears local state at that point.
   async function handleCheckout() {
-    if (isLoading || items.length === 0) return;
+    if (isLoading || items.length === 0 || belowMinimum) return;
 
     setIsLoading(true);
     setCheckoutInProgress(true);
@@ -115,7 +128,7 @@ export function CheckoutButton() {
         whileTap={{ scale: 0.97 }}
         transition={{ type: 'spring', stiffness: 400, damping: 17 }}
         onClick={handleCheckout}
-        disabled={isLoading || items.length === 0}
+        disabled={isLoading || items.length === 0 || belowMinimum}
         className="flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-cta text-base font-bold font-serif text-[var(--cta-text)] transition-colors hover:bg-[var(--cta-hover)] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isLoading ? (
@@ -152,10 +165,18 @@ export function CheckoutButton() {
         )}
       </motion.button>
 
+      {/* PR-C: minimum-order notice — shown when a lone cheap (single-tile)
+          cart can't yet reach checkout. */}
+      {belowMinimum && minimum != null && (
+        <p className="mt-2 text-center text-sm text-terracotta">
+          Pedido mínimo: {formatPrice(minimum)}. Agrega más piezas para continuar.
+        </p>
+      )}
+
       {/* Processor attribution — tiny support line, only when there's
           something to check out. Codex's note: name the processor for
           trust, but don't let it crowd the CTA label. */}
-      {items.length > 0 && (
+      {items.length > 0 && !belowMinimum && (
         <p className="mt-2 text-center text-xs text-warm-gray/80">
           {t('processorAttribution')}
         </p>

@@ -89,6 +89,23 @@ export function categoryMinPrice(map: DisplayPriceMap, category: CategoryType): 
   return Number.isFinite(min) ? min : 0;
 }
 
+/**
+ * PR-C — cheapest STANDARD (non-single-tile, size > 1) price across all
+ * categories. Drives the client minimum-order gate; mirrors the server's
+ * `getCheapestStandardPrice`. Returns null when none is known.
+ */
+export function cheapestStandardPrice(map: DisplayPriceMap): number | null {
+  let min: number | null = null;
+  for (const sizes of Object.values(map)) {
+    if (!sizes) continue;
+    for (const [sizeStr, price] of Object.entries(sizes)) {
+      if (Number(sizeStr) <= 1) continue; // exclude the single tile
+      if (price != null && (min == null || price < min)) min = price;
+    }
+  }
+  return min;
+}
+
 /** Convenience single-value hook (not for loops). */
 export function usePrice(
   category: CategoryType | null | undefined,

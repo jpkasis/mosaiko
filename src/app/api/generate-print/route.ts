@@ -194,8 +194,8 @@ export async function POST(request: NextRequest) {
     const category = body.customization.categoryType;
     const rawGridSize = (body.customization as { gridSize?: unknown }).gridSize;
     const gridSize: GridSize | undefined = (
-      [3, 4, 6, 9] as const
-    ).includes(rawGridSize as 3 | 4 | 6 | 9)
+      [1, 3, 4, 6, 9] as const
+    ).includes(rawGridSize as 1 | 3 | 4 | 6 | 9)
       ? (rawGridSize as GridSize)
       : undefined;
     const isMultiPhotoJob =

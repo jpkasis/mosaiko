@@ -1,15 +1,20 @@
 /**
- * PR-B — one-time migration: create the v2 pricing product on the LIVE
- * Shopify store. One product ("Imanes Personalizados") with two options
- * (Categoría × Tamaño) and one variant per valid (category, size), each
- * priced from the per-category seed matrix. After this runs you must
- * one-click "Make available" on the Online Store sales channel in Shopify
- * admin — that publish is the cutover trigger (the storefront reads the
- * product by handle once it's published; until then it falls back to the
- * legacy size-based prices, so nothing breaks).
+ * PR-B/PR-C — migration for the v2 pricing product on the LIVE Shopify store.
+ * One product ("Imanes Personalizados") with two options (Categoría × Tamaño)
+ * and one variant per valid (category, size). After this runs you must one-click
+ * "Make available" on the Online Store sales channel in Shopify admin — that
+ * publish is the cutover trigger (the storefront reads the product by handle
+ * once it's published; until then it falls back to the legacy size-based
+ * prices, so nothing breaks).
  *
- * Idempotent: skips if `imanes-personalizados-v2` already exists. Leaves the
- * old size-only variants untouched (order history references them).
+ * Idempotent + UPSERT (PR-C): productSet is declarative and matches variants by
+ * their option-value pair, so re-running RECONCILES the product to the full set
+ * of `PRICING_COMBOS`. Existing variants keep their CURRENT live prices (read
+ * back first), and any newly-added combo — e.g. the single-tile `mosaicos:1`
+ * introduced in PR-C — is created. mosaicos:1 is priced from the LIVE 3-piece
+ * (singleTilePriceFrom) so it lands at ⅓ of whatever the client has set, not a
+ * stale seed. The old size-only variants live on a different product and are
+ * untouched (order history references them).
  *
  * Run: `npx tsx scripts/migrate-pricing.mts`
  */
@@ -21,8 +26,12 @@ import {
   SEED_PRICE_MATRIX,
   categoryOptionValue,
   sizeOptionValue,
+  categoryFromOptionValue,
+  sizeFromOptionValue,
 } from '../src/lib/shopify/pricing-options';
+import { singleTilePriceFrom } from '../src/lib/grid-config';
 import type { CategoryType } from '../src/lib/customization-types';
+import type { GridSize } from '../src/lib/grid-config';
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-04';
 
@@ -78,7 +87,20 @@ async function adminFetch<T>(query: string, variables: Record<string, unknown> =
 }
 
 const EXISTS_QUERY = /* GraphQL */ `
-  query Exists($q: String!) { products(first: 1, query: $q) { nodes { id handle } } }
+  query Exists($q: String!) {
+    products(first: 1, query: $q) {
+      nodes {
+        id
+        handle
+        variants(first: 100) {
+          nodes {
+            selectedOptions { name value }
+            price
+          }
+        }
+      }
+    }
+  }
 `;
 
 const PRODUCT_SET_MUTATION = /* GraphQL */ `
@@ -94,14 +116,59 @@ async function main(): Promise<void> {
   ADMIN_TOKEN = await getAdminToken();
   console.log(`\n── Pricing migration → ${STORE_DOMAIN} (API ${API_VERSION}) ──`);
 
-  // Idempotency: bail if the v2 product already exists.
-  const existing = await adminFetch<{ products: { nodes: { id: string; handle: string }[] } }>(
-    EXISTS_QUERY,
-    { q: `handle:${PRICING_PRODUCT_HANDLE}` },
-  );
-  if (existing.products.nodes.length > 0) {
-    console.log(`◇ Product '${PRICING_PRODUCT_HANDLE}' already exists (${existing.products.nodes[0].id}). Nothing to do.`);
-    return;
+  // Read the existing pricing product (if any). productSet is declarative and
+  // matches variants by option-value pair, so we reconcile to the full combo
+  // set while PRESERVING each existing variant's current live price (read back
+  // here) — only genuinely new combos (PR-C's mosaicos:1) get added.
+  const existing = await adminFetch<{
+    products: {
+      nodes: {
+        id: string;
+        handle: string;
+        variants: { nodes: { selectedOptions: { name: string; value: string }[]; price: string }[] };
+      }[];
+    };
+  }>(EXISTS_QUERY, { q: `handle:${PRICING_PRODUCT_HANDLE}` });
+  const existingProduct = existing.products.nodes[0] ?? null;
+
+  const currentPrice = new Map<string, number>();
+  if (existingProduct) {
+    for (const v of existingProduct.variants.nodes) {
+      const catVal = v.selectedOptions.find((o) => o.name === CATEGORY_OPTION_NAME)?.value;
+      const sizeVal = v.selectedOptions.find((o) => o.name === SIZE_OPTION_NAME)?.value;
+      const category = catVal ? categoryFromOptionValue(catVal) : null;
+      const size = sizeVal ? sizeFromOptionValue(sizeVal) : null;
+      const price = Number(v.price);
+      if (category && size != null && Number.isFinite(price)) {
+        currentPrice.set(`${category}:${size}`, price);
+      }
+    }
+    console.log(
+      `◇ Product exists (${existingProduct.id}); preserving ${currentPrice.size} live prices, adding any new combos.`,
+    );
+  } else {
+    console.log('◇ Product does not exist; creating fresh.');
+  }
+
+  // The single tile derives from the LIVE 3-piece; every other combo keeps its
+  // current live price, falling back to the seed for a brand-new combo.
+  function priceForCombo(category: CategoryType, gridSize: GridSize): number {
+    if (category === 'mosaicos' && gridSize === 1) {
+      const three = currentPrice.get('mosaicos:3') ?? SEED_PRICE_MATRIX.mosaicos[3];
+      if (three == null) {
+        console.error('✗ No 3-piece price to derive the single tile from; aborting.');
+        process.exit(1);
+      }
+      return singleTilePriceFrom(three);
+    }
+    const live = currentPrice.get(`${category}:${gridSize}`);
+    if (live != null) return live;
+    const seed = SEED_PRICE_MATRIX[category]?.[gridSize];
+    if (seed == null) {
+      console.error(`✗ No seed price for ${category} ${gridSize}; aborting.`);
+      process.exit(1);
+    }
+    return seed;
   }
 
   // Build distinct option values + one variant per (category, size).
@@ -110,11 +177,7 @@ async function main(): Promise<void> {
   const variants: Array<{ optionValues: Array<{ optionName: string; name: string }>; price: string }> = [];
 
   for (const { category, gridSize } of PRICING_COMBOS) {
-    const price = SEED_PRICE_MATRIX[category as CategoryType]?.[gridSize];
-    if (price == null) {
-      console.error(`✗ No seed price for ${category} ${gridSize}; aborting.`);
-      process.exit(1);
-    }
+    const price = priceForCombo(category as CategoryType, gridSize);
     const catVal = categoryOptionValue(category);
     const sizeVal = sizeOptionValue(gridSize);
     categoryValues.add(catVal);
@@ -128,7 +191,7 @@ async function main(): Promise<void> {
     });
   }
 
-  const input = {
+  const input: Record<string, unknown> = {
     title: 'Imanes Personalizados',
     handle: PRICING_PRODUCT_HANDLE,
     status: 'ACTIVE',
@@ -138,8 +201,9 @@ async function main(): Promise<void> {
     ],
     variants,
   };
+  if (existingProduct) input.id = existingProduct.id;
 
-  console.log(`  Creating product with ${variants.length} variants…`);
+  console.log(`  ${existingProduct ? 'Reconciling' : 'Creating'} product with ${variants.length} variants…`);
   const res = await adminFetch<{
     productSet: {
       product: { id: string; handle: string; variants: { nodes: { title: string; price: string }[] } } | null;
@@ -154,13 +218,20 @@ async function main(): Promise<void> {
   }
 
   const product = res.productSet.product!;
-  console.log(`✓ Created ${product.handle} (${product.id})`);
+  console.log(`✓ ${existingProduct ? 'Updated' : 'Created'} ${product.handle} (${product.id})`);
   for (const v of product.variants.nodes) console.log(`   • ${v.title} → $${v.price}`);
+  if (existingProduct) {
+    console.log(
+      `\n✓ Reconciled. If the product is already published to the Online Store,\n` +
+        `  the new single-tile (1 pieza) variant is live now. If it was never\n` +
+        `  published, do the one-click "Make available" step below.`,
+    );
+  }
   console.log(
-    `\n⚠ NEXT STEP (manual, one click): in Shopify admin open the product and\n` +
-      `  "Make available" on the Online Store / Storefront sales channel. The\n` +
-      `  storefront + checkout switch to these per-category prices automatically\n` +
-      `  once it's published (reads by handle). No env change needed.`,
+    `\n⚠ PUBLISH (one click, only if not already done): in Shopify admin open the\n` +
+      `  product and "Make available" on the Online Store / Storefront sales\n` +
+      `  channel. The storefront + checkout switch to these per-category prices\n` +
+      `  automatically once it's published (reads by handle). No env change needed.`,
   );
 }
 

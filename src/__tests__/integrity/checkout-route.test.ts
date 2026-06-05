@@ -23,10 +23,13 @@ vi.mock('@/lib/shopify/checkout', async (importOriginal) => {
 });
 
 // Real checkout module (loaded above) imports prices.ts → `server-only`
-// (absent in this env). Mock prices so only the piece checkout.ts imports
-// exists; createCheckout is stubbed anyway.
+// (absent in this env). Mock prices so only the pieces checkout.ts imports
+// exist; createCheckout is stubbed anyway. getCheapestStandardPrice feeds the
+// PR-C minimum-order gate — controllable per test.
+const mockCheapestStandard = vi.fn(async (): Promise<number | null> => 1);
 vi.mock('@/lib/shopify/prices', () => ({
   getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
+  getCheapestStandardPrice: () => mockCheapestStandard(),
 }));
 
 function makeRequest(body: unknown): NextRequest {
@@ -41,6 +44,8 @@ const ITEMS = [{ id: 'a', name: 'Item', price: 480, quantity: 1, type: 'custom' 
 
 beforeEach(() => {
   mockCreateCheckout.mockReset();
+  mockCheapestStandard.mockReset();
+  mockCheapestStandard.mockResolvedValue(1); // minimum met by default
 });
 
 describe('POST /api/checkout', () => {
@@ -92,6 +97,23 @@ describe('POST /api/checkout', () => {
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.code).toBe('CART_SUBTOTAL_UNAVAILABLE');
+    expect(body.checkoutUrl).toBeUndefined();
+  });
+
+  test('PR-C: cart under minimum order → 422 MINIMUM_ORDER_NOT_MET, NO checkoutUrl', async () => {
+    mockCheapestStandard.mockResolvedValue(200); // cheapest standard mosaic
+    mockCreateCheckout.mockResolvedValue({
+      checkoutUrl: 'https://shop.example/checkout/x',
+      cartId: 'gid://shopify/Cart/x',
+      subtotal: { amount: '67', currencyCode: 'MXN' }, // a lone single tile
+    });
+    const { POST } = await import('@/app/api/checkout/route');
+    const res = await POST(makeRequest({ items: ITEMS, displayedTotal: 67 }));
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.code).toBe('MINIMUM_ORDER_NOT_MET');
+    expect(body.minimum).toBe(200);
+    expect(body.total).toBe(67);
     expect(body.checkoutUrl).toBeUndefined();
   });
 });

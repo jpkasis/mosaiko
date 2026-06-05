@@ -92,6 +92,8 @@
     "stepUpload": "Upload photo",
     "stepCrop": "Adjust image",
     "stepPreview": "Preview",
+    "grid1": "1 piece",
+    "grid1Desc": "Single magnet — your photo on one tile",
     "grid3": "3 pieces",
     "grid3Desc": "Horizontal strip — great for panoramics",
     "grid4": "4 pieces",

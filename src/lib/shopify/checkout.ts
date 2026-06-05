@@ -1,6 +1,7 @@
 import { createCart, addToCart } from './mutations/cart';
 import { getVariantId, isVariantMapConfigured } from './variant-map';
-import { getPricingForCheckout } from './prices';
+import { getPricingForCheckout, getCheapestStandardPrice } from './prices';
+import { formatPrice } from '../grid-config';
 import { toPrintCustomization } from './customization-serializer';
 import { isPurchasableAsIs } from '../catalog-purchase-mode';
 import { getProductById } from '../catalog-data';
@@ -98,6 +99,51 @@ export function assertCartTotalMatchesDisplay(
     message: 'Los precios se actualizaron. Revisa tu total y vuelve a continuar.',
     status: 409,
     total: amount,
+  };
+}
+
+export interface MinimumOrderBlock {
+  code: 'MINIMUM_ORDER_NOT_MET';
+  message: string;
+  status: number;
+  minimum: number;
+  total: number;
+}
+
+/**
+ * PR-C minimum-order gate. A lone single-tile Mosaico (~$67) can't be ordered
+ * by itself — the cart subtotal must reach the cheapest STANDARD (non-single-
+ * tile) price, the 3-piece (~$200). `getCheapestStandardPrice()` reads it live
+ * so it tracks admin edits, and we compare against the REAL Shopify cart
+ * subtotal (what will actually be charged).
+ *
+ * Returns a MINIMUM_ORDER_NOT_MET block (422) when under, else null. Also null
+ * when the minimum can't be determined or the subtotal is untrustworthy —
+ * `assertCartTotalMatchesDisplay` already fails closed on those, so this gate
+ * stays focused on the business rule.
+ *
+ * Enforcement boundary (Codex PR-C audit): this runs on the Mosaiko app routes
+ * (the only real purchase path — a cart is meaningless without the uploaded
+ * photo + customization). A hostile client hitting Shopify's Storefront API
+ * directly to buy a bare variant could skip it, but that yields an
+ * unfulfillable order (no print data), so it's accepted as out of scope. If
+ * direct-Storefront abuse ever appears, add a Shopify cart/checkout validation
+ * Function as the server-of-record gate.
+ */
+export async function assertCartSubtotalMeetsMinimum(
+  cartSubtotal: ShopifyMoney | undefined,
+): Promise<MinimumOrderBlock | null> {
+  const minimum = await getCheapestStandardPrice();
+  if (minimum == null) return null;
+  const total = cartSubtotal ? Number(cartSubtotal.amount) : NaN;
+  if (!Number.isFinite(total)) return null;
+  if (Math.round(total * 100) >= Math.round(minimum * 100)) return null;
+  return {
+    code: 'MINIMUM_ORDER_NOT_MET',
+    message: `Pedido mínimo: ${formatPrice(minimum)}. Agrega más piezas para continuar.`,
+    status: 422,
+    minimum,
+    total,
   };
 }
 

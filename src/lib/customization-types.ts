@@ -73,7 +73,9 @@ export type TonosSlotConfigs = [
  */
 export interface MosaicosCustomization {
   categoryType: 'mosaicos';
-  gridSize: 3 | 6 | 9;
+  // PR-C: 1 = single-tile Mosaico (one square magnet). Rotation is a no-op on
+  // 1 (square), same as 9.
+  gridSize: 1 | 3 | 6 | 9;
   /**
    * True when the user rotated the grid (portrait ↔ landscape) in the
    * builder. Captured from `useBuilderFlow.layoutRotated` and threaded
@@ -261,7 +263,9 @@ export const CATEGORY_REGISTRY: Record<CategoryType, CategoryMeta> = {
   mosaicos: {
     type: 'mosaicos',
     label: 'Mosaicos',
-    allowedGridSizes: [9, 6, 3],
+    // PR-C: 1 (single tile) appended last so it never becomes the implicit
+    // default; the grid selector orders the cards by its own GRID_OPTIONS.
+    allowedGridSizes: [9, 6, 3, 1],
     textFields: [],
     hasTheme: false,
     description: 'Basic photo split across tiles',

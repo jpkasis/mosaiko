@@ -93,7 +93,7 @@ export function buildPrintCustomization(
     case 'mosaicos':
       return {
         categoryType: 'mosaicos',
-        gridSize: gridSize as 3 | 6 | 9,
+        gridSize: gridSize as 1 | 3 | 6 | 9,
         // Only emit the field when truthy — keeps JSON diffs small and
         // matches the "absent === false" reading convention in the
         // print processor.
