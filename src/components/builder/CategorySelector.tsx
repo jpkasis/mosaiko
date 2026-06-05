@@ -4,6 +4,8 @@ import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { CATEGORY_REGISTRY, type CategoryType } from '@/lib/customization-types';
 import { GRID_CONFIGS, getEffectiveGridConfig, formatPrice, type GridSize } from '@/lib/grid-config';
+import { usePriceMap, categoryMinPrice } from '@/components/pricing/PricesProvider';
+import type { DisplayPriceMap } from '@/lib/shopify/prices';
 
 interface CategorySelectorProps {
   onSelect: (category: CategoryType) => void;
@@ -161,16 +163,17 @@ function getGridBadge(allowedGridSizes: GridSize[], categoryType?: CategoryType)
   return { rows: cfg.rows, cols: cfg.cols, count: base.size };
 }
 
-function getCategoryPrice(allowedGridSizes: GridSize[]): string {
-  // Show price range: "Desde $200" or single price
-  const prices = allowedGridSizes.map((s) => GRID_CONFIGS[s].price);
-  const min = Math.min(...prices);
-  if (prices.length === 1) return formatPrice(min);
-  return `Desde ${formatPrice(min)}`;
+function getCategoryPrice(map: DisplayPriceMap, category: CategoryType): string {
+  // PR-B: live per-category min price ("Desde $X" or single price). Falls
+  // back to the legacy grid-config price inside `categoryMinPrice`.
+  const min = categoryMinPrice(map, category);
+  const single = CATEGORY_REGISTRY[category].allowedGridSizes.length === 1;
+  return single ? formatPrice(min) : `Desde ${formatPrice(min)}`;
 }
 
 export function CategorySelector({ onSelect, selected }: CategorySelectorProps) {
   const t = useTranslations('builder');
+  const priceMap = usePriceMap();
 
   return (
     <div className="flex flex-col gap-6">
@@ -250,7 +253,7 @@ export function CategorySelector({ onSelect, selected }: CategorySelectorProps) 
                     : 'bg-cream text-charcoal',
                 ].join(' ')}
               >
-                {getCategoryPrice(meta.allowedGridSizes)}
+                {getCategoryPrice(priceMap, cat)}
               </span>
             </motion.button>
           );

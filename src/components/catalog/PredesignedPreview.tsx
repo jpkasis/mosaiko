@@ -6,6 +6,7 @@ import { useRouter } from '@/i18n/navigation';
 import { motion } from 'framer-motion';
 import { getProductById, CATEGORY_ACCENT, type CatalogProduct } from '@/lib/catalog-data';
 import { getEffectiveGridConfig, formatPrice } from '@/lib/grid-config';
+import { usePriceMap, priceFor } from '@/components/pricing/PricesProvider';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
 import { useCartStore } from '@/lib/cart-store';
 import { isPurchasableAsIs } from '@/lib/catalog-purchase-mode';
@@ -23,6 +24,7 @@ export function PredesignedPreview({ productId, initialProduct }: PredesignedPre
   const tc = useTranslations('common');
   const router = useRouter();
   const addItem = useCartStore((s) => s.addItem);
+  const priceMap = usePriceMap();
 
   const product = useMemo(() => initialProduct ?? getProductById(productId), [productId, initialProduct]);
   const gridConfig = useMemo(
@@ -52,12 +54,12 @@ export function PredesignedPreview({ productId, initialProduct }: PredesignedPre
       name: `${categoryLabel} — ${product.name}`,
       gridSize: gridConfig.size,
       gridLayout: { rows: gridConfig.rows, cols: gridConfig.cols },
-      price: product.price,
+      price: priceFor(priceMap, product.category, gridConfig.size),
       quantity: 1,
       previewUrl: product.image,
       tileUrls: [],
     });
-  }, [product, gridConfig, addItem]);
+  }, [product, gridConfig, addItem, priceMap]);
 
   const handleBack = useCallback(() => {
     router.push('/catalogo');
@@ -67,7 +69,7 @@ export function PredesignedPreview({ productId, initialProduct }: PredesignedPre
 
   const categoryLabel = CATEGORY_REGISTRY[product.category].label;
   const accentClass = CATEGORY_ACCENT[product.category];
-  const priceFormatted = formatPrice(product.price);
+  const priceFormatted = formatPrice(priceFor(priceMap, product.category, gridConfig.size));
 
   return (
     <div className="flex flex-col gap-6">

@@ -21,6 +21,13 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { buildCartLines } from '@/lib/shopify/checkout';
 import type { CartItem } from '@/lib/cart-store';
 
+// PR-B: buildCartLines resolves pricing via getPricingForCheckout. Mock it as
+// "not migrated" so it falls back to the legacy size-only SHOPIFY_VARIANT_MAP
+// stub below — keeping these guard assertions about category/variant resolution.
+vi.mock('@/lib/shopify/prices', () => ({
+  getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
+}));
+
 beforeEach(() => {
   vi.stubEnv(
     'SHOPIFY_VARIANT_MAP',
@@ -50,80 +57,80 @@ function makePredesignedItem(productId: string, categorySlug?: string): CartItem
 }
 
 describe('buildCartLines — predesigned guard', () => {
-  test('accepts predesigned line with real Studio productId', () => {
-    const result = buildCartLines([makePredesignedItem('stu-1')]);
+  test('accepts predesigned line with real Studio productId', async () => {
+    const result = await buildCartLines([makePredesignedItem('stu-1')]);
     expect(Array.isArray(result)).toBe(true);
   });
 
-  test('accepts predesigned line with real Arte productId', () => {
-    const result = buildCartLines([makePredesignedItem('art-1')]);
+  test('accepts predesigned line with real Arte productId', async () => {
+    const result = await buildCartLines([makePredesignedItem('art-1')]);
     expect(Array.isArray(result)).toBe(true);
   });
 
-  test('rejects predesigned line referencing a Mosaicos product', () => {
-    const result = buildCartLines([makePredesignedItem('mos-1')]);
+  test('rejects predesigned line referencing a Mosaicos product', async () => {
+    const result = await buildCartLines([makePredesignedItem('mos-1')]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
     expect(result.code).toBe('LAYOUT_EXAMPLE_NOT_PURCHASABLE');
   });
 
-  test('rejects predesigned line referencing a Polaroid product', () => {
-    const result = buildCartLines([makePredesignedItem('pol-1')]);
+  test('rejects predesigned line referencing a Polaroid product', async () => {
+    const result = await buildCartLines([makePredesignedItem('pol-1')]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
     expect(result.code).toBe('LAYOUT_EXAMPLE_NOT_PURCHASABLE');
   });
 
-  test('rejects predesigned line referencing a Tonos product', () => {
-    const result = buildCartLines([makePredesignedItem('ton-1')]);
+  test('rejects predesigned line referencing a Tonos product', async () => {
+    const result = await buildCartLines([makePredesignedItem('ton-1')]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
     expect(result.code).toBe('LAYOUT_EXAMPLE_NOT_PURCHASABLE');
   });
 
-  test('rejects predesigned line referencing a Spotify product', () => {
-    const result = buildCartLines([makePredesignedItem('spo-1')]);
+  test('rejects predesigned line referencing a Spotify product', async () => {
+    const result = await buildCartLines([makePredesignedItem('spo-1')]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
     expect(result.code).toBe('LAYOUT_EXAMPLE_NOT_PURCHASABLE');
   });
 
-  test('rejects predesigned line referencing the (now hidden) Save-the-Date 9-piece via std-1', () => {
+  test('rejects predesigned line referencing the (now hidden) Save-the-Date 9-piece via std-1', async () => {
     // STD-1 is in catalog (9 pieces) but STD is layout-example.
     // Guard should reject any predesigned reference to it.
-    const result = buildCartLines([makePredesignedItem('std-1')]);
+    const result = await buildCartLines([makePredesignedItem('std-1')]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
     expect(result.code).toBe('LAYOUT_EXAMPLE_NOT_PURCHASABLE');
   });
 
-  test('rejects predesigned line with missing productId', () => {
+  test('rejects predesigned line with missing productId', async () => {
     const item = makePredesignedItem('');
     delete (item as { productId?: string }).productId;
-    const result = buildCartLines([item]);
+    const result = await buildCartLines([item]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
     expect(result.code).toBe('INVALID_PREDESIGNED_LINE');
   });
 
-  test('rejects predesigned line with unknown productId', () => {
-    const result = buildCartLines([makePredesignedItem('not-a-real-id')]);
+  test('rejects predesigned line with unknown productId', async () => {
+    const result = await buildCartLines([makePredesignedItem('not-a-real-id')]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
     expect(result.code).toBe('INVALID_PREDESIGNED_LINE');
   });
 
-  test('rejects spoofed categorySlug paired with mismatched productId', () => {
+  test('rejects spoofed categorySlug paired with mismatched productId', async () => {
     // Client claims studio (an as-is category) but productId resolves
     // to a Polaroid product (layout-example). Catalog lookup wins —
     // categorySlug is never trusted.
-    const result = buildCartLines([makePredesignedItem('pol-1', 'studio')]);
+    const result = await buildCartLines([makePredesignedItem('pol-1', 'studio')]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
     expect(result.code).toBe('LAYOUT_EXAMPLE_NOT_PURCHASABLE');
   });
 
-  test('passes through a custom-type cart line regardless of category', () => {
+  test('passes through a custom-type cart line regardless of category', async () => {
     const item: CartItem = {
       ...makePredesignedItem('pol-1'),
       type: 'custom',
@@ -132,7 +139,7 @@ describe('buildCartLines — predesigned guard', () => {
         photoStorageUrl: 'https://cdn.example.com/photo.png',
       },
     };
-    const result = buildCartLines([item]);
+    const result = await buildCartLines([item]);
     expect(Array.isArray(result)).toBe(true);
   });
 });

@@ -3,11 +3,15 @@
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { GRID_CONFIGS, formatPrice, type GridSize } from '@/lib/grid-config';
+import type { CategoryType } from '@/lib/customization-types';
+import { usePriceMap, priceFor } from '@/components/pricing/PricesProvider';
 
 interface GridSelectorProps {
   onSelect: (grid: GridSize) => void;
   selected: GridSize | null;
   allowedSizes?: GridSize[];
+  /** Category drives the live per-(category, size) price shown on each card. */
+  category?: CategoryType | null;
 }
 
 const GRID_OPTIONS: GridSize[] = [3, 4, 6, 9];
@@ -78,9 +82,10 @@ const cardVariants = {
   },
 };
 
-export function GridSelector({ onSelect, selected, allowedSizes }: GridSelectorProps) {
+export function GridSelector({ onSelect, selected, allowedSizes, category }: GridSelectorProps) {
   const t = useTranslations('builder');
   const options = allowedSizes ?? GRID_OPTIONS;
+  const priceMap = usePriceMap();
 
   return (
     <div className="flex flex-col gap-6">
@@ -158,7 +163,7 @@ export function GridSelector({ onSelect, selected, allowedSizes }: GridSelectorP
                     : 'bg-cream text-charcoal',
                 ].join(' ')}
               >
-                {formatPrice(config.price)}
+                {formatPrice(priceFor(priceMap, category, size))}
               </span>
             </motion.button>
           );

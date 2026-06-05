@@ -20,6 +20,8 @@ import { Footer } from '@/components/layout/Footer';
 import { CartDrawer } from '@/components/cart/CartDrawer';
 import { CartHydrator } from '@/components/cart/CartHydrator';
 import { CookieBanner } from '@/components/layout/CookieBanner';
+import { PricesProvider } from '@/components/pricing/PricesProvider';
+import { getDisplayPriceMap } from '@/lib/shopify/prices';
 import '../globals.css';
 
 const cormorant = Cormorant_Garamond({
@@ -118,6 +120,9 @@ export default async function LocaleLayout({
 
   setRequestLocale(locale);
   const messages = await getMessages();
+  // PR-B: live (category, size) → price map, single source for every price
+  // shown on the storefront. Provided app-wide so display === charged.
+  const priceMap = await getDisplayPriceMap();
 
   return (
     <html lang={locale}>
@@ -131,15 +136,17 @@ export default async function LocaleLayout({
         style={{ paddingBottom: 'var(--cookie-banner-offset, 0px)' }}
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <AnnouncementBar />
-          <Header />
-          <main>
-            {children}
-          </main>
-          <Footer />
-          <CartDrawer />
-          <CartHydrator />
-          <CookieBanner />
+          <PricesProvider value={priceMap}>
+            <AnnouncementBar />
+            <Header />
+            <main>
+              {children}
+            </main>
+            <Footer />
+            <CartDrawer />
+            <CartHydrator />
+            <CookieBanner />
+          </PricesProvider>
         </NextIntlClientProvider>
       </body>
     </html>

@@ -27,6 +27,13 @@ import { TILE_PRINT_SIZE } from '@/lib/grid-config';
 import { getStepsForCategory } from '@/components/builder/useBuilderFlow';
 import type { CartItem } from '@/lib/cart-store';
 
+// PR-B: buildCartLines reads the live price matrix; mock empty so it falls
+// back to the legacy size-only variant map (these tests assert attribute
+// serialization + layout, not pricing).
+vi.mock('@/lib/shopify/prices', () => ({
+  getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
+}));
+
 beforeEach(() => {
   vi.stubEnv(
     'SHOPIFY_VARIANT_MAP',
@@ -154,14 +161,14 @@ function makeCustomItem(
 }
 
 describe('Save the Date checkout cart line attrs', () => {
-  test('STD-9 emits _photo_url + _crop_area (single-photo)', () => {
+  test('STD-9 emits _photo_url + _crop_area (single-photo)', async () => {
     const item = makeCustomItem(9, {
       categoryType: 'save-the-date',
       textFields: { eventText: 'Wedding', date: '2026-12-31' },
       photoStorageUrl: 'https://cdn.shopify.com/wedding.jpg',
       cropArea: { x: 0, y: 0, width: 100, height: 100 },
     });
-    const result = buildCartLines([item]);
+    const result = await buildCartLines([item]);
     expect(Array.isArray(result)).toBe(true);
     if (!Array.isArray(result)) return;
     const attrs = result[0].attributes ?? [];
@@ -172,14 +179,14 @@ describe('Save the Date checkout cart line attrs', () => {
     expect(keys).not.toContain('_crop_areas');
   });
 
-  test('STD-6 emits _photo_url + _crop_area (single-photo)', () => {
+  test('STD-6 emits _photo_url + _crop_area (single-photo)', async () => {
     const item = makeCustomItem(6, {
       categoryType: 'save-the-date',
       textFields: { eventText: 'Engagement', date: '2027-01-15' },
       photoStorageUrl: 'https://cdn.shopify.com/engagement.jpg',
       cropArea: { x: 0, y: 0, width: 100, height: 150 },
     });
-    const result = buildCartLines([item]);
+    const result = await buildCartLines([item]);
     expect(Array.isArray(result)).toBe(true);
     if (!Array.isArray(result)) return;
     const attrs = result[0].attributes ?? [];
@@ -190,7 +197,7 @@ describe('Save the Date checkout cart line attrs', () => {
     expect(keys).not.toContain('_crop_areas');
   });
 
-  test('STD-3 emits _photo_urls + _crop_areas + legacy _photo_url (multi-photo)', () => {
+  test('STD-3 emits _photo_urls + _crop_areas + legacy _photo_url (multi-photo)', async () => {
     const item = makeCustomItem(3, {
       categoryType: 'save-the-date',
       textFields: { eventText: 'Baby Shower', date: '2026-09-01' },
@@ -205,7 +212,7 @@ describe('Save the Date checkout cart line attrs', () => {
         { x: 0, y: 0, width: 100, height: 100 },
       ],
     });
-    const result = buildCartLines([item]);
+    const result = await buildCartLines([item]);
     expect(Array.isArray(result)).toBe(true);
     if (!Array.isArray(result)) return;
     const attrs = result[0].attributes ?? [];
@@ -308,7 +315,7 @@ describe('Save the Date checkout cart line attrs', () => {
     expect(square.height).toBe(3 * TILE_PRINT_SIZE);
   });
 
-  test('Tonos still emits _photo_urls (regression check)', () => {
+  test('Tonos still emits _photo_urls (regression check)', async () => {
     const item: CartItem = {
       id: 'cart-line-tonos',
       type: 'custom',
@@ -334,7 +341,7 @@ describe('Save the Date checkout cart line attrs', () => {
         tonosIntensity: 'medium',
       },
     };
-    const result = buildCartLines([item]);
+    const result = await buildCartLines([item]);
     expect(Array.isArray(result)).toBe(true);
     if (!Array.isArray(result)) return;
     const keys = (result[0].attributes ?? []).map((a) => a.key);

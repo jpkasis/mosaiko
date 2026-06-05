@@ -1,18 +1,32 @@
 import { createCart, addToCart } from './mutations/cart';
 import { getVariantId, isVariantMapConfigured } from './variant-map';
+import { getPricingForCheckout } from './prices';
 import { toPrintCustomization } from './customization-serializer';
 import { isPurchasableAsIs } from '../catalog-purchase-mode';
 import { getProductById } from '../catalog-data';
 import { CATEGORY_LAYOUTS } from '../category-layouts';
 import { isMultiPhotoInput } from '../category-layouts/derive';
-import type { CartLineInput } from './types';
+import type { CategoryType } from '../customization-types';
+import type { CartLineInput, ShopifyMoney } from './types';
 import type { CartItem } from '../cart-store';
+
+// The store sells exclusively in Mexican Pesos (see CLAUDE.md / formatPrice).
+// The consent gate requires the cart's currency to match this — a numeric
+// total in any other currency must never pass (e.g. 480 USD ≠ 480 MXN).
+const STORE_CURRENCY = 'MXN';
 
 // ─── Checkout orchestration ─────────────────────────────────────────────────
 
 export interface CheckoutResult {
   checkoutUrl: string;
   cartId: string;
+  /**
+   * The cart's Shopify-authoritative subtotal (amount + currency; sum of real
+   * variant line prices, pre-tax/shipping) — i.e. exactly what the customer
+   * will be charged. The route passes this to `assertCartTotalMatchesDisplay`
+   * before handing back the checkout URL.
+   */
+  subtotal: ShopifyMoney;
 }
 
 export interface CheckoutError {
@@ -22,8 +36,69 @@ export interface CheckoutError {
     | 'CART_CREATION_FAILED'
     | 'EMPTY_CART'
     | 'LAYOUT_EXAMPLE_NOT_PURCHASABLE'
-    | 'INVALID_PREDESIGNED_LINE';
+    | 'INVALID_PREDESIGNED_LINE'
+    | 'PRICING_UNAVAILABLE'
+    | 'PRICES_CHANGED';
   message: string;
+}
+
+export interface CheckoutGateBlock {
+  code: 'PRICES_CHANGED' | 'CART_SUBTOTAL_UNAVAILABLE';
+  message: string;
+  /** HTTP status the route should respond with (409 drift, 502 untrustworthy). */
+  status: number;
+  /** The real charge total — present only for PRICES_CHANGED. */
+  total?: number;
+}
+
+/**
+ * PR-B (Codex 3rd/4th audit) — authoritative consent gate.
+ *
+ * The client sends the total it DISPLAYED to the customer; we compare it
+ * against `cartSubtotal` — the money Shopify ACTUALLY put in the created cart
+ * (`cost.subtotalAmount`, priced from the real variant prices). Because that
+ * subtotal IS what the customer will be charged, the comparison is atomic with
+ * the charge itself — there is no separate price map that could disagree with
+ * the cart (the original version compared against a tolerant display map read
+ * separately from the strict pricing used to pick variants, which could drift).
+ *
+ * FAILS CLOSED (Codex 4th audit): if the subtotal can't be parsed as a finite
+ * number, or its currency isn't the store currency (MXN) — so a numeric match
+ * across currencies can't slip through — it returns a blocking
+ * CART_SUBTOTAL_UNAVAILABLE (502) rather than letting the checkout proceed.
+ *
+ * Returns:
+ *  - PRICES_CHANGED (409) when the trustworthy MXN total differs from displayed.
+ *  - CART_SUBTOTAL_UNAVAILABLE (502) when the total can't be trusted.
+ *  - null when they match, or when `displayedTotal` is absent (the pagehide
+ *    beacon only persists the cart and never redirects — no price to honor;
+ *    interactive callers always send it).
+ */
+export function assertCartTotalMatchesDisplay(
+  cartSubtotal: ShopifyMoney | undefined,
+  displayedTotal: number | undefined,
+): CheckoutGateBlock | null {
+  // Beacon / nothing displayed to honor → nothing to gate.
+  if (displayedTotal == null || !Number.isFinite(displayedTotal)) return null;
+
+  const amount = cartSubtotal ? Number(cartSubtotal.amount) : NaN;
+  // Fail CLOSED: never hand back a checkout URL when we can't establish a
+  // trustworthy MXN charge total (missing/NaN amount, or a non-MXN currency).
+  if (!Number.isFinite(amount) || cartSubtotal?.currencyCode !== STORE_CURRENCY) {
+    return {
+      code: 'CART_SUBTOTAL_UNAVAILABLE',
+      message: 'No pudimos confirmar el total. Intenta de nuevo o contáctanos.',
+      status: 502,
+    };
+  }
+
+  if (Math.round(amount * 100) === Math.round(displayedTotal * 100)) return null;
+  return {
+    code: 'PRICES_CHANGED',
+    message: 'Los precios se actualizaron. Revisa tu total y vuelve a continuar.',
+    status: 409,
+    total: amount,
+  };
 }
 
 /**
@@ -42,10 +117,22 @@ export interface CheckoutError {
  *
  * Returns a CheckoutError if Shopify isn't configured or a variant is missing.
  */
-export function buildCartLines(
+export async function buildCartLines(
   items: CartItem[],
-): CartLineInput[] | CheckoutError {
+): Promise<CartLineInput[] | CheckoutError> {
   const lines: CartLineInput[] = [];
+
+  // PR-B: resolve pricing ONCE, STRICTLY (Codex audit). `migrated` says
+  // whether the v2 product is live. A real Shopify read error fails the whole
+  // checkout (`PRICING_UNAVAILABLE`) — we never guess/charge a fallback price.
+  const pricing = await getPricingForCheckout().catch(() => null);
+  if (!pricing) {
+    return {
+      code: 'PRICING_UNAVAILABLE',
+      message:
+        'No pudimos confirmar los precios en este momento. Inténtalo de nuevo en unos segundos.',
+    };
+  }
 
   for (const item of items) {
     // UAT-1a guard (round 2 — fail-CLOSED + spoof-resistant): for
@@ -64,6 +151,12 @@ export function buildCartLines(
     // Dynamic admin products are not in the sync `getProductById`
     // lookup yet — they'd reject here. That's fine until admin
     // product CRUD ships (deferred to post-launch per CLAUDE.md).
+    // Category drives BOTH the (spoof-resistant) purchase-mode guard and the
+    // PR-B per-category variant lookup. For predesigned lines it comes from
+    // the trusted catalog (never the client); for custom lines from the
+    // customization.
+    let category: CategoryType | null = null;
+
     if (item.type === 'predesigned') {
       if (!item.productId) {
         return {
@@ -84,9 +177,23 @@ export function buildCartLines(
           message: `Los productos de la categoría ${trustedProduct.category} son ejemplos. Personaliza el tuyo con tu propia foto.`,
         };
       }
+      category = trustedProduct.category as CategoryType;
+    } else if (item.customizations) {
+      category = item.customizations.categoryType;
     }
 
-    const variantId = getVariantId(item.gridSize);
+    // PR-B (Codex audit — fail closed): charge the per-(category, size) v2
+    // variant when the product is live. The legacy size-only variant is used
+    // ONLY when we positively confirmed the product isn't migrated yet. If the
+    // product IS live but this combo is missing/unavailable, leave variantId
+    // null → error below, rather than silently charging the legacy size price.
+    const cell = category ? pricing.matrix[category]?.[item.gridSize] : undefined;
+    let variantId: string | null = null;
+    if (cell?.variantId && cell.availableForSale) {
+      variantId = cell.variantId;
+    } else if (!pricing.migrated) {
+      variantId = getVariantId(item.gridSize);
+    }
 
     if (!variantId) {
       if (!isVariantMapConfigured()) {
@@ -229,7 +336,7 @@ export async function createCheckout(
     };
   }
 
-  const linesOrError = buildCartLines(items);
+  const linesOrError = await buildCartLines(items);
   if (!Array.isArray(linesOrError)) return linesOrError;
 
   // Create Shopify cart and add lines
@@ -239,6 +346,9 @@ export async function createCheckout(
     return {
       checkoutUrl: updatedCart.checkoutUrl,
       cartId: updatedCart.id,
+      // Shopify-authoritative charge total (amount + currency) — the route
+      // gates the URL on this.
+      subtotal: updatedCart.cost.subtotalAmount,
     };
   } catch (error) {
     console.error('[checkout] Failed to create Shopify cart:', error);

@@ -28,8 +28,21 @@ vi.mock('@/lib/shopify/mutations/cart', () => ({
 }));
 
 const mockBuildCartLines = vi.fn();
-vi.mock('@/lib/shopify/checkout', () => ({
-  buildCartLines: (...args: unknown[]) => mockBuildCartLines(...args),
+vi.mock('@/lib/shopify/checkout', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/shopify/checkout')>();
+  return {
+    ...actual,
+    // Only buildCartLines is stubbed; `assertCartTotalMatchesDisplay` stays
+    // REAL so the 409 gate is exercised against the mocked cart's subtotal.
+    buildCartLines: (...args: unknown[]) => mockBuildCartLines(...args),
+  };
+});
+
+// Loading the real checkout module above pulls in prices.ts, which imports
+// `server-only` (absent in this env). Mock prices so only the piece checkout.ts
+// imports (getPricingForCheckout) is present — buildCartLines is stubbed anyway.
+vi.mock('@/lib/shopify/prices', () => ({
+  getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
 }));
 
 function makeRequest(body: unknown): Request {
@@ -70,18 +83,25 @@ describe('POST /api/cart/save', () => {
     expect(mockSet).not.toHaveBeenCalled();
   });
 
-  test('non-empty items → createCart called, cookie set with 30-day maxAge', async () => {
+  // A created Shopify cart, including the `cost.subtotalAmount` the PR-B gate
+  // checks the displayed total against (this cart costs $100).
+  function mockSavedCart() {
     mockBuildCartLines.mockReturnValue([
       { merchandiseId: 'gid://shopify/ProductVariant/100', quantity: 1 },
     ]);
     mockCreateCart.mockResolvedValue({
       id: 'gid://shopify/Cart/new',
       checkoutUrl: 'https://shop.example/checkout/123',
+      cost: { subtotalAmount: { amount: '100', currencyCode: 'MXN' } },
     });
+  }
+
+  test('checkout path (displayedTotal matches) → createCart, cookie set, returns checkoutUrl', async () => {
+    mockSavedCart();
 
     const items = [{ id: 'a', name: 'Item', price: 100, quantity: 1, type: 'custom' }];
     const { POST } = await import('@/app/api/cart/save/route');
-    const res = await POST(makeRequest({ items }));
+    const res = await POST(makeRequest({ items, displayedTotal: 100 }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
@@ -99,5 +119,56 @@ describe('POST /api/cart/save', () => {
       path: '/',
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
+  });
+
+  test('beacon path (no displayedTotal) → persists + cookie set, but NO checkoutUrl', async () => {
+    mockSavedCart();
+
+    const items = [{ id: 'a', name: 'Item', price: 100, quantity: 1, type: 'custom' }];
+    const { POST } = await import('@/app/api/cart/save/route');
+    const res = await POST(makeRequest({ items }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // PR-B (Codex 3rd audit): the persistence-only beacon never gets a redirect
+    // URL it could act on at an unverified price.
+    expect(body).toEqual({ cartId: 'gid://shopify/Cart/new' });
+    expect(body.checkoutUrl).toBeUndefined();
+    expect(mockCreateCart).toHaveBeenCalledTimes(1);
+    expect(mockSet).toHaveBeenCalledTimes(1); // cart still persisted + cookie set
+  });
+
+  test('displayed total drifted from the real cart subtotal → 409 PRICES_CHANGED', async () => {
+    mockSavedCart(); // cart really costs $100
+
+    const items = [{ id: 'a', name: 'Item', price: 80, quantity: 1, type: 'custom' }];
+    const { POST } = await import('@/app/api/cart/save/route');
+    const res = await POST(makeRequest({ items, displayedTotal: 80 }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe('PRICES_CHANGED');
+    expect(body.total).toBe(100); // the real amount Shopify will charge
+    // The cart was still persisted (cookie set) so a retry reuses the corrected cart.
+    expect(mockSet).toHaveBeenCalledTimes(1);
+  });
+
+  test('untrustworthy cart subtotal (non-MXN currency) → 502, NO checkoutUrl', async () => {
+    // PR-B Codex 4th-audit: the gate fails CLOSED when it can't establish a
+    // trustworthy MXN charge total — never hands back a redirect URL.
+    mockBuildCartLines.mockReturnValue([
+      { merchandiseId: 'gid://shopify/ProductVariant/100', quantity: 1 },
+    ]);
+    mockCreateCart.mockResolvedValue({
+      id: 'gid://shopify/Cart/new',
+      checkoutUrl: 'https://shop.example/checkout/123',
+      cost: { subtotalAmount: { amount: '100', currencyCode: 'USD' } },
+    });
+
+    const items = [{ id: 'a', name: 'Item', price: 100, quantity: 1, type: 'custom' }];
+    const { POST } = await import('@/app/api/cart/save/route');
+    const res = await POST(makeRequest({ items, displayedTotal: 100 }));
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.code).toBe('CART_SUBTOTAL_UNAVAILABLE');
+    expect(body.checkoutUrl).toBeUndefined();
   });
 });

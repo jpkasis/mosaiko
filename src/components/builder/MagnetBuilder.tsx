@@ -19,6 +19,7 @@ import type { CropArea } from '@/lib/canvas-utils';
 import { useCartStore } from '@/lib/cart-store';
 import { BUILDER_RESET_EVENT } from '@/lib/builder-events';
 import { buildPrintCustomization } from '@/lib/shopify/customization-serializer';
+import { usePriceMap, priceFor } from '@/components/pricing/PricesProvider';
 import {
   useBuilderFlow,
   STEP_I18N_MAP,
@@ -214,6 +215,14 @@ export function MagnetBuilder() {
   // populate `window.visualViewport`.
   const keyboardInset = useKeyboardInset();
 
+  // PR-B: live price for the current (category, size) — single source the
+  // checkout charges. Used for the price badge, the add-to-cart line price,
+  // and the sticky CTA total. Falls back to the legacy grid-config price.
+  const priceMap = usePriceMap();
+  const livePrice = flow.gridConfig
+    ? priceFor(priceMap, flow.selectedCategory, flow.gridConfig.size)
+    : 0;
+
   // Listen for the top-nav "Personalizar" click-while-already-here signal.
   // The header dispatches BUILDER_RESET_EVENT so we can reset to step 1
   // without a URL change. flow.handleReset is a stable useCallback, so
@@ -285,7 +294,7 @@ export function MagnetBuilder() {
           name: `${meta.label} 3 piezas`,
           gridSize: 3,
           gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
-          price: flow.gridConfig.price,
+          price: livePrice,
           quantity: 1,
           previewUrl: composite.thumbUrl,
           tileUrls: [],
@@ -364,7 +373,7 @@ export function MagnetBuilder() {
           name: `Mosaico ${meta.label} ${flow.gridConfig.size} piezas`,
           gridSize: flow.gridConfig.size,
           gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
-          price: flow.gridConfig.price,
+          price: livePrice,
           quantity: 1,
           previewUrl: composite.thumbUrl,
           tileUrls: [],
@@ -419,7 +428,7 @@ export function MagnetBuilder() {
         name: `Mosaico ${meta.label} ${flow.gridConfig.size} piezas`,
         gridSize: flow.gridConfig.size,
         gridLayout: { rows: flow.gridConfig.rows, cols: flow.gridConfig.cols },
-        price: flow.gridConfig.price,
+        price: livePrice,
         quantity: 1,
         previewUrl: composite.thumbUrl,
         tileUrls: [],
@@ -445,7 +454,7 @@ export function MagnetBuilder() {
     } finally {
       flow.setIsUploading(false);
     }
-  }, [flow, addItem, tUpload]);
+  }, [flow, addItem, tUpload, livePrice]);
 
   const allowedGridSizes = useMemo(() => {
     if (!flow.selectedCategory) return undefined;
@@ -599,7 +608,7 @@ export function MagnetBuilder() {
         visible: true,
         label: flow.isUploading
           ? 'Preparando tu mosaico...'
-          : t('addToCart', { price: formatPrice(flow.gridConfig.price) }),
+          : t('addToCart', { price: formatPrice(livePrice) }),
         canAdvance: !flow.isUploading,
         onAdvance: handleAddToCart,
       };
@@ -616,6 +625,7 @@ export function MagnetBuilder() {
     handleAddToCart,
     isTonos,
     uploadReadyFile,
+    livePrice,
     t,
     tc,
   ]);
@@ -760,6 +770,7 @@ export function MagnetBuilder() {
                     onSelect={flow.handleGridSelect}
                     selected={flow.selectedGrid}
                     allowedSizes={allowedGridSizes}
+                    category={flow.selectedCategory}
                   />
                 )}
 
@@ -1164,6 +1175,7 @@ function LivePreviewSidebar({
   };
 }) {
   const t = useTranslations('builder');
+  const priceMap = usePriceMap();
 
   // UAT-1b: sidebar mirrors the main flow gate. Was `selectedCategory === 'tonos'`
   // which excluded STD-3 multi-photo from the multi-photo preview branch and
@@ -1305,7 +1317,7 @@ function LivePreviewSidebar({
             )}
           </div>
           <span className="text-lg font-bold text-charcoal">
-            {formatPrice(gridConfig.price)}
+            {formatPrice(priceFor(priceMap, selectedCategory, gridConfig.size))}
           </span>
         </motion.div>
       )}

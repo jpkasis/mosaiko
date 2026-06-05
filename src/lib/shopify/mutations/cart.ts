@@ -9,6 +9,13 @@ import type {
   CartLineAttribute,
 } from '../types';
 
+// The store operates in the Mexican market (MXN). Carts are created
+// server-side (Vercel), so we pin the buyer country explicitly rather than let
+// Shopify infer it from the server IP — this keeps `cost.subtotalAmount` in
+// MXN, which the checkout consent gate (`assertCartTotalMatchesDisplay`)
+// requires.
+const STORE_COUNTRY = 'MX';
+
 // ─── Mutations ──────────────────────────────────────────────────────────────
 
 const CREATE_CART_MUTATION = /* GraphQL */ `
@@ -99,7 +106,11 @@ export interface CreateCartOptions {
 }
 
 export async function createCart(options: CreateCartOptions = {}): Promise<Cart> {
-  const input: Record<string, unknown> = {};
+  const input: Record<string, unknown> = {
+    // Pin the cart to the MX market so its subtotal is always priced in MXN
+    // (the gate requires it). See STORE_COUNTRY note above.
+    buyerIdentity: { countryCode: STORE_COUNTRY },
+  };
   if (options.lines?.length) {
     input.lines = options.lines.map((line) => ({
       merchandiseId: line.merchandiseId,
@@ -118,7 +129,7 @@ export async function createCart(options: CreateCartOptions = {}): Promise<Cart>
     };
   }>({
     query: CREATE_CART_MUTATION,
-    variables: Object.keys(input).length > 0 ? { input } : { input: null },
+    variables: { input }, // always non-empty now (buyerIdentity is always set)
     options: { cache: 'no-store' },
   });
 

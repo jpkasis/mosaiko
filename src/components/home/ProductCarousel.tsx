@@ -10,6 +10,9 @@ import { Link } from '@/i18n/navigation';
 import type { CategoryType } from '@/lib/customization-types';
 import type { GridSize } from '@/lib/grid-config';
 import { buildPersonalizarHref, type PersonalizarHref } from '@/lib/builder-href';
+import { usePriceMap, priceFor } from '@/components/pricing/PricesProvider';
+import type { DisplayPriceMap } from '@/lib/shopify/prices';
+import { getProductById } from '@/lib/catalog-data';
 
 /* ── Product data ── */
 type Badge = 'bestseller' | 'new' | 'limited';
@@ -209,8 +212,27 @@ const headingVariants = {
   },
 };
 
+/**
+ * PR-B (Codex audit fix): live price for a carousel item. Resolves its
+ * (category, size) — directly for builder-preselect entries, or via the
+ * trusted catalog for `productId` entries (e.g. Studio stu-1) — so the
+ * shown price matches what checkout charges. Falls back to the entry's
+ * literal price only for decorative entries with neither.
+ */
+function resolveCarouselPrice(map: DisplayPriceMap, product: Product): number {
+  if (product.categoryKey && product.gridSize) {
+    return priceFor(map, product.categoryKey, product.gridSize);
+  }
+  if (product.productId) {
+    const p = getProductById(product.productId);
+    if (p) return priceFor(map, p.category, p.gridSize);
+  }
+  return product.price;
+}
+
 export function ProductCarousel() {
   const t = useTranslations('carousel');
+  const priceMap = usePriceMap();
   const sectionRef = useRef<HTMLElement>(null);
   const isInView = useInView(sectionRef, { once: true, amount: 0.1 });
 
@@ -335,7 +357,7 @@ export function ProductCarousel() {
                 href={hrefForProduct(product)}
                 className="group relative block min-w-0 flex-[0_0_280px] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-terracotta focus-visible:ring-offset-2 sm:flex-[0_0_340px] lg:flex-[0_0_380px]"
                 aria-roledescription="slide"
-                aria-label={`${product.alt} — ${product.category} ${product.grid}, ${formatPrice(product.price)}`}
+                aria-label={`${product.alt} — ${product.category} ${product.grid}, ${formatPrice(resolveCarouselPrice(priceMap, product))}`}
               >
                 {/* The image itself — no card container, just the product */}
                 <div className="relative overflow-hidden rounded-xl transition-transform duration-500 ease-out group-hover:scale-[1.03]">
@@ -375,7 +397,7 @@ export function ProductCarousel() {
                       </h3>
                       <div className="mt-2 flex items-baseline gap-2">
                         <span className="text-lg font-bold text-white">
-                          {formatPrice(product.price)}
+                          {formatPrice(resolveCarouselPrice(priceMap, product))}
                         </span>
                         <span className="text-xs text-white/60">
                           {product.pieces} piezas

@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { splitImageIntoTiles, getCroppedCanvas, getCroppedTileWithFit, loadImage } from '@/lib/canvas-utils';
 import type { CropArea } from '@/lib/canvas-utils';
 import { formatPrice, type GridConfig } from '@/lib/grid-config';
+import { usePrice } from '@/components/pricing/PricesProvider';
 import {
   getTileLayout,
   CATEGORY_REGISTRY,
@@ -87,6 +88,8 @@ export function MagnetPreview({
 }: MagnetPreviewProps) {
   const t = useTranslations('builder');
   const tc = useTranslations('common');
+  // PR-B: live price for this (category, size) — matches what checkout charges.
+  const livePrice = usePrice(categoryType, gridConfig.size);
 
   const [tiles, setTiles] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -352,7 +355,7 @@ export function MagnetPreview({
     tonos?.intensity,
   ]);
 
-  const priceText = t('addToCart', { price: formatPrice(gridConfig.price) });
+  const priceText = t('addToCart', { price: formatPrice(livePrice) });
 
   // Precompute photo tile index mapping (layout index → photo tiles array index)
   const photoTileIndexMap = useMemo(() => {
@@ -566,7 +569,7 @@ export function MagnetPreview({
               </span>
             </div>
             <span className="text-xl font-bold text-charcoal">
-              {formatPrice(gridConfig.price)}
+              {formatPrice(livePrice)}
             </span>
           </div>
 

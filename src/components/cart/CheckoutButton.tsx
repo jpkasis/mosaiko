@@ -3,13 +3,17 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
-import { useCartStore, selectCartTotal } from '@/lib/cart-store';
+import { useCartStore } from '@/lib/cart-store';
+import { usePriceMap, useRefreshPrices } from '@/components/pricing/PricesProvider';
+import { cartLiveTotal } from '@/lib/cart-pricing';
 import { formatPrice } from '@/lib/grid-config';
 
 export function CheckoutButton() {
   const t = useTranslations('cart');
   const items = useCartStore((s) => s.items);
-  const total = useCartStore(selectCartTotal);
+  const priceMap = usePriceMap();
+  const refreshPrices = useRefreshPrices();
+  const total = cartLiveTotal(priceMap, items);
   const setCheckoutInProgress = useCartStore((s) => s.setCheckoutInProgress);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,51 +30,82 @@ export function CheckoutButton() {
     setCheckoutInProgress(true);
     setError(null);
 
-    // Primary path: POST /api/cart/save — this both persists the cart to
-    // Shopify (for session restore) and returns the same hosted checkoutUrl
-    // we'd get from the legacy /api/checkout call. Reusing the synced cart
-    // avoids creating a duplicate one at checkout time.
+    // One outer try/finally guarantees the button never stays stuck in the
+    // loading / checkout-in-progress state on an early 409 return (Codex 3rd
+    // audit: the primary-path 409 used to return before any reset). BUT we must
+    // NOT reset on the redirect path: `checkoutInProgress` has to survive the
+    // navigation to Shopify so the pagehide/visibility handlers don't treat the
+    // unload as a cart-clear (UAT-6 PR1 lost-cart bug). The `redirecting` flag
+    // gates the finally so only non-redirect exits reset. The inner try lets the
+    // primary path fall through to the legacy endpoint on a network error.
+    let redirecting = false;
     try {
-      const saveRes = await fetch('/api/cart/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
-      });
+      // Primary path: POST /api/cart/save — this both persists the cart to
+      // Shopify (for session restore) and returns the same hosted checkoutUrl
+      // we'd get from the legacy /api/checkout call. Reusing the synced cart
+      // avoids creating a duplicate one at checkout time.
+      try {
+        const saveRes = await fetch('/api/cart/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, displayedTotal: total }),
+        });
 
-      if (saveRes.ok) {
-        const data = (await saveRes.json()) as { checkoutUrl?: string };
-        if (data.checkoutUrl) {
-          window.location.href = data.checkoutUrl;
+        // PR-B: price changed between page load and checkout → refresh the
+        // displayed prices and ask the customer to re-confirm (never proceed at
+        // a stale total).
+        if (saveRes.status === 409) {
+          const data = (await saveRes.json().catch(() => ({}))) as { error?: string };
+          await refreshPrices();
+          setError(data.error || 'Los precios se actualizaron. Revisa tu total y vuelve a continuar.');
           return;
         }
-      }
-      // Fall through to legacy path if save didn't return a usable response.
-    } catch {
-      // Network error on save — try legacy path before surfacing an error.
-    }
 
-    // Fallback: legacy checkout endpoint. Keeps behaviour identical if the
-    // new save route is misconfigured or Shopify changed under us.
-    try {
+        if (saveRes.ok) {
+          const data = (await saveRes.json()) as { checkoutUrl?: string };
+          if (data.checkoutUrl) {
+            redirecting = true;
+            window.location.href = data.checkoutUrl;
+            return;
+          }
+        }
+        // Fall through to legacy path if save didn't return a usable response.
+      } catch {
+        // Network error on save — try legacy path before surfacing an error.
+      }
+
+      // Fallback: legacy checkout endpoint. Keeps behaviour identical if the
+      // new save route is misconfigured or Shopify changed under us.
       const response = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, displayedTotal: total }),
       });
 
       const data = await response.json();
+
+      if (response.status === 409) {
+        await refreshPrices();
+        setError(data.error || 'Los precios se actualizaron. Revisa tu total y vuelve a continuar.');
+        return;
+      }
 
       if (!response.ok) {
         setError(data.error || 'Error al procesar el pago.');
         return;
       }
 
+      redirecting = true;
       window.location.href = data.checkoutUrl;
     } catch {
       setError('Error de conexión. Verifica tu internet e intenta de nuevo.');
     } finally {
-      setIsLoading(false);
-      setCheckoutInProgress(false);
+      // Reset only when we're NOT navigating away — a redirect must leave
+      // checkoutInProgress=true so the cart survives the trip to Shopify.
+      if (!redirecting) {
+        setIsLoading(false);
+        setCheckoutInProgress(false);
+      }
     }
   }
 

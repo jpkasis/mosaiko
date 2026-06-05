@@ -3,7 +3,9 @@
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from '@/i18n/navigation';
-import { useCartStore, selectCartTotal, selectCartCount } from '@/lib/cart-store';
+import { useCartStore, selectCartCount } from '@/lib/cart-store';
+import { usePriceMap } from '@/components/pricing/PricesProvider';
+import { cartLiveTotal } from '@/lib/cart-pricing';
 import { formatPrice } from '@/lib/grid-config';
 import { CartItem } from './CartItem';
 import { CheckoutButton } from './CheckoutButton';
@@ -11,7 +13,8 @@ import { CheckoutButton } from './CheckoutButton';
 export function CartPage() {
   const t = useTranslations('cart');
   const items = useCartStore((s) => s.items);
-  const total = useCartStore(selectCartTotal);
+  const priceMap = usePriceMap();
+  const total = cartLiveTotal(priceMap, items);
   const count = useCartStore(selectCartCount);
   const isEmpty = items.length === 0;
 

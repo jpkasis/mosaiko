@@ -25,6 +25,13 @@ import type { CartItem } from '@/lib/cart-store';
 import type { GridSize } from '@/lib/grid-config';
 import type { CategoryType } from '@/lib/customization-types';
 
+// PR-B: buildCartLines reads the live price matrix; mock empty so it falls
+// back to the legacy size-only variant map (these tests assert attribute
+// serialization, not pricing).
+vi.mock('@/lib/shopify/prices', () => ({
+  getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
+}));
+
 beforeEach(() => {
   vi.stubEnv(
     'SHOPIFY_VARIANT_MAP',
@@ -91,14 +98,14 @@ describe('Checkout cart attributes derive multi-photo flag from isMultiPhotoInpu
     } as CartItem;
   }
 
-  function attrKeys(item: CartItem): string[] {
-    const result = buildCartLines([item]);
+  async function attrKeys(item: CartItem): Promise<string[]> {
+    const result = await buildCartLines([item]);
     if (!Array.isArray(result)) throw new Error('buildCartLines returned an error');
     return (result[0].attributes ?? []).map((a) => a.key);
   }
 
-  test('STD-9 (single) → _photo_url + _crop_area; no _photo_urls', () => {
-    const keys = attrKeys(
+  test('STD-9 (single) → _photo_url + _crop_area; no _photo_urls', async () => {
+    const keys = await attrKeys(
       makeItem({
         gridSize: 9,
         customizations: {
@@ -114,8 +121,8 @@ describe('Checkout cart attributes derive multi-photo flag from isMultiPhotoInpu
     expect(keys).not.toContain('_photo_urls');
   });
 
-  test('STD-6 (single) → _photo_url + _crop_area; no _photo_urls', () => {
-    const keys = attrKeys(
+  test('STD-6 (single) → _photo_url + _crop_area; no _photo_urls', async () => {
+    const keys = await attrKeys(
       makeItem({
         gridSize: 6,
         gridLayout: { rows: 3, cols: 2 },
@@ -133,8 +140,8 @@ describe('Checkout cart attributes derive multi-photo flag from isMultiPhotoInpu
     expect(keys).not.toContain('_photo_urls');
   });
 
-  test('STD-3 (multi) → _photo_urls + _crop_areas + legacy _photo_url', () => {
-    const keys = attrKeys(
+  test('STD-3 (multi) → _photo_urls + _crop_areas + legacy _photo_url', async () => {
+    const keys = await attrKeys(
       makeItem({
         gridSize: 3,
         gridLayout: { rows: 3, cols: 1 },
@@ -160,8 +167,8 @@ describe('Checkout cart attributes derive multi-photo flag from isMultiPhotoInpu
     expect(keys).toContain('_photo_url');
   });
 
-  test('Tonos-9 (multi) → _photo_urls + _crop_areas + legacy _photo_url', () => {
-    const keys = attrKeys(
+  test('Tonos-9 (multi) → _photo_urls + _crop_areas + legacy _photo_url', async () => {
+    const keys = await attrKeys(
       makeItem({
         gridSize: 9,
         gridLayout: { rows: 3, cols: 3 },
@@ -185,8 +192,8 @@ describe('Checkout cart attributes derive multi-photo flag from isMultiPhotoInpu
     expect(keys).toContain('_crop_areas');
   });
 
-  test('Mosaicos-9 (single) → _photo_url; no _photo_urls', () => {
-    const keys = attrKeys(
+  test('Mosaicos-9 (single) → _photo_url; no _photo_urls', async () => {
+    const keys = await attrKeys(
       makeItem({
         gridSize: 9,
         gridLayout: { rows: 3, cols: 3 },

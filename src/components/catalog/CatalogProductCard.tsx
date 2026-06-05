@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { type CatalogProduct, CATEGORY_ACCENT, getCategoryI18nKey, formatPrice } from '@/lib/catalog-data';
 import { buildPersonalizarHref } from '@/lib/builder-href';
 import { isLayoutExample } from '@/lib/catalog-purchase-mode';
+import { usePrice } from '@/components/pricing/PricesProvider';
 
 interface CatalogProductCardProps {
   product: CatalogProduct;
@@ -16,6 +17,7 @@ export function CatalogProductCard({ product }: CatalogProductCardProps) {
   const accent = CATEGORY_ACCENT[product.category];
   const categoryLabel = t(getCategoryI18nKey(product.category));
   const layoutExample = isLayoutExample(product.category);
+  const livePrice = usePrice(product.category, product.gridSize);
 
   const detailHref = {
     pathname: '/catalogo/[productId]' as const,
@@ -63,7 +65,7 @@ export function CatalogProductCard({ product }: CatalogProductCardProps) {
       </h3>
       <div className="mt-1.5 flex items-baseline justify-between gap-2">
         <span className="text-base font-bold text-charcoal sm:text-lg">
-          {formatPrice(product.price)}
+          {formatPrice(livePrice)}
         </span>
         <span className="text-[11px] text-warm-gray sm:text-xs">
           {t('pieces', { count: product.pieces })}

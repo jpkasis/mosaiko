@@ -7,6 +7,8 @@ import { Link } from '@/i18n/navigation';
 import { useCartStore, type CartItem as CartItemType } from '@/lib/cart-store';
 import { formatPrice } from '@/lib/grid-config';
 import { CATEGORY_REGISTRY } from '@/lib/customization-types';
+import { usePriceMap } from '@/components/pricing/PricesProvider';
+import { cartItemUnitPrice } from '@/lib/cart-pricing';
 import { CustomizationSummary } from './CustomizationSummary';
 
 interface CartItemProps {
@@ -19,6 +21,7 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
   const closeDrawer = useCartStore((s) => s.closeDrawer);
+  const priceMap = usePriceMap();
   const [imgFailed, setImgFailed] = useState(false);
 
   // Bigger thumbnail on mobile for the drawer variant (compact) so the
@@ -175,7 +178,7 @@ export function CartItem({ item, size = 'compact' }: CartItemProps) {
 
           {/* Price */}
           <p className="text-sm font-semibold text-charcoal">
-            {formatPrice(item.price * item.quantity)}
+            {formatPrice(cartItemUnitPrice(priceMap, item) * item.quantity)}
           </p>
         </div>
       </div>

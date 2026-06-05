@@ -3,7 +3,9 @@
 import { AnimatePresence } from 'framer-motion';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { useCartStore, selectCartTotal, selectCartCount } from '@/lib/cart-store';
+import { useCartStore, selectCartCount } from '@/lib/cart-store';
+import { usePriceMap } from '@/components/pricing/PricesProvider';
+import { cartLiveTotal } from '@/lib/cart-pricing';
 import { formatPrice } from '@/lib/grid-config';
 import { Overlay, OverlayTitle } from '@/components/ui/Overlay';
 import { CartItem } from './CartItem';
@@ -14,7 +16,8 @@ export function CartDrawer() {
   const isOpen = useCartStore((s) => s.isDrawerOpen);
   const closeDrawer = useCartStore((s) => s.closeDrawer);
   const items = useCartStore((s) => s.items);
-  const total = useCartStore(selectCartTotal);
+  const priceMap = usePriceMap();
+  const total = cartLiveTotal(priceMap, items);
   const count = useCartStore(selectCartCount);
 
   const isEmpty = items.length === 0;

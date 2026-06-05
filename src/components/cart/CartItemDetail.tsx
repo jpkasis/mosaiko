@@ -8,6 +8,8 @@ import { useCartStore } from '@/lib/cart-store';
 import { CATEGORY_REGISTRY, type CategoryType } from '@/lib/customization-types';
 import { CATEGORY_ACCENT } from '@/lib/catalog-data';
 import { formatPrice, getEffectiveGridConfig } from '@/lib/grid-config';
+import { usePriceMap } from '@/components/pricing/PricesProvider';
+import { cartItemUnitPrice } from '@/lib/cart-pricing';
 import { TileGrid } from '@/components/preview/TileGrid';
 import { CustomizationSummary } from './CustomizationSummary';
 
@@ -45,6 +47,7 @@ interface CartItemDetailProps {
  */
 export function CartItemDetail({ itemId }: CartItemDetailProps) {
   const t = useTranslations('cart');
+  const priceMap = usePriceMap();
   const router = useRouter();
   const items = useCartStore((s) => s.items);
   const removeItem = useCartStore((s) => s.removeItem);
@@ -229,7 +232,7 @@ export function CartItemDetail({ itemId }: CartItemDetailProps) {
               )}
             </div>
             <span className="text-xl font-bold text-charcoal">
-              {formatPrice(item.price * item.quantity)}
+              {formatPrice(cartItemUnitPrice(priceMap, item) * item.quantity)}
             </span>
           </div>
 

@@ -10,7 +10,7 @@
  * reconciles authoritatively via cartStatus.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, waitFor, screen } from '@testing-library/react';
+import { render, fireEvent, waitFor, screen, cleanup } from '@testing-library/react';
 import React from 'react';
 
 // jsdom doesn't expose window.localStorage in this project's setup.
@@ -99,6 +99,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Unmount between tests so `screen` doesn't see a prior render's button (the
+  // redirect test intentionally leaves its button in the loading state).
+  cleanup();
   Object.defineProperty(window, 'location', {
     configurable: true,
     value: originalLocation,
@@ -122,6 +125,37 @@ describe('CheckoutButton', () => {
     await waitFor(() => expect(mockHref).toBe('https://shop.example/checkout/x'));
 
     expect(useCartStore.getState().checkoutInProgress).toBe(true);
+    expect(useCartStore.getState().items).toHaveLength(1); // cart preserved
+    expect(clearCartSpy).not.toHaveBeenCalled();
+  });
+
+  test('409 PRICES_CHANGED → button re-enables (not stuck), no redirect, cart preserved', async () => {
+    // PR-B Codex 3rd-audit MAJOR: a price-drift 409 used to return before any
+    // state reset, leaving the button stuck disabled. It must re-enable so the
+    // customer can re-confirm the new total. (No PricesProvider here, so
+    // refreshPrices is the context default no-op — one fetch, the 409.)
+    const clearCartSpy = vi.spyOn(useCartStore.getState(), 'clearCart');
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: 'Los precios se actualizaron.',
+          code: 'PRICES_CHANGED',
+          total: 480,
+        }),
+        { status: 409 },
+      ),
+    ) as unknown as typeof fetch;
+
+    render(<CheckoutButton />);
+    fireEvent.click(screen.getByRole('button'));
+
+    await waitFor(() =>
+      expect(screen.getByText('Los precios se actualizaron.')).toBeTruthy(),
+    );
+
+    expect(useCartStore.getState().checkoutInProgress).toBe(false); // not stuck
+    expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(false);
+    expect(mockHref).toBe(''); // never redirected
     expect(useCartStore.getState().items).toHaveLength(1); // cart preserved
     expect(clearCartSpy).not.toHaveBeenCalled();
   });

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createCart } from '@/lib/shopify/mutations/cart';
-import { buildCartLines } from '@/lib/shopify/checkout';
+import { buildCartLines, assertCartTotalMatchesDisplay } from '@/lib/shopify/checkout';
 import {
   CART_COOKIE,
   CART_COOKIE_OPTIONS,
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 204 });
   }
 
-  const linesOrError = buildCartLines(items);
+  const linesOrError = await buildCartLines(items);
   if (!Array.isArray(linesOrError)) {
     return NextResponse.json(linesOrError, { status: 503 });
   }
@@ -94,6 +94,27 @@ export async function POST(request: Request) {
       value: cart.id,
       ...CART_COOKIE_OPTIONS,
     });
+
+    const displayedTotal = (body as { displayedTotal?: number }).displayedTotal;
+
+    // Persistence-only beacon (no displayedTotal): cart saved above, but no
+    // redirect URL handed back, so a stale client can't act on it at an
+    // unverified price.
+    if (displayedTotal == null || !Number.isFinite(displayedTotal)) {
+      return NextResponse.json({ cartId: cart.id });
+    }
+
+    // Interactive checkout: only hand back a redirect URL when the price the
+    // customer SAW matches what Shopify will actually charge — the created
+    // cart's REAL subtotal (amount + MXN currency), not a separately-read price
+    // map. Otherwise 409 (drift) / 502 (untrustworthy total), never a stale URL.
+    const gate = assertCartTotalMatchesDisplay(cart.cost.subtotalAmount, displayedTotal);
+    if (gate) {
+      return NextResponse.json(
+        { error: gate.message, code: gate.code, total: gate.total },
+        { status: gate.status },
+      );
+    }
 
     return NextResponse.json({
       cartId: cart.id,
