@@ -4,7 +4,7 @@ import { createCart } from '@/lib/shopify/mutations/cart';
 import {
   buildCartLines,
   assertCartTotalMatchesDisplay,
-  assertCartSubtotalMeetsMinimum,
+  assertItemsMeetMinimum,
 } from '@/lib/shopify/checkout';
 import {
   CART_COOKIE,
@@ -68,6 +68,24 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 204 });
   }
 
+  // PR-C (Codex full-audit BLOCKER fix): enforce the minimum BEFORE creating
+  // any Shopify cart, so a below-minimum cart — whose checkoutUrl the public
+  // Storefront token could otherwise reach — never comes into existence. This
+  // also covers the pagehide beacon: a below-min cart simply isn't persisted to
+  // Shopify (the local Zustand/localStorage cart still survives for restore).
+  const minBlock = await assertItemsMeetMinimum(items);
+  if (minBlock) {
+    return NextResponse.json(
+      {
+        error: minBlock.message,
+        code: minBlock.code,
+        minimum: minBlock.minimum,
+        total: minBlock.total,
+      },
+      { status: minBlock.status },
+    );
+  }
+
   const linesOrError = await buildCartLines(items);
   if (!Array.isArray(linesOrError)) {
     return NextResponse.json(linesOrError, { status: 503 });
@@ -117,20 +135,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: gate.message, code: gate.code, total: gate.total },
         { status: gate.status },
-      );
-    }
-
-    // PR-C: a lone single-tile order can't reach checkout (minimum order).
-    const minBlock = await assertCartSubtotalMeetsMinimum(cart.cost.subtotalAmount);
-    if (minBlock) {
-      return NextResponse.json(
-        {
-          error: minBlock.message,
-          code: minBlock.code,
-          minimum: minBlock.minimum,
-          total: minBlock.total,
-        },
-        { status: minBlock.status },
       );
     }
 

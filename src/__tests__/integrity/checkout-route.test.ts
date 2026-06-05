@@ -24,12 +24,14 @@ vi.mock('@/lib/shopify/checkout', async (importOriginal) => {
 
 // Real checkout module (loaded above) imports prices.ts → `server-only`
 // (absent in this env). Mock prices so only the pieces checkout.ts imports
-// exist; createCheckout is stubbed anyway. getCheapestStandardPrice feeds the
-// PR-C minimum-order gate — controllable per test.
+// exist; createCheckout is stubbed anyway. getCheapestStandardPrice +
+// getDisplayPriceMap feed the PR-C minimum-order gate (now computed pre-create
+// from the items) — controllable per test.
 const mockCheapestStandard = vi.fn(async (): Promise<number | null> => 1);
 vi.mock('@/lib/shopify/prices', () => ({
   getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
   getCheapestStandardPrice: () => mockCheapestStandard(),
+  getDisplayPriceMap: async () => ({}),
 }));
 
 function makeRequest(body: unknown): NextRequest {
@@ -41,6 +43,25 @@ function makeRequest(body: unknown): NextRequest {
 }
 
 const ITEMS = [{ id: 'a', name: 'Item', price: 480, quantity: 1, type: 'custom' }];
+// A lone single tile — cartLiveTotal prices it at GRID_CONFIGS[1] = $67.
+const SINGLE_TILE = [
+  {
+    id: 's',
+    name: '1 pieza',
+    price: 67,
+    quantity: 1,
+    type: 'custom',
+    gridSize: 1,
+    gridLayout: { rows: 1, cols: 1 },
+    previewUrl: '',
+    tileUrls: [],
+    customizations: {
+      categoryType: 'mosaicos',
+      photoStorageUrl: 'https://cdn.shopify.com/p.jpg',
+      cropArea: { x: 0, y: 0, width: 1, height: 1 },
+    },
+  },
+];
 
 beforeEach(() => {
   mockCreateCheckout.mockReset();
@@ -100,20 +121,17 @@ describe('POST /api/checkout', () => {
     expect(body.checkoutUrl).toBeUndefined();
   });
 
-  test('PR-C: cart under minimum order → 422 MINIMUM_ORDER_NOT_MET, NO checkoutUrl', async () => {
+  test('PR-C: under minimum → 422 BEFORE any cart is created (createCheckout NOT called)', async () => {
     mockCheapestStandard.mockResolvedValue(200); // cheapest standard mosaic
-    mockCreateCheckout.mockResolvedValue({
-      checkoutUrl: 'https://shop.example/checkout/x',
-      cartId: 'gid://shopify/Cart/x',
-      subtotal: { amount: '67', currencyCode: 'MXN' }, // a lone single tile
-    });
     const { POST } = await import('@/app/api/checkout/route');
-    const res = await POST(makeRequest({ items: ITEMS, displayedTotal: 67 }));
+    const res = await POST(makeRequest({ items: SINGLE_TILE, displayedTotal: 67 }));
     expect(res.status).toBe(422);
     const body = await res.json();
     expect(body.code).toBe('MINIMUM_ORDER_NOT_MET');
     expect(body.minimum).toBe(200);
-    expect(body.total).toBe(67);
+    expect(body.total).toBe(67); // priced from the trusted server map, not the client
     expect(body.checkoutUrl).toBeUndefined();
+    // BLOCKER fix: the gate runs before createCheckout → no Shopify cart exists.
+    expect(mockCreateCheckout).not.toHaveBeenCalled();
   });
 });

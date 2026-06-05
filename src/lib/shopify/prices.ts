@@ -145,6 +145,11 @@ const fetchShopifyMatrixCached = unstable_cache(fetchShopifyMatrix, ['shopify-pr
 function seedMatrix(): PriceMatrix {
   const matrix: PriceMatrix = {};
   for (const { category, gridSize } of PRICING_COMBOS) {
+    // The seed is the LEGACY-world fallback (used pre-publish or during a v2
+    // outage). The single tile (gridSize 1) is a v2-only product — the legacy
+    // size-only variants have no 1-piece — so omit it here, otherwise the UI
+    // would offer a $67 tile that can't check out (Codex full audit).
+    if (gridSize === 1) continue;
     const price = GRID_CONFIGS[gridSize]?.price;
     if (price == null) continue;
     (matrix[category] ??= {})[gridSize] = {

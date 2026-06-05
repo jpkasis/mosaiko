@@ -1,7 +1,9 @@
 import { createCart, addToCart } from './mutations/cart';
 import { getVariantId, isVariantMapConfigured } from './variant-map';
-import { getPricingForCheckout, getCheapestStandardPrice } from './prices';
-import { formatPrice } from '../grid-config';
+import { getPricingForCheckout, getCheapestStandardPrice, getDisplayPriceMap } from './prices';
+import { formatPrice, type GridSize } from '../grid-config';
+import { cartLiveTotal } from '../cart-pricing';
+import { PRICING_COMBOS } from './pricing-options';
 import { toPrintCustomization } from './customization-serializer';
 import { isPurchasableAsIs } from '../catalog-purchase-mode';
 import { getProductById } from '../catalog-data';
@@ -15,6 +17,14 @@ import type { CartItem } from '../cart-store';
 // The consent gate requires the cart's currency to match this — a numeric
 // total in any other currency must never pass (e.g. 480 USD ≠ 480 MXN).
 const STORE_CURRENCY = 'MXN';
+
+// Money-safety (Codex audit): the set of (category, gridSize) pairs that map to
+// a real priced variant. A cart line outside this set must never charge — it
+// would otherwise let the legacy size-only fallback charge a mismatched-size
+// variant for a category that doesn't allow that size.
+const VALID_COMBOS = new Set(
+  PRICING_COMBOS.map((c) => `${c.category}:${c.gridSize}`),
+);
 
 // ─── Checkout orchestration ─────────────────────────────────────────────────
 
@@ -111,32 +121,39 @@ export interface MinimumOrderBlock {
 }
 
 /**
- * PR-C minimum-order gate. A lone single-tile Mosaico (~$67) can't be ordered
- * by itself — the cart subtotal must reach the cheapest STANDARD (non-single-
- * tile) price, the 3-piece (~$200). `getCheapestStandardPrice()` reads it live
- * so it tracks admin edits, and we compare against the REAL Shopify cart
- * subtotal (what will actually be charged).
+ * PR-C minimum-order gate (Codex full-audit BLOCKER fix). A lone single-tile
+ * Mosaico (~$67) can't be ordered by itself — the cart total must reach the
+ * cheapest STANDARD (non-single-tile) price, the 3-piece (~$200).
  *
- * Returns a MINIMUM_ORDER_NOT_MET block (422) when under, else null. Also null
- * when the minimum can't be determined or the subtotal is untrustworthy —
- * `assertCartTotalMatchesDisplay` already fails closed on those, so this gate
- * stays focused on the business rule.
+ * Runs from the ITEM LIST against the trusted server display map
+ * (`cartLiveTotal(getDisplayPriceMap(), items)`) — the prices come from the
+ * server, not the client, so the total can't be faked. Crucially it is checked
+ * BEFORE any Shopify cart is created, so a below-minimum cart (whose
+ * `checkoutUrl` the public Storefront token could otherwise reach) never comes
+ * into existence — closing the beacon/persistence bypass.
  *
- * Enforcement boundary (Codex PR-C audit): this runs on the Mosaiko app routes
- * (the only real purchase path — a cart is meaningless without the uploaded
- * photo + customization). A hostile client hitting Shopify's Storefront API
- * directly to buy a bare variant could skip it, but that yields an
- * unfulfillable order (no print data), so it's accepted as out of scope. If
- * direct-Storefront abuse ever appears, add a Shopify cart/checkout validation
- * Function as the server-of-record gate.
+ * Returns a MINIMUM_ORDER_NOT_MET block (422) when under, else null (also null
+ * when no standard price is known). `getCheapestStandardPrice()` excludes size
+ * ≤ 1 so the single tile can't lower its own floor.
+ *
+ * The rule is intentionally VALUE-based, NOT cart-shape based (client decision
+ * 2026-06-05): the gate is purely "order value ≥ cheapest standard". Now that
+ * the single-tile price is freely editable, a lone single tile priced AT OR
+ * ABOVE the floor may legitimately check out by itself — that's accepted.
+ *
+ * Enforcement boundary: a direct Storefront `cartCreate` of a bare variant (no
+ * customization → unfulfillable) is still possible; the airtight server-of-
+ * record gate would be a Shopify Cart/Checkout Validation Function (future).
  */
-export async function assertCartSubtotalMeetsMinimum(
-  cartSubtotal: ShopifyMoney | undefined,
+export async function assertItemsMeetMinimum(
+  items: CartItem[],
 ): Promise<MinimumOrderBlock | null> {
-  const minimum = await getCheapestStandardPrice();
+  const [map, minimum] = await Promise.all([
+    getDisplayPriceMap(),
+    getCheapestStandardPrice(),
+  ]);
   if (minimum == null) return null;
-  const total = cartSubtotal ? Number(cartSubtotal.amount) : NaN;
-  if (!Number.isFinite(total)) return null;
+  const total = cartLiveTotal(map, items);
   if (Math.round(total * 100) >= Math.round(minimum * 100)) return null;
   return {
     code: 'MINIMUM_ORDER_NOT_MET',
@@ -202,6 +219,10 @@ export async function buildCartLines(
     // the trusted catalog (never the client); for custom lines from the
     // customization.
     let category: CategoryType | null = null;
+    // Size that drives pricing / variant selection. For predesigned lines it
+    // comes from the TRUSTED catalog product (never the client item); for
+    // custom lines, from the item.
+    let effectiveGridSize: GridSize = item.gridSize;
 
     if (item.type === 'predesigned') {
       if (!item.productId) {
@@ -224,8 +245,22 @@ export async function buildCartLines(
         };
       }
       category = trustedProduct.category as CategoryType;
+      // Trust the catalog's grid size, not the client's (Codex full audit).
+      effectiveGridSize = trustedProduct.gridSize;
     } else if (item.customizations) {
       category = item.customizations.categoryType;
+    }
+
+    // Money-safety (Codex full audit): the (category, size) must be a real
+    // priced combo. Reject otherwise — without this, the legacy size-only
+    // fallback would charge a mismatched-size variant for a category that
+    // doesn't allow that size (e.g. a crafted studio/3 line charging the
+    // 3-piece price for a 6-piece print).
+    if (category && !VALID_COMBOS.has(`${category}:${effectiveGridSize}`)) {
+      return {
+        code: 'VARIANT_NOT_FOUND',
+        message: `No se encontró variante para ${category} (${effectiveGridSize} piezas).`,
+      };
     }
 
     // PR-B (Codex audit — fail closed): charge the per-(category, size) v2
@@ -233,12 +268,12 @@ export async function buildCartLines(
     // ONLY when we positively confirmed the product isn't migrated yet. If the
     // product IS live but this combo is missing/unavailable, leave variantId
     // null → error below, rather than silently charging the legacy size price.
-    const cell = category ? pricing.matrix[category]?.[item.gridSize] : undefined;
+    const cell = category ? pricing.matrix[category]?.[effectiveGridSize] : undefined;
     let variantId: string | null = null;
     if (cell?.variantId && cell.availableForSale) {
       variantId = cell.variantId;
     } else if (!pricing.migrated) {
-      variantId = getVariantId(item.gridSize);
+      variantId = getVariantId(effectiveGridSize);
     }
 
     if (!variantId) {

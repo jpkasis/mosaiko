@@ -31,7 +31,11 @@ export function cartItemCategory(item: CartItem): CategoryType | null {
 export function cartItemUnitPrice(map: DisplayPriceMap, item: CartItem): number {
   const category = cartItemCategory(item);
   const live = category ? map[category]?.[item.gridSize] : undefined;
-  return live ?? GRID_CONFIGS[item.gridSize]?.price ?? item.price;
+  if (live != null) return live;
+  // The single tile (size 1) is v2-only with a freely-set price — never
+  // synthesize a GRID_CONFIGS default for it; use the stored add-time price.
+  if (item.gridSize === 1) return item.price;
+  return GRID_CONFIGS[item.gridSize]?.price ?? item.price;
 }
 
 /** Cart total at live prices (× quantity). */

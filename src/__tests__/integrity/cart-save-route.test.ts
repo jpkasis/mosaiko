@@ -41,11 +41,13 @@ vi.mock('@/lib/shopify/checkout', async (importOriginal) => {
 // Loading the real checkout module above pulls in prices.ts, which imports
 // `server-only` (absent in this env). Mock prices so the pieces checkout.ts
 // imports are present — buildCartLines is stubbed anyway.
-// getCheapestStandardPrice feeds the PR-C minimum-order gate (controllable).
+// getCheapestStandardPrice + getDisplayPriceMap feed the PR-C minimum gate,
+// now computed pre-create from the items (controllable).
 const mockCheapestStandard = vi.fn(async (): Promise<number | null> => 1);
 vi.mock('@/lib/shopify/prices', () => ({
   getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
   getCheapestStandardPrice: () => mockCheapestStandard(),
+  getDisplayPriceMap: async () => ({}),
 }));
 
 function makeRequest(body: unknown): Request {
@@ -177,16 +179,8 @@ describe('POST /api/cart/save', () => {
     expect(body.checkoutUrl).toBeUndefined();
   });
 
-  test('PR-C: under minimum order → 422 MINIMUM_ORDER_NOT_MET, NO checkoutUrl', async () => {
+  test('PR-C: under minimum → 422 BEFORE any cart is created (no createCart, no cookie)', async () => {
     mockCheapestStandard.mockResolvedValue(200);
-    mockBuildCartLines.mockReturnValue([
-      { merchandiseId: 'gid://shopify/ProductVariant/100', quantity: 1 },
-    ]);
-    mockCreateCart.mockResolvedValue({
-      id: 'gid://shopify/Cart/new',
-      checkoutUrl: 'https://shop.example/checkout/123',
-      cost: { subtotalAmount: { amount: '67', currencyCode: 'MXN' } }, // lone single tile
-    });
 
     const items = [{ id: 'a', name: 'Item', price: 67, quantity: 1, type: 'custom' }];
     const { POST } = await import('@/app/api/cart/save/route');
@@ -196,7 +190,9 @@ describe('POST /api/cart/save', () => {
     expect(body.code).toBe('MINIMUM_ORDER_NOT_MET');
     expect(body.minimum).toBe(200);
     expect(body.checkoutUrl).toBeUndefined();
-    // The cart was still persisted (cookie set) so adding more items works.
-    expect(mockSet).toHaveBeenCalledTimes(1);
+    // BLOCKER fix: no below-minimum Shopify cart is created (so its checkoutUrl
+    // can't be reached). The local Zustand/localStorage cart still survives.
+    expect(mockCreateCart).not.toHaveBeenCalled();
+    expect(mockSet).not.toHaveBeenCalled();
   });
 });

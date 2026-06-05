@@ -12,10 +12,10 @@ export interface GridConfig {
 }
 
 /**
- * PR-C — the single-tile (1 pieza) price is DERIVED from the Mosaicos 3-piece
- * price: ⌈price₃ ÷ 3⌉ to whole pesos. This is the ONE place the formula lives;
- * the admin price editor uses it to keep the Shopify `mosaicos:1` variant in
- * sync whenever the 3-piece price changes, and the seed below uses it too.
+ * PR-C — DEFAULT starting price for the single tile (1 pieza): ⌈price₃ ÷ 3⌉ to
+ * whole pesos. This is ONLY the seed / migration default — the single tile is a
+ * normal, freely-editable price (the client can set it to whatever he wants in
+ * the admin Precios editor). It is NOT auto-derived at runtime.
  */
 export function singleTilePriceFrom(threePiecePrice: number): number {
   return Math.ceil(threePiecePrice / 3);
@@ -27,8 +27,8 @@ export const GRID_CONFIGS: Record<GridSize, GridConfig> = {
     rows: 1,
     cols: 1,
     aspect: 1 / 1,
-    // Seed/fallback only — the live price comes from Shopify, derived from the
-    // editable 3-piece price (200) via singleTilePriceFrom → 67.
+    // Default starting price only — the live price comes from Shopify and is
+    // freely editable. Seeds at ⅓ of the 3-piece (200) → 67.
     price: singleTilePriceFrom(200),
     label: 'grid1',
   },

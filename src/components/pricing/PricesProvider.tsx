@@ -69,20 +69,42 @@ export function usePriceMap(): DisplayPriceMap {
   return useContext(PricesContext);
 }
 
-/** Live price for (category, size); legacy size-based grid-config fallback. */
+/**
+ * Whether a (category, size) is OFFERABLE. Standard sizes are always offerable
+ * (they fall back to the legacy `GRID_CONFIGS` price). The single tile (size 1)
+ * is a v2-only product with no legacy variant, so it's offerable ONLY when the
+ * live map actually carries its price — otherwise (pre-publish / v2 outage) it
+ * must not be shown or priced, or the builder would offer a dead $67 option
+ * that can't check out (Codex full audit).
+ */
+export function isGridAvailable(
+  map: DisplayPriceMap,
+  category: CategoryType | null | undefined,
+  gridSize: GridSize,
+): boolean {
+  const live = category ? map[category]?.[gridSize] : undefined;
+  if (live != null) return true;
+  return gridSize !== 1; // everything but the single tile has a legacy fallback
+}
+
+/** Live price for (category, size); legacy size-based grid-config fallback —
+ *  except the v2-only single tile, which has no legacy/seed price. */
 export function priceFor(
   map: DisplayPriceMap,
   category: CategoryType | null | undefined,
   gridSize: GridSize,
 ): number {
   const live = category ? map[category]?.[gridSize] : undefined;
-  return live ?? GRID_CONFIGS[gridSize]?.price ?? 0;
+  if (live != null) return live;
+  if (gridSize === 1) return 0; // single tile is v2-only — never synthesize it
+  return GRID_CONFIGS[gridSize]?.price ?? 0;
 }
 
-/** Cheapest price across a category's allowed sizes (for "desde $X"). */
+/** Cheapest OFFERABLE price across a category's allowed sizes (for "desde $X"). */
 export function categoryMinPrice(map: DisplayPriceMap, category: CategoryType): number {
   let min = Infinity;
   for (const size of CATEGORY_REGISTRY[category].allowedGridSizes) {
+    if (!isGridAvailable(map, category, size as GridSize)) continue;
     const price = priceFor(map, category, size as GridSize);
     if (price > 0 && price < min) min = price;
   }

@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { GRID_CONFIGS, formatPrice, type GridSize } from '@/lib/grid-config';
 import type { CategoryType } from '@/lib/customization-types';
-import { usePriceMap, priceFor } from '@/components/pricing/PricesProvider';
+import { usePriceMap, priceFor, isGridAvailable } from '@/components/pricing/PricesProvider';
 
 interface GridSelectorProps {
   onSelect: (grid: GridSize) => void;
@@ -85,8 +85,13 @@ const cardVariants = {
 
 export function GridSelector({ onSelect, selected, allowedSizes, category }: GridSelectorProps) {
   const t = useTranslations('builder');
-  const options = allowedSizes ?? GRID_OPTIONS;
   const priceMap = usePriceMap();
+  // Hide sizes that aren't offerable — notably the v2-only single tile when its
+  // live price is absent (pre-publish / v2 outage), so we never show a dead
+  // option that can't check out (Codex full audit).
+  const options = (allowedSizes ?? GRID_OPTIONS).filter((size) =>
+    isGridAvailable(priceMap, category, size),
+  );
 
   return (
     <div className="flex flex-col gap-6">

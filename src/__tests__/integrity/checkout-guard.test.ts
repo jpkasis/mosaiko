@@ -130,10 +130,14 @@ describe('buildCartLines — predesigned guard', () => {
     expect(result.code).toBe('LAYOUT_EXAMPLE_NOT_PURCHASABLE');
   });
 
-  test('passes through a custom-type cart line regardless of category', async () => {
+  test('passes through a custom-type cart line (valid category+size combo)', async () => {
+    // Custom lines aren't subject to the predesigned catalog guard, but the
+    // (category, size) must still be a real combo (Codex full audit): polaroid
+    // is a 4-piece category, so the line uses gridSize 4.
     const item: CartItem = {
       ...makePredesignedItem('pol-1'),
       type: 'custom',
+      gridSize: 4,
       customizations: {
         categoryType: 'polaroid',
         photoStorageUrl: 'https://cdn.example.com/photo.png',

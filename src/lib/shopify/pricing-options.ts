@@ -92,8 +92,9 @@ export const SEED_PRICE_MATRIX: Record<
   CategoryType,
   Partial<Record<GridSize, number>>
 > = {
-  // PR-C: 1 (single tile) is DERIVED — GRID_CONFIGS[1].price = ⌈200/3⌉ = 67.
-  // The live value is kept in sync in Shopify by the admin save (derive-on-save).
+  // PR-C: 1 (single tile) DEFAULTS to GRID_CONFIGS[1].price = ⌈200/3⌉ = 67 (the
+  // seed / migration default); the client edits it freely afterwards like any
+  // other price — it is NOT kept in sync with the 3-piece.
   mosaicos: { 1: GRID_CONFIGS[1].price, 3: 200, 6: 360, 9: 480 },
   studio: { 6: 480 },
   arte: { 9: 480 },

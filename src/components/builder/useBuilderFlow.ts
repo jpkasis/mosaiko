@@ -7,6 +7,7 @@ import {
 } from '@/lib/customization-types';
 import { CATEGORY_LAYOUTS } from '@/lib/category-layouts';
 import type { CropArea } from '@/lib/canvas-utils';
+import { usePriceMap, isGridAvailable } from '@/components/pricing/PricesProvider';
 
 // ─── Step system ────────────────────────────────────────────────────────────
 
@@ -205,6 +206,7 @@ function emptyTuple<T>(value: T): [T, T, T] {
 
 export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
   const { initialCategory = null, initialGrid = null } = options ?? {};
+  const priceMap = usePriceMap();
 
   const initState = useMemo(() => {
     if (!initialCategory || !CATEGORY_REGISTRY[initialCategory]) {
@@ -215,7 +217,15 @@ export function useBuilderFlow(options?: BuilderFlowOptions): BuilderFlowState {
     const steps = getStepsForCategory(initialCategory);
 
     let grid: GridSize | null = null;
-    if (initialGrid && meta.allowedGridSizes.includes(initialGrid)) {
+    // Honor a deep-linked ?grid= only when it's allowed AND offerable — the
+    // v2-only single tile (size 1) must not be deep-linked into during a
+    // pre-publish / v2 outage (Codex audit), or the builder would start at a
+    // dead $0 item; fall through to the grid step instead.
+    if (
+      initialGrid &&
+      meta.allowedGridSizes.includes(initialGrid) &&
+      isGridAvailable(priceMap, initialCategory, initialGrid)
+    ) {
       grid = initialGrid;
     } else if (meta.allowedGridSizes.length === 1) {
       grid = meta.allowedGridSizes[0];

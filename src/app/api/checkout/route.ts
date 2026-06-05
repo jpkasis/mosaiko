@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   createCheckout,
   assertCartTotalMatchesDisplay,
-  assertCartSubtotalMeetsMinimum,
+  assertItemsMeetMinimum,
 } from '@/lib/shopify/checkout';
 import type { CartItem } from '@/lib/cart-store';
 
@@ -38,6 +38,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // PR-C (Codex full-audit BLOCKER fix): enforce the minimum order BEFORE
+    // creating any Shopify cart, so a below-minimum cart never exists.
+    const minBlock = await assertItemsMeetMinimum(items);
+    if (minBlock) {
+      return NextResponse.json(
+        {
+          error: minBlock.message,
+          code: minBlock.code,
+          minimum: minBlock.minimum,
+          total: minBlock.total,
+        },
+        { status: minBlock.status },
+      );
+    }
+
     const result = await createCheckout(items);
 
     // Check if result is an error
@@ -65,20 +80,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: gate.message, code: gate.code, total: gate.total },
         { status: gate.status },
-      );
-    }
-
-    // PR-C: enforce the minimum order (a lone single tile can't check out).
-    const minBlock = await assertCartSubtotalMeetsMinimum(result.subtotal);
-    if (minBlock) {
-      return NextResponse.json(
-        {
-          error: minBlock.message,
-          code: minBlock.code,
-          minimum: minBlock.minimum,
-          total: minBlock.total,
-        },
-        { status: minBlock.status },
       );
     }
 

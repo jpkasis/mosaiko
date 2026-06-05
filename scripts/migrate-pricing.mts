@@ -10,11 +10,12 @@
  * Idempotent + UPSERT (PR-C): productSet is declarative and matches variants by
  * their option-value pair, so re-running RECONCILES the product to the full set
  * of `PRICING_COMBOS`. Existing variants keep their CURRENT live prices (read
- * back first), and any newly-added combo — e.g. the single-tile `mosaicos:1`
- * introduced in PR-C — is created. mosaicos:1 is priced from the LIVE 3-piece
- * (singleTilePriceFrom) so it lands at ⅓ of whatever the client has set, not a
- * stale seed. The old size-only variants live on a different product and are
- * untouched (order history references them).
+ * back first) — including the freely-editable single tile, so a re-run NEVER
+ * clobbers a price the client set. Any newly-added combo (e.g. a brand-new
+ * `mosaicos:1`) gets a sensible DEFAULT: the single tile defaults to ⅓ of the
+ * 3-piece (`singleTilePriceFrom`), all others to the seed. The old size-only
+ * variants live on a different product and are untouched (order history
+ * references them).
  *
  * Run: `npx tsx scripts/migrate-pricing.mts`
  */
@@ -150,19 +151,22 @@ async function main(): Promise<void> {
     console.log('◇ Product does not exist; creating fresh.');
   }
 
-  // The single tile derives from the LIVE 3-piece; every other combo keeps its
-  // current live price, falling back to the seed for a brand-new combo.
+  // Every combo keeps its current live price (so re-running NEVER clobbers a
+  // price the client set — including the freely-editable single tile). Only a
+  // brand-new combo gets a default: the single tile defaults to ⅓ of the
+  // 3-piece (a sensible starting point the client can change afterwards); all
+  // others to the seed.
   function priceForCombo(category: CategoryType, gridSize: GridSize): number {
+    const live = currentPrice.get(`${category}:${gridSize}`);
+    if (live != null) return live;
     if (category === 'mosaicos' && gridSize === 1) {
       const three = currentPrice.get('mosaicos:3') ?? SEED_PRICE_MATRIX.mosaicos[3];
       if (three == null) {
-        console.error('✗ No 3-piece price to derive the single tile from; aborting.');
+        console.error('✗ No 3-piece price to default the single tile from; aborting.');
         process.exit(1);
       }
       return singleTilePriceFrom(three);
     }
-    const live = currentPrice.get(`${category}:${gridSize}`);
-    if (live != null) return live;
     const seed = SEED_PRICE_MATRIX[category]?.[gridSize];
     if (seed == null) {
       console.error(`✗ No seed price for ${category} ${gridSize}; aborting.`);

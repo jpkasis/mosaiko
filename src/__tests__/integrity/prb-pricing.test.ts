@@ -105,6 +105,25 @@ describe('PR-B checkout pricing — fail closed', () => {
     if (!Array.isArray(result)) return;
     expect(result[0].merchandiseId).toBe('gid://shopify/ProductVariant/legacy6');
   });
+
+  test('invalid (category, size) combo → VARIANT_NOT_FOUND when MIGRATED', async () => {
+    // studio only allows 6 piezas; studio:3 is not a real combo.
+    mockPricing.mockResolvedValue({ migrated: true, matrix: {} });
+    const result = await buildCartLines([customItem('studio', 3)]);
+    expect(Array.isArray(result)).toBe(false);
+    if (Array.isArray(result)) return;
+    expect(result.code).toBe('VARIANT_NOT_FOUND');
+  });
+
+  test('invalid combo is rejected even in the LEGACY fallback (not migrated)', async () => {
+    // Codex full audit: without the combo guard, the size-only fallback would
+    // charge the legacy 3-piece price for a studio (6-piece) print. Fail closed.
+    mockPricing.mockResolvedValue({ migrated: false, matrix: {} });
+    const result = await buildCartLines([customItem('studio', 3)]);
+    expect(Array.isArray(result)).toBe(false);
+    if (Array.isArray(result)) return;
+    expect(result.code).toBe('VARIANT_NOT_FOUND');
+  });
 });
 
 describe('PR-B cart repricing', () => {
