@@ -9,6 +9,19 @@ export interface AdminOrder {
   createdAt: string;
   displayFinancialStatus: string;
   displayFulfillmentStatus: string;
+  /** ISO timestamp set by Shopify when the order is cancelled, else null. */
+  cancelledAt: string | null;
+  /** Shopify cancel reason enum (CUSTOMER, FRAUD, INVENTORY, …) or null. */
+  cancelReason: string | null;
+  /** Refund records + their transactions (used to flag pending refunds). */
+  refunds: {
+    id: string;
+    transactions: {
+      edges: {
+        node: { kind: string; status: string };
+      }[];
+    };
+  }[];
   email: string;
   totalPriceSet: {
     shopMoney: { amount: string; currencyCode: string };
@@ -53,7 +66,7 @@ export interface AdminOrder {
 
 // ─── Queries ────────────────────────────────────────────────────────────────
 
-const ORDERS_QUERY = /* GraphQL */ `
+export const ORDERS_QUERY = /* GraphQL */ `
   query GetOrders($first: Int!, $query: String) {
     orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
       edges {
@@ -64,6 +77,19 @@ const ORDERS_QUERY = /* GraphQL */ `
           createdAt
           displayFinancialStatus
           displayFulfillmentStatus
+          cancelledAt
+          cancelReason
+          refunds(first: 10) {
+            id
+            transactions(first: 10) {
+              edges {
+                node {
+                  kind
+                  status
+                }
+              }
+            }
+          }
           email
           totalPriceSet {
             shopMoney {
@@ -111,7 +137,7 @@ const ORDERS_QUERY = /* GraphQL */ `
   }
 `;
 
-const ORDER_BY_ID_QUERY = /* GraphQL */ `
+export const ORDER_BY_ID_QUERY = /* GraphQL */ `
   query GetOrderById($id: ID!) {
     order(id: $id) {
       id
@@ -120,6 +146,19 @@ const ORDER_BY_ID_QUERY = /* GraphQL */ `
       createdAt
       displayFinancialStatus
       displayFulfillmentStatus
+      cancelledAt
+      cancelReason
+      refunds(first: 10) {
+        id
+        transactions(first: 10) {
+          edges {
+            node {
+              kind
+              status
+            }
+          }
+        }
+      }
       email
       totalPriceSet {
         shopMoney {
@@ -220,4 +259,90 @@ export function getOrderStatus(order: AdminOrder): OrderStatus {
     return status as OrderStatus;
   }
   return 'nuevo';
+}
+
+// ─── Cancellation / refund signals (ADDITIVE overlay) ────────────────────────
+//
+// `getOrderStatus` above maps the print-pipeline metafield only. It has no
+// notion of an order the client cancelled or refunded directly in Shopify.
+// These signals derive that state from Shopify's own cancellation + financial
+// fields so the admin queue can flag (and de-prioritize) such orders WITHOUT
+// touching the pipeline status.
+
+export type OrderSignal =
+  | 'cancelled'
+  | 'refunded'
+  | 'partiallyRefunded'
+  | 'refundPending'
+  | 'voided'
+  | 'unpaid';
+
+// Refund-transaction statuses that mean "a refund is in flight but not yet
+// settled". A pending refund leaves the order actionable (it may still
+// resolve to FAILURE) but we surface it so the admin can verify first.
+const PENDING_REFUND_STATUSES = new Set(['PENDING', 'AWAITING_RESPONSE', 'UNKNOWN']);
+
+/**
+ * Derives the set of cancellation/refund signals for an order from Shopify's
+ * native fields (`cancelledAt`, `displayFinancialStatus`, `refunds`). Returns
+ * a deduped list; an empty array means the order has no special condition.
+ */
+export function getOrderSignals(order: AdminOrder): OrderSignal[] {
+  const signals = new Set<OrderSignal>();
+
+  if (order.cancelledAt) {
+    signals.add('cancelled');
+  }
+
+  switch (order.displayFinancialStatus) {
+    case 'REFUNDED':
+      signals.add('refunded');
+      break;
+    case 'PARTIALLY_REFUNDED':
+      signals.add('partiallyRefunded');
+      break;
+    case 'VOIDED':
+      signals.add('voided');
+      break;
+    // Not paid in full → not ready to print/fulfill. PENDING is the normal
+    // OXXO/SPEI "awaiting payment" state; EXPIRED means the payment window
+    // lapsed. (The print pipeline only runs on ORDERS_PAID, so these have no
+    // print files anyway — keep them out of the actionable queue.)
+    case 'PENDING':
+    case 'AUTHORIZED':
+    case 'PARTIALLY_PAID':
+    case 'EXPIRED':
+      signals.add('unpaid');
+      break;
+    default:
+      break;
+  }
+
+  const hasPendingRefund = (order.refunds ?? []).some((refund) =>
+    (refund.transactions?.edges ?? []).some(
+      (edge) =>
+        edge.node.kind === 'REFUND' &&
+        PENDING_REFUND_STATUSES.has(edge.node.status),
+    ),
+  );
+  if (hasPendingRefund) {
+    signals.add('refundPending');
+  }
+
+  return Array.from(signals);
+}
+
+/**
+ * Whether an order should remain in the actionable print queue. Cancelled,
+ * fully-refunded, and voided orders are NOT actionable. Partially-refunded
+ * and refund-pending orders ARE still actionable (just flagged for review).
+ */
+export function isOrderActionable(order: AdminOrder): boolean {
+  const signals = getOrderSignals(order);
+  return !(
+    signals.includes('cancelled') ||
+    signals.includes('refunded') ||
+    signals.includes('voided') ||
+    signals.includes('unpaid')
+  );
 }

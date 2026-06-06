@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { StatusBadge } from './StatusBadge';
+import { OrderConditionBadge } from './OrderConditionBadge';
 import { PrintFilesGrid } from './PrintFilesGrid';
-import type { AdminOrder, OrderStatus } from '@/lib/shopify/queries/orders';
-import { getOrderStatus } from '@/lib/shopify/queries/orders';
+import type { AdminOrder, OrderStatus, OrderSignal } from '@/lib/shopify/queries/orders';
+import { getOrderStatus, getOrderSignals, isOrderActionable } from '@/lib/shopify/queries/orders';
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('es-MX', {
@@ -28,48 +29,57 @@ function formatMXN(amount: string): string {
 
 const STATUS_FLOW: OrderStatus[] = ['nuevo', 'imprimiendo', 'enviado', 'entregado'];
 
-interface OrderDetailContentProps {
-  orderId: string;
+// Confirmation copy reused by the status-advance button and the print-file
+// download gate when the order is NOT actionable (cancelled / refunded /
+// voided in Shopify). The server re-checks and 409s without `confirm`, so this
+// dialog is the UI half of the warn-but-allow contract.
+const NON_ACTIONABLE_CONFIRM =
+  'Este pedido no es procesable (cancelado/reembolsado). ¿Continuar de todos modos?';
+
+// Builds the Spanish warning sentence from the active signals. The banner is
+// red when the order is non-actionable (cancelled/refunded/voided) and amber
+// when it's only flagged (partial / pending refund).
+function describeSignals(signals: OrderSignal[]): string {
+  const parts: string[] = [];
+  if (signals.includes('cancelled')) parts.push('cancelado');
+  if (signals.includes('refunded')) parts.push('reembolsado');
+  if (signals.includes('voided')) parts.push('anulado');
+  if (signals.includes('unpaid')) parts.push('marcado como no pagado');
+  if (signals.includes('partiallyRefunded')) parts.push('reembolsado parcialmente');
+  if (signals.includes('refundPending')) parts.push('con un reembolso pendiente');
+  const list =
+    parts.length <= 1
+      ? parts.join('')
+      : `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}`;
+  return `Este pedido fue ${list} en Shopify. Verifica antes de procesarlo.`;
 }
 
-export function OrderDetailContent({ orderId }: OrderDetailContentProps) {
-  const [order, setOrder] = useState<AdminOrder | null>(null);
-  const [currentStatus, setCurrentStatus] = useState<OrderStatus>('nuevo');
-  const [isLoading, setIsLoading] = useState(true);
+interface OrderDetailContentProps {
+  order: AdminOrder;
+}
+
+export function OrderDetailContent({ order }: OrderDetailContentProps) {
+  const [currentStatus, setCurrentStatus] = useState<OrderStatus>(getOrderStatus(order));
   const [isUpdating, setIsUpdating] = useState(false);
   const [showTrackingInput, setShowTrackingInput] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
   const [trackingCompany, setTrackingCompany] = useState('');
 
-  useEffect(() => {
-    async function fetchOrder() {
-      try {
-        // For now, fetch from the orders list and find by ID
-        const res = await fetch('/api/admin/orders');
-        if (res.ok) {
-          const data = await res.json();
-          const found = data.orders?.find((o: AdminOrder) =>
-            o.id.includes(orderId) || String(o.orderNumber) === orderId,
-          );
-          if (found) {
-            setOrder(found);
-            setCurrentStatus(getOrderStatus(found));
-          }
-        }
-      } catch {
-        // Silently fail — empty state will show
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchOrder();
-  }, [orderId]);
+  const signals = getOrderSignals(order);
+  const actionable = isOrderActionable(order);
 
   async function handleStatusUpdate(newStatus: OrderStatus) {
-    if (!order || isUpdating) return;
+    if (isUpdating) return;
 
     if (newStatus === 'enviado' && !showTrackingInput) {
       setShowTrackingInput(true);
+      return;
+    }
+
+    // Warn-but-allow: a non-actionable order can still be advanced, but only
+    // after an explicit confirm. The flag is forwarded to the API, which
+    // otherwise 409s. Bail (without confirm) → no request, no mutation.
+    if (!actionable && !window.confirm(NON_ACTIONABLE_CONFIRM)) {
       return;
     }
 
@@ -88,6 +98,7 @@ export function OrderDetailContent({ orderId }: OrderDetailContentProps) {
             ? [order.customer.firstName, order.customer.lastName].filter(Boolean).join(' ')
             : undefined,
           orderNumber: order.name,
+          confirm: !actionable ? true : undefined,
         }),
       });
 
@@ -100,25 +111,6 @@ export function OrderDetailContent({ orderId }: OrderDetailContentProps) {
     } finally {
       setIsUpdating(false);
     }
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-3 border-light-gray border-t-terracotta" />
-      </div>
-    );
-  }
-
-  if (!order) {
-    return (
-      <div className="rounded-xl bg-white p-8 text-center shadow-sm" style={{ border: '1px solid #e5e0d4' }}>
-        <p className="text-warm-gray">Pedido no encontrado.</p>
-        <Link href="/admin/pedidos" className="mt-4 inline-block text-sm text-terracotta hover:underline">
-          Volver a pedidos
-        </Link>
-      </div>
-    );
   }
 
   const customerName = order.customer
@@ -152,6 +144,34 @@ export function OrderDetailContent({ orderId }: OrderDetailContentProps) {
         </svg>
         Volver a pedidos
       </Link>
+
+      {/* Cancellation / refund warning banner. Red when the order is
+          non-actionable (cancelled / refunded / voided), amber when it's
+          only flagged (partial / pending refund). Warn-but-allow: the
+          status + download controls below stay usable behind a confirm. */}
+      {signals.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          role="alert"
+          className="mb-6 flex items-start gap-3 rounded-xl p-4"
+          style={
+            actionable
+              ? { background: 'rgba(217, 119, 6, 0.08)', border: '1px solid rgba(217, 119, 6, 0.3)' }
+              : { background: 'rgba(196, 75, 75, 0.08)', border: '1px solid rgba(196, 75, 75, 0.3)' }
+          }
+        >
+          <span className="text-lg leading-none" aria-hidden="true">⚠️</span>
+          <div className="flex-1">
+            <p className={`text-sm font-semibold ${actionable ? 'text-amber-700' : 'text-error'}`}>
+              {describeSignals(signals)}
+            </p>
+            <div className="mt-2">
+              <OrderConditionBadge signals={signals} />
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Left column */}

@@ -38,7 +38,34 @@ interface PrintFilesGridProps {
   orderId: string;
 }
 
+// The print-files / retry routes return errors as EITHER a plain string
+// (`{ error: 'mensaje' }`) or the server guard's structured shape
+// (`{ error: { code: 'order_check_unavailable' } }`). Coerce either into a
+// display string — storing the object in React state would crash the render.
+export function errorToMessage(body: unknown, fallback: string): string {
+  const err = (body as { error?: unknown } | null)?.error;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'code' in err) {
+    switch ((err as { code?: string }).code) {
+      case 'order_check_unavailable':
+        return 'No se pudo verificar el estado del pedido en Shopify. Intenta de nuevo en un momento.';
+      case 'order_not_processable':
+        return 'Este pedido no es procesable (cancelado, reembolsado o sin pagar).';
+      default:
+        return fallback;
+    }
+  }
+  return fallback;
+}
+
 export function PrintFilesGrid({ orderId }: PrintFilesGridProps) {
+  // The server guards print-file access for a non-actionable order (cancelled /
+  // refunded / unpaid) with a 409 `order_not_processable`. We request WITHOUT
+  // confirm first; on that 409 we surface an explicit confirm gate, and only
+  // after the operator accepts do we replay with `?confirm=1`.
+  const [confirmed, setConfirmed] = useState(false);
+  const [needsConfirm, setNeedsConfirm] = useState(false);
+  const confirmParam = confirmed ? '&confirm=1' : '';
   const [data, setData] = useState<PrintFilesResponse | null>(null);
   const [blocked, setBlocked] = useState<BlockedResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,16 +78,25 @@ export function PrintFilesGrid({ orderId }: PrintFilesGridProps) {
 
   useEffect(() => {
     async function fetchFiles() {
+      setIsLoading(true);
       try {
-        const res = await fetch(`/api/admin/print-files?orderId=${encodeURIComponent(orderId)}`);
+        const res = await fetch(
+          `/api/admin/print-files?orderId=${encodeURIComponent(orderId)}${confirmParam}`,
+        );
         if (res.status === 409) {
-          const blockedData = (await res.json()) as BlockedResponse;
-          setBlocked(blockedData);
+          const body = await res.json();
+          // Distinguish the cancellation/refund guard (order_not_processable —
+          // confirmable) from the pipeline-status block (partial/failed).
+          if (body?.error?.code === 'order_not_processable') {
+            setNeedsConfirm(true);
+            return;
+          }
+          setBlocked(body as BlockedResponse);
           return;
         }
         if (!res.ok) {
-          const errData = await res.json();
-          setError(errData.error || 'Error al cargar archivos.');
+          const errData = await res.json().catch(() => ({}));
+          setError(errorToMessage(errData, 'Error al cargar archivos.'));
           return;
         }
         const json = (await res.json()) as PrintFilesResponse;
@@ -72,7 +108,7 @@ export function PrintFilesGrid({ orderId }: PrintFilesGridProps) {
       }
     }
     fetchFiles();
-  }, [orderId]);
+  }, [orderId, confirmParam]);
 
   if (isLoading) {
     return (
@@ -86,6 +122,29 @@ export function PrintFilesGrid({ orderId }: PrintFilesGridProps) {
     return (
       <div className="rounded-lg bg-cream p-4 text-center text-sm text-warm-gray">
         {error}
+      </div>
+    );
+  }
+
+  // Cancellation/refund/unpaid guard: the order isn't actionable. Surface an
+  // explicit confirm gate (warn-but-allow) before exposing the print files.
+  if (needsConfirm && !confirmed) {
+    return (
+      <div
+        className="rounded-lg p-4"
+        style={{ background: 'rgba(220, 38, 38, 0.06)', border: '1px solid rgba(220, 38, 38, 0.25)' }}
+      >
+        <div className="mb-1 text-sm font-semibold text-charcoal">Pedido no procesable</div>
+        <p className="text-sm text-warm-gray">
+          Este pedido fue cancelado, reembolsado o no está pagado en Shopify. Verifícalo antes de descargar los archivos de impresión.
+        </p>
+        <button
+          type="button"
+          onClick={() => setConfirmed(true)}
+          className="mt-3 inline-flex items-center rounded-md bg-terracotta px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-terracotta/90"
+        >
+          Ver archivos de todos modos
+        </button>
       </div>
     );
   }
@@ -119,20 +178,29 @@ export function PrintFilesGrid({ orderId }: PrintFilesGridProps) {
             setRetrying(true);
             setRetryError(null);
             try {
-              const retryRes = await fetch(blocked.retryUrl, { method: 'POST' });
+              const retryRes = await fetch(blocked.retryUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // A non-actionable order needs the explicit confirm to clear
+                // the retry endpoint's 409 guard (carried from the confirm gate).
+                body: JSON.stringify(confirmed ? { confirm: true } : {}),
+              });
               if (!retryRes.ok) {
                 const body = await retryRes.json().catch(() => ({}));
-                setRetryError(
-                  (body as { error?: string }).error ??
-                    `Reintento falló (HTTP ${retryRes.status}).`,
-                );
+                setRetryError(errorToMessage(body, `Reintento falló (HTTP ${retryRes.status}).`));
                 return;
               }
               const res = await fetch(
-                `/api/admin/print-files?orderId=${encodeURIComponent(orderId)}`,
+                `/api/admin/print-files?orderId=${encodeURIComponent(orderId)}${confirmParam}`,
               );
               if (res.status === 409) {
-                setBlocked((await res.json()) as BlockedResponse);
+                const body = await res.json();
+                if (body?.error?.code === 'order_not_processable') {
+                  setBlocked(null);
+                  setNeedsConfirm(true);
+                  return;
+                }
+                setBlocked(body as BlockedResponse);
                 return;
               }
               if (res.ok) {
@@ -203,7 +271,7 @@ export function PrintFilesGrid({ orderId }: PrintFilesGridProps) {
                     className="aspect-square w-full object-cover"
                   />
                   <a
-                    href={tile.downloadUrl}
+                    href={`${tile.downloadUrl}${confirmParam}`}
                     download={`line-${line.lineItemId}-tile-${tile.index}.png`}
                     className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
                   >
@@ -223,7 +291,7 @@ export function PrintFilesGrid({ orderId }: PrintFilesGridProps) {
       {/* ZIP all lines × all tiles, line-prefixed filenames to avoid
           collision on `tile-0.png` across lines. */}
       <a
-        href={`/api/admin/print-files?orderId=${encodeURIComponent(orderId)}&format=zip`}
+        href={`/api/admin/print-files?orderId=${encodeURIComponent(orderId)}&format=zip${confirmParam}`}
         download
         className="flex h-10 w-full items-center justify-center gap-2 rounded-lg font-medium text-white transition-colors"
         style={{ backgroundColor: '#422102' }}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import archiver from 'archiver';
 import { Readable } from 'node:stream';
 import { verifySession } from '@/lib/admin/auth';
+import { guardOrderActionable } from '@/lib/admin/order-guard';
 import { parseShopifyFileBindingFromUrl } from '@/lib/shopify/pipeline-metafields';
 import {
   getAdminAccessToken,
@@ -217,6 +218,17 @@ export async function GET(request: NextRequest) {
         { error: 'Formato de orderId inválido.' },
         { status: 400 },
       );
+    }
+
+    // Cancellation/refund guard: a cancelled/refunded order's print files are
+    // not downloadable unless the request carries `?confirm=1` (the detail
+    // page sets it once the admin acknowledges the warning banner). Runs
+    // before the pipeline-status gate so a non-actionable order 409s with the
+    // `order_not_processable` code regardless of its pipeline state.
+    const confirmed = searchParams.get('confirm') === '1';
+    const guard = await guardOrderActionable(orderId, confirmed);
+    if (!guard.ok) {
+      return NextResponse.json(guard.body, { status: guard.status });
     }
 
     let meta: MetafieldRead | null;

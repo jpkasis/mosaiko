@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/admin/auth';
+import { guardOrderActionable } from '@/lib/admin/order-guard';
 import { uploadPrintTiles, deleteFile } from '@/lib/storage';
 import {
   processWebhookOrder,
@@ -116,7 +117,7 @@ async function writePipelineMetafields(
 // No admin-UI surface in this PR; callable via curl from the admin dash.
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ orderId: string }> },
 ) {
   const isAdmin = await verifySession();
@@ -130,6 +131,21 @@ export async function POST(
       { error: 'orderId debe ser numérico (Shopify REST order ID).' },
       { status: 400 },
     );
+  }
+
+  // Cancellation/refund guard. Reprocessing a cancelled/refunded order is
+  // refused unless `confirm: true` is in the JSON body. The body may be
+  // absent on legacy callers — treat a parse failure as no-confirm.
+  let confirm = false;
+  try {
+    const body = (await request.json()) as { confirm?: unknown };
+    confirm = body?.confirm === true;
+  } catch {
+    confirm = false;
+  }
+  const guard = await guardOrderActionable(orderId, confirm);
+  if (!guard.ok) {
+    return NextResponse.json(guard.body, { status: guard.status });
   }
 
   const order = await fetchOrderFromShopify(orderId);

@@ -4,21 +4,34 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { OrderCard } from './OrderCard';
 import type { AdminOrder, OrderStatus } from '@/lib/shopify/queries/orders';
-import { getOrderStatus } from '@/lib/shopify/queries/orders';
+import { getOrderStatus, isOrderActionable } from '@/lib/shopify/queries/orders';
 
-const STATUS_TABS: { label: string; value: OrderStatus | 'todos' }[] = [
+type TabValue = OrderStatus | 'todos' | 'revisar';
+
+const STATUS_TABS: { label: string; value: TabValue }[] = [
   { label: 'Todos', value: 'todos' },
   { label: 'Nuevos', value: 'nuevo' },
   { label: 'Imprimiendo', value: 'imprimiendo' },
   { label: 'Enviados', value: 'enviado' },
   { label: 'Entregados', value: 'entregado' },
+  { label: 'Revisar', value: 'revisar' },
 ];
+
+// Count helper shared by the tab badges and the filtered list. Non-actionable
+// orders (cancelled / refunded / voided in Shopify) are kept OUT of the
+// print-queue status tabs so that queue stays trustworthy; they live in the
+// dedicated "Revisar" tab. "Todos" still shows everything (with badges).
+function countForTab(orders: AdminOrder[], tab: TabValue): number {
+  if (tab === 'todos') return orders.length;
+  if (tab === 'revisar') return orders.filter((o) => !isOrderActionable(o)).length;
+  return orders.filter((o) => isOrderActionable(o) && getOrderStatus(o) === tab).length;
+}
 
 export function OrdersListContent() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<OrderStatus | 'todos'>('todos');
+  const [activeTab, setActiveTab] = useState<TabValue>('todos');
 
   useEffect(() => {
     async function fetchOrders() {
@@ -40,9 +53,14 @@ export function OrdersListContent() {
     fetchOrders();
   }, []);
 
-  const filteredOrders = activeTab === 'todos'
-    ? orders
-    : orders.filter((order) => getOrderStatus(order) === activeTab);
+  const filteredOrders =
+    activeTab === 'todos'
+      ? orders
+      : activeTab === 'revisar'
+        ? orders.filter((order) => !isOrderActionable(order))
+        : orders.filter(
+            (order) => isOrderActionable(order) && getOrderStatus(order) === activeTab,
+          );
 
   if (isLoading) {
     return (
@@ -81,7 +99,7 @@ export function OrdersListContent() {
             {tab.label}
             {tab.value !== 'todos' && (
               <span className="ml-1.5 text-xs opacity-70">
-                ({orders.filter((o) => getOrderStatus(o) === tab.value).length})
+                ({countForTab(orders, tab.value)})
               </span>
             )}
           </button>
@@ -99,7 +117,9 @@ export function OrdersListContent() {
           <p className="text-warm-gray">
             {activeTab === 'todos'
               ? 'No hay pedidos aún.'
-              : `No hay pedidos con estado "${STATUS_TABS.find((t) => t.value === activeTab)?.label}".`}
+              : activeTab === 'revisar'
+                ? 'No hay pedidos cancelados o reembolsados para revisar.'
+                : `No hay pedidos con estado "${STATUS_TABS.find((t) => t.value === activeTab)?.label}".`}
           </p>
         </div>
       ) : (

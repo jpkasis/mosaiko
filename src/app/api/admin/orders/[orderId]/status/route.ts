@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/admin/auth';
 import { updateOrderMetafield, createFulfillment } from '@/lib/shopify/mutations/orders';
+import { guardOrderActionable } from '@/lib/admin/order-guard';
 
 // ─── PATCH /api/admin/orders/[orderId]/status ───────────────────────────────
 //
@@ -31,7 +32,7 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { status, trackingNumber, trackingCompany } = body;
+    const { status, trackingNumber, trackingCompany, confirm } = body;
 
     const validStatuses = ['nuevo', 'imprimiendo', 'enviado', 'entregado'];
     if (!validStatuses.includes(status)) {
@@ -39,6 +40,15 @@ export async function PATCH(
         { error: `Estado inválido. Opciones: ${validStatuses.join(', ')}` },
         { status: 400 },
       );
+    }
+
+    // Cancellation/refund guard: re-read the order LIVE; if it's no longer
+    // actionable (cancelled / refunded / voided) and the caller didn't pass
+    // `confirm: true`, refuse to mutate. The UI confirm dialog supplies the
+    // flag (warn-but-allow). See lib/admin/order-guard.ts.
+    const guard = await guardOrderActionable(orderId, confirm === true);
+    if (!guard.ok) {
+      return NextResponse.json(guard.body, { status: guard.status });
     }
 
     // Update metafield

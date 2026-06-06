@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { StatusBadge } from './StatusBadge';
+import { OrderConditionBadge } from './OrderConditionBadge';
 import type { AdminOrder, OrderStatus } from '@/lib/shopify/queries/orders';
-import { getOrderStatus } from '@/lib/shopify/queries/orders';
+import { getOrderStatus, getOrderSignals } from '@/lib/shopify/queries/orders';
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('es-MX', {
@@ -27,6 +28,7 @@ interface OrderCardProps {
 
 export function OrderCard({ order }: OrderCardProps) {
   const status: OrderStatus = getOrderStatus(order);
+  const signals = getOrderSignals(order);
 
   // Extract preview image and grid type from line item attributes.
   // Keys carry the `_` prefix per the cart-attribute convention so the
@@ -75,9 +77,12 @@ export function OrderCard({ order }: OrderCardProps) {
 
         {/* Order info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-start justify-between gap-2">
             <span className="font-semibold text-charcoal">{order.name}</span>
-            <StatusBadge status={status} />
+            <div className="flex flex-col items-end gap-1">
+              <StatusBadge status={status} />
+              <OrderConditionBadge signals={signals} />
+            </div>
           </div>
           <p className="mt-0.5 text-sm text-warm-gray truncate">
             {customerName || order.email}
