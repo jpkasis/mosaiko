@@ -5,14 +5,35 @@ All notable changes to Mosaiko. Format inspired by [Keep a Changelog](https://ke
 ## [Unreleased]
 
 ### Pending
-- Phase 3.1: generate `ADMIN_PASSWORD_HASH` + `ADMIN_JWT_SECRET` for production
-- Phase 3.2: local end-to-end smoke (cart → composite → Shopify checkout → webhook → tiles)
-- Phase 4: Vercel team setup, `mosaiko.mx` domain registration, deploy
-- Phase 5: Bogus Gateway test order (validates plumbing, no real money)
-- Phase 6: Mercado Pago + low-value real test order
 - Real-device iOS test for `useKeyboardInset` keyboard inset
-- Shipping ETA reconciliation (cart copy 3–5 days, post-Resend the email is now native Shopify — confirm template wording)
-- Rotate `SHOPIFY_CLIENT_SECRET` after integration test (visible in chat history)
+- Shipping ETA reconciliation (cart copy 3–5 días vs the Shopify-native order-confirmation email wording)
+- GA4 analytics dashboard embed (admin — deferred)
+- DMARC record for `mosaiko.mx` (reported saved but not resolving authoritatively — re-check)
+- Cloudflare WAF as the real rate-limit perimeter (in-memory admin lockout is best-effort, per-instance)
+- Re-enable image-retention PNG auto-delete (reverted in `d585430`; finish the Codex PR3 audit + a dry-run before arming)
+- Make the order minimum admin-editable (`minimum_order` business setting — currently the fixed `MINIMUM_ORDER_MXN`)
+- Rotate `SHOPIFY_CLIENT_SECRET` (visible in earlier chat history)
+
+---
+
+## [Live on mosaiko.mx — launch + post-launch polish] — 2026-06
+
+The store went **live on `mosaiko.mx`** (Vercel) backed by **`mosaiko-mx.myshopify.com`**, with Mercado Pago Checkout Pro in production (first real order processed). Phases 3–8 (admin-auth secrets → end-to-end smoke → Vercel + domain → test orders → Mercado Pago production → pre-launch cleanup → launch) are all complete. Post-launch polish in this window:
+
+### Added
+
+- **Admin Pedidos cancellation/refund reflection** (`617cf3f`). A new **Revisar** tab + per-signal badges surface orders cancelled / refunded / unpaid in Shopify and keep them out of the actionable print queue; a server-side **fail-closed** guard (409 `order_not_processable` / 503 `order_check_unavailable`) backs a warn-but-allow confirm on the detail page. `getOrderSignals` / `isOrderActionable` in `queries/orders.ts`. Non-obvious: Shopify's GraphQL `orders` default query DOES return cancelled orders (unlike REST `status=open`), so the tab populates without a `status:any` filter.
+- **Admin Configuración → Contenido + Negocio** content editor (Shopify Metaobjects CMS): home copy, FAQ, and business settings (address / phone / WhatsApp number + prefilled message / Instagram / Facebook / TikTok), with EN translations. The footer renders the social icon-links under a "Visita nuestras redes sociales" heading.
+- **Brand favicon + app icons** (rounded Mosaiko "M"). Admin-login brute-force lockout + hardening headers (CSP `object-src 'none'`, Permissions-Policy). Shopify branded email sender (`hola@mosaiko.mx` DKIM-authenticated) + Cloudflare Email Routing for inbound.
+
+### Changed
+
+- **Order minimum is now a fixed $200** (`94097f6`; `MINIMUM_ORDER_MXN` in `cart-pricing.ts`). It had been DERIVED from the cheapest standard (3-piece) price, so editing product prices silently moved it — it crept to $499 and blocked legitimate smaller orders (a $300 single piece couldn't check out). Now decoupled and always-enforced (no fail-open). Used by both the server gate and the cart button. TODO: make it admin-editable.
+- **`/contacto` reverted** to a WhatsApp button + `mailto:hola@mosaiko.mx` only (the contact form + its private metaobject inbox were removed). Removed the dead `notification_email` field and the legacy `SHOPIFY_VARIANT_MAP` env path (prices read live from the v2 product).
+
+### Reverted / deferred
+
+- **Image-retention PNG auto-delete** (`d585430`). Built as three PRs — an admin retention-days field, a pure age-based Shopify-Files sweep (full adversarial audit cycle → GREEN), and a daily fail-closed cron — then **reverted** at the owner's request to defer until it can be proven safe (permanently deleting customer files is irreversible). It was inert the whole time (cron fail-closed, never armed). The re-enable path is documented in the deferred notes.
 
 ---
 

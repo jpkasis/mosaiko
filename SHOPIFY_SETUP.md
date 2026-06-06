@@ -4,7 +4,7 @@ A non-techy walkthrough of what the Mosaiko store owner needs to do to connect t
 
 > **Architecture context:** Mosaiko uses Shopify as its database. Orders, customers, payments, fulfillment, inventory, AND image storage all live in Shopify. The custom Next.js app handles the photo builder, cart, and print pipeline; Shopify-hosted checkout handles payment (Mercado Pago: cards / OXXO / SPEI). Shopify Files (the CDN that backs Files API) holds every uploaded photo, every cart-composite preview, and every print-ready tile. There is no separate Cloudflare R2 bucket and no separate Resend inbox to maintain.
 
-> **Status as of 2026-05-05:** the dev store `mosaiko-dev.myshopify.com` is connected end-to-end. The four steps below describe what the production store needs once the client picks a Shopify plan.
+> **Status as of 2026-06:** LIVE. The production store `mosaiko-mx.myshopify.com` is connected end-to-end and the storefront is live at **mosaiko.mx** (Vercel). Mercado Pago Checkout Pro is in production (first real order processed). The steps below remain the reference for standing up the store / onboarding a new environment. (The old `mosaiko-dev.myshopify.com` dev store is retired.)
 
 ---
 

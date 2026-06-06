@@ -1,23 +1,23 @@
 # Deferred work
 
-**Last updated:** 2026-05-05 (after Phase 0–2 Shopify-integration & R2 → Shopify Files refactor; see `CHANGELOG.md`).
+**Last updated:** 2026-06 (post-launch — store is **LIVE on mosaiko.mx**; see `CHANGELOG.md`).
 
-`INTEGRITY_AUDIT.md` records **zero open BLOCKERs / MAJORs / MINORs** in the pipeline-integrity findings table. Everything below is intentionally scoped-out work that does NOT block production launch.
+`INTEGRITY_AUDIT.md` records **zero open BLOCKERs / MAJORs / MINORs** in the pipeline-integrity findings table. Everything below is intentionally scoped-out work that does NOT block the live store.
 
 ---
 
 ## Where we are right now
 
-The Shopify wiring + storage refactor are DONE. `mosaiko-dev.myshopify.com` is live with the Mosaiko Backend custom app installed (mosaiko-backend-4); `Imanes Personalizados` exists with 4 variants; `scripts/smoke-shopify.mts` passes all four live checks (Storefront, Admin, `stagedUploadsCreate`, `fileCreate` → READY → CDN). All env values are in `ShopifyValues.md` and `.env.local`. The code uses the OAuth client-credentials grant for admin tokens (24h cached); R2 + Resend are removed.
+**LIVE.** The storefront runs on `mosaiko.mx` (Vercel) backed by `mosaiko-mx.myshopify.com`; Mercado Pago Checkout Pro is in production and a real order has been processed end-to-end (cart → composite → Shopify checkout → webhook → print tiles). Admin auth, the metaobjects content editor, and the Pedidos cancellation/refund view are all in production. Prices/variants read live from the `imanes-personalizados-v2` product; the order minimum is a fixed `MINIMUM_ORDER_MXN`. Image storage is Shopify Files; R2 + Resend are gone. Phases 0–8 are complete.
 
-**Next gate is the integration test** (per the cheerful-knitting-swing plan):
-- Phase 3.1 — generate `ADMIN_PASSWORD_HASH` + `ADMIN_JWT_SECRET` for production.
-- Phase 3.2 — local end-to-end smoke (cart → composite → Shopify checkout → webhook → tiles).
-- Phase 4 — Vercel team setup, `mosaiko.mx` (Cloudflare Registrar), deploy.
-- Phase 5 — Bogus Gateway test order (validates plumbing, no real money).
-- Phase 6 — Mercado Pago + low-value real test order.
-
-After Phase 6 is green, "Phase 7 cleanup" + "Phase 8 launch readiness gate" wrap things up. Vercel Hobby is OK for the test-order phase (genuinely non-commercial); Pro upgrade ($20/mo on the client's account) is required before going live.
+### Active deferred queue (post-launch, none blocking)
+- **Re-enable image-retention PNG auto-delete** — built then reverted (`d585430`) to defer until provably safe; deleting customer files is irreversible. Re-enable: revert that commit → finish the Codex PR3 auth audit → read-only dry-run preview → arm `CRON_SECRET` only with owner sign-off.
+- **Admin-editable order minimum** — the `MINIMUM_ORDER_MXN = 200` floor should become a `minimum_order` business-settings field (mirror the WhatsApp/TikTok chain).
+- **GA4 analytics dashboard** embed in admin.
+- **DMARC** TXT for `mosaiko.mx` (reported saved but not resolving authoritatively — re-check).
+- **Cloudflare WAF** as the real rate-limit perimeter (the in-memory admin-login lockout is best-effort / per-instance).
+- **Rotate `SHOPIFY_CLIENT_SECRET`** (visible in earlier chat history).
+- Refund the remaining `Pagado` test orders; OXXO/SPEI live-payment smoke; de-index the `*.myshopify.com` surface.
 
 ### Real-device iOS test for `useKeyboardInset`
 

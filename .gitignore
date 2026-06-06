@@ -50,3 +50,16 @@ public/products/_originals/
 # restart so cart thumbnails remain valid). Production uses R2; this dir is
 # only written when R2 is unreachable.
 /.cart-composite-cache/
+
+# Local source assets — inputs to one-off generation scripts (e.g. make-favicon
+# reads MOSAIKO-logos/). The generated favicons + the public/ product images are
+# committed; these large source dirs stay local.
+MOSAIKO-images/
+MOSAIKO-logos/
+mosaic-categories/
+
+# Local scratch — Codex audit logs/prompts, UAT simulation artifacts, thumbnail
+# spikes. Never part of the build.
+.codex-*
+.uat4-*
+.brand-*.png

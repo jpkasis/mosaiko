@@ -39,9 +39,10 @@ The site MUST work on mobile, not only desktop. Design mobile-first, then scale 
 ## Admin Panel (Implemented)
 The admin panel is at `/admin` (always Spanish, excluded from i18n locale processing).
 - **Auth:** bcrypt password + JWT cookie sessions (24h). Single admin user via `ADMIN_PASSWORD_HASH` env var.
-- **Orders:** List with status filter tabs (Todos/Nuevos/Imprimiendo/Enviados/Entregados). Order detail with customer info, product preview, status pipeline controls, print file downloads (individual + ZIP).
+- **Orders:** List with status filter tabs (Todos/Nuevos/Imprimiendo/Enviados/Entregados) plus a **Revisar** tab holding orders cancelled/refunded/unpaid in Shopify (kept out of the print queue, badged). Order detail with customer info, product preview, status pipeline controls, print file downloads (individual + ZIP), and a warn-but-allow confirm for non-actionable orders.
+- **Content editor:** Configuración → Contenido + Negocio (Shopify Metaobjects CMS — home copy, FAQ, business settings incl. WhatsApp/Instagram/Facebook/TikTok).
 - **Onboarding:** 4-step guided overlay on first login for non-techy client.
-- **Pending:** Content editor (Shopify metaobjects CMS), analytics dashboard (GA4 embed), settings page, products CRUD.
+- **Pending:** analytics dashboard (GA4 embed), settings page, products CRUD.
 
 ## Bug Handling Workflow
 During testing, if you encounter bugs DO NOT fix them immediately. Follow this sequence:
