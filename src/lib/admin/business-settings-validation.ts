@@ -23,6 +23,7 @@ export interface AdminBusinessSettings {
   whatsappMessage: string;
   instagramUrl: string;
   facebookUrl: string;
+  tiktokUrl: string;
 }
 
 export const BUSINESS_MAX_LENGTHS = {
@@ -34,6 +35,7 @@ export const BUSINESS_MAX_LENGTHS = {
   whatsappMessage: 300,
   instagramUrl: 300,
   facebookUrl: 300,
+  tiktokUrl: 300,
 } as const;
 
 export interface BusinessValidationIssue {
@@ -179,9 +181,11 @@ export function validateBusinessSettings(body: unknown): AdminBusinessSettings {
   );
   const instagramRaw = normalizeNeutral(settings.instagramUrl, 'instagramUrl', issues);
   const facebookRaw = normalizeNeutral(settings.facebookUrl, 'facebookUrl', issues);
+  const tiktokRaw = normalizeNeutral(settings.tiktokUrl, 'tiktokUrl', issues);
 
   const instagramUrl = normalizeUrl(instagramRaw, 'instagramUrl', issues);
   const facebookUrl = normalizeUrl(facebookRaw, 'facebookUrl', issues);
+  const tiktokUrl = normalizeUrl(tiktokRaw, 'tiktokUrl', issues);
   const whatsapp = normalizeWhatsapp(whatsappRaw);
 
   if (issues.length > 0) {
@@ -197,5 +201,6 @@ export function validateBusinessSettings(body: unknown): AdminBusinessSettings {
     whatsappMessage,
     instagramUrl,
     facebookUrl,
+    tiktokUrl,
   };
 }

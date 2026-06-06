@@ -219,6 +219,7 @@ export const BUSINESS_SETTINGS_MAP = {
   whatsapp_message: { prop: 'whatsappMessage', localized: false },
   instagram_url: { prop: 'instagramUrl', localized: false },
   facebook_url: { prop: 'facebookUrl', localized: false },
+  tiktok_url: { prop: 'tiktokUrl', localized: false },
 } as const;
 
 /** Public business settings consumed by Footer + Contact (no notificationEmail). */
@@ -231,6 +232,7 @@ export interface PublicBusinessSettings {
   whatsappMessage: string;
   instagramUrl: string;
   facebookUrl: string;
+  tiktokUrl: string;
 }
 
 const EMPTY_PUBLIC_SETTINGS: PublicBusinessSettings = {
@@ -242,6 +244,7 @@ const EMPTY_PUBLIC_SETTINGS: PublicBusinessSettings = {
   whatsappMessage: '',
   instagramUrl: '',
   facebookUrl: '',
+  tiktokUrl: '',
 };
 
 async function buildBusinessSettingsUncached(

@@ -22,6 +22,7 @@ describe('validateBusinessSettings', () => {
         whatsapp: '+52 1 55 1234 5678',
         instagramUrl: 'instagram.com/mosaiko',
         facebookUrl: 'https://facebook.com/mosaiko',
+        tiktokUrl: 'tiktok.com/@mosaiko',
       }),
     );
     expect(r.businessName.es).toBe('Mosaiko');
@@ -31,6 +32,7 @@ describe('validateBusinessSettings', () => {
     // Instagram normalized to https
     expect(r.instagramUrl).toBe('https://instagram.com/mosaiko');
     expect(r.facebookUrl).toBe('https://facebook.com/mosaiko');
+    expect(r.tiktokUrl).toBe('https://tiktok.com/@mosaiko');
   });
 
   test('rejects missing settings object', () => {

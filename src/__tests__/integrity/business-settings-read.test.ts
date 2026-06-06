@@ -66,6 +66,7 @@ describe('getBusinessSettings', () => {
       whatsappMessage: '',
       instagramUrl: 'https://instagram.com/m',
       facebookUrl: 'https://facebook.com/m',
+      tiktokUrl: '',
     });
     // notificationEmail MUST NOT be present on the public shape
     expect('notificationEmail' in r).toBe(false);

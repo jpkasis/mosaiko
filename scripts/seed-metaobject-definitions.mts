@@ -190,6 +190,7 @@ const DEFINITIONS: DefinitionSpec[] = [
       { key: 'whatsapp_message', name: 'WhatsApp Message', type: 'multi_line_text_field' },
       { key: 'instagram_url', name: 'Instagram URL', type: 'single_line_text_field' },
       { key: 'facebook_url', name: 'Facebook URL', type: 'single_line_text_field' },
+      { key: 'tiktok_url', name: 'TikTok URL', type: 'single_line_text_field' },
       // Legacy/dormant: not read by the app (order/staff emails are
       // Shopify-native). Kept so the live definition stays stable — do not
       // remove from existing stores.

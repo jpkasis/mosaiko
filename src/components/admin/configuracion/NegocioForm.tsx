@@ -13,7 +13,8 @@ type NeutralField =
   | 'whatsapp'
   | 'whatsappMessage'
   | 'instagramUrl'
-  | 'facebookUrl';
+  | 'facebookUrl'
+  | 'tiktokUrl';
 
 interface NegocioFormProps {
   settings: AdminBusinessSettings;
@@ -236,6 +237,13 @@ export function NegocioForm({
             field="facebookUrl"
             value={settings.facebookUrl}
             placeholder="https://facebook.com/minegocio"
+            onChange={onChangeNeutral}
+          />
+          <NeutralRow
+            label="TikTok (URL)"
+            field="tiktokUrl"
+            value={settings.tiktokUrl}
+            placeholder="https://tiktok.com/@minegocio"
             onChange={onChangeNeutral}
           />
         </div>
