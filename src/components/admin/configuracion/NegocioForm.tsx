@@ -4,11 +4,7 @@ import type {
   AdminBusinessSettings,
   LocalizedValue,
 } from '@/lib/admin/business-settings-validation';
-import {
-  BUSINESS_MAX_LENGTHS,
-  RETENTION_MAX,
-  RETENTION_MIN,
-} from '@/lib/admin/business-settings-validation';
+import { BUSINESS_MAX_LENGTHS } from '@/lib/admin/business-settings-validation';
 
 type LocalizedField = 'businessName' | 'footerCopy';
 type NeutralField =
@@ -24,7 +20,6 @@ interface NegocioFormProps {
   settings: AdminBusinessSettings;
   onChangeLocalized: (field: LocalizedField, locale: 'es' | 'en', value: string) => void;
   onChangeNeutral: (field: NeutralField, value: string) => void;
-  onChangeRetention: (value: number) => void;
   onSave: () => void;
   saving: boolean;
   enDisabled?: boolean;
@@ -148,45 +143,10 @@ function NeutralRow({
   );
 }
 
-function RetentionRow({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: NegocioFormProps['onChangeRetention'];
-}) {
-  const id = 'business-imageRetentionDays';
-  const helpId = `${id}-help`;
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-sm font-medium text-charcoal">
-        Retención de imágenes (días)
-      </label>
-      <input
-        id={id}
-        type="number"
-        min={RETENTION_MIN}
-        max={RETENTION_MAX}
-        step={1}
-        inputMode="numeric"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        aria-describedby={helpId}
-        className={`${inputClass} min-h-12`}
-      />
-      <p id={helpId} className="text-xs text-warm-gray/70">
-        Las imágenes de impresión se eliminan automáticamente después de este
-        número de días. 0 = desactivado.
-      </p>
-    </div>
-  );
-}
-
 export function NegocioForm({
   settings,
   onChangeLocalized,
   onChangeNeutral,
-  onChangeRetention,
   onSave,
   saving,
   enDisabled,
@@ -197,7 +157,6 @@ export function NegocioForm({
         e.preventDefault();
         onSave();
       }}
-      noValidate
       className="space-y-6"
     >
       <fieldset className="rounded-xl border border-light-gray bg-white p-5">
@@ -286,21 +245,6 @@ export function NegocioForm({
             value={settings.tiktokUrl}
             placeholder="https://tiktok.com/@minegocio"
             onChange={onChangeNeutral}
-          />
-        </div>
-      </fieldset>
-
-      <fieldset className="rounded-xl border border-light-gray bg-white p-5">
-        <legend
-          className="px-2 text-base font-semibold text-charcoal"
-          style={{ fontFamily: 'var(--font-cormorant), Georgia, serif' }}
-        >
-          Mantenimiento
-        </legend>
-        <div className="mt-2 max-w-md">
-          <RetentionRow
-            value={settings.imageRetentionDays}
-            onChange={onChangeRetention}
           />
         </div>
       </fieldset>

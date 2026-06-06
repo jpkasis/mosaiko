@@ -24,13 +24,7 @@ export interface AdminBusinessSettings {
   instagramUrl: string;
   facebookUrl: string;
   tiktokUrl: string;
-  imageRetentionDays: number;
 }
-
-export const RETENTION_DEFAULT = 45;
-export const RETENTION_DISABLED = 0;
-export const RETENTION_MIN = 7;
-export const RETENTION_MAX = 365;
 
 export const BUSINESS_MAX_LENGTHS = {
   businessName: 120,
@@ -146,37 +140,6 @@ function normalizeWhatsapp(raw: string): string {
   return hasPlus ? `+${digits}` : digits;
 }
 
-function normalizeRetentionDays(
-  raw: unknown,
-  issues: BusinessValidationIssue[],
-): number {
-  if (raw === undefined || raw === null) return RETENTION_DEFAULT;
-  if (typeof raw === 'string' && raw.trim() === '') return RETENTION_DEFAULT;
-  if (typeof raw !== 'number' && typeof raw !== 'string') {
-    issues.push({
-      field: 'imageRetentionDays',
-      message: `Debe ser 0 o un entero entre ${RETENTION_MIN} y ${RETENTION_MAX} días.`,
-    });
-    return RETENTION_DEFAULT;
-  }
-
-  const n = Number(raw);
-  if (
-    !Number.isInteger(n) ||
-    n < RETENTION_DISABLED ||
-    (n > RETENTION_DISABLED && n < RETENTION_MIN) ||
-    n > RETENTION_MAX
-  ) {
-    issues.push({
-      field: 'imageRetentionDays',
-      message: `Debe ser 0 o un entero entre ${RETENTION_MIN} y ${RETENTION_MAX} días.`,
-    });
-    return RETENTION_DEFAULT;
-  }
-
-  return n;
-}
-
 /**
  * Parses + normalizes + validates a Negocio PUT body. Collects ALL issues
  * before throwing so the admin form can show every problem at once.
@@ -219,10 +182,6 @@ export function validateBusinessSettings(body: unknown): AdminBusinessSettings {
   const instagramRaw = normalizeNeutral(settings.instagramUrl, 'instagramUrl', issues);
   const facebookRaw = normalizeNeutral(settings.facebookUrl, 'facebookUrl', issues);
   const tiktokRaw = normalizeNeutral(settings.tiktokUrl, 'tiktokUrl', issues);
-  const imageRetentionDays = normalizeRetentionDays(
-    settings.imageRetentionDays,
-    issues,
-  );
 
   const instagramUrl = normalizeUrl(instagramRaw, 'instagramUrl', issues);
   const facebookUrl = normalizeUrl(facebookRaw, 'facebookUrl', issues);
@@ -243,6 +202,5 @@ export function validateBusinessSettings(body: unknown): AdminBusinessSettings {
     instagramUrl,
     facebookUrl,
     tiktokUrl,
-    imageRetentionDays,
   };
 }

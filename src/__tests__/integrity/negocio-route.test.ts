@@ -72,7 +72,6 @@ describe('GET negocio', () => {
       fields: [
         { key: 'business_name', value: 'Mosaiko' },
         { key: 'phone', value: '555' },
-        { key: 'image_retention_days', value: '90' },
       ],
     });
     mockGetTranslations.mockResolvedValue([
@@ -85,7 +84,6 @@ describe('GET negocio', () => {
     expect(data.settings.businessName.es).toBe('Mosaiko');
     expect(data.settings.businessName.en).toBe('Mosaiko EN');
     expect(data.settings.phone).toBe('555');
-    expect(data.settings.imageRetentionDays).toBe(90);
   });
 
   test('metaobject not seeded → 500', async () => {
@@ -122,13 +120,10 @@ describe('PUT negocio', () => {
         footerCopy: { es: '', en: '' },
         address: 'CDMX',
         phone: '555',
-        imageRetentionDays: 30,
       }),
     );
     expect(res.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalledTimes(1);
-    const baseFields = mockUpdate.mock.calls[0][1] as Array<{ key: string; value: string }>;
-    expect(baseFields).toContainEqual({ key: 'image_retention_days', value: '30' });
     // EN business_name + footer_copy both empty → both removed, none registered
     expect(mockRemove).toHaveBeenCalledWith('gid://1', 'en', ['business_name', 'footer_copy']);
     expect(mockGetDigests).not.toHaveBeenCalled();
