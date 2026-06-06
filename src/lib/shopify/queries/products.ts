@@ -98,7 +98,7 @@ const GET_PRODUCTS_QUERY = /* GraphQL */ `
 const GET_PRODUCT_BY_HANDLE_QUERY = /* GraphQL */ `
   ${PRODUCT_FRAGMENT}
   query GetProductByHandle($handle: String!) {
-    productByHandle(handle: $handle) {
+    product(handle: $handle) {
       ...ProductFields
     }
   }
@@ -139,7 +139,7 @@ export async function getProductByHandle(
   handle: string
 ): Promise<Product | null> {
   const data = await shopifyFetch<{
-    productByHandle: ShopifyProduct | null;
+    product: ShopifyProduct | null;
   }>({
     query: GET_PRODUCT_BY_HANDLE_QUERY,
     variables: { handle },
@@ -148,8 +148,8 @@ export async function getProductByHandle(
     },
   });
 
-  if (!data.productByHandle) return null;
-  return reshapeProduct(data.productByHandle);
+  if (!data.product) return null;
+  return reshapeProduct(data.product);
 }
 
 /**

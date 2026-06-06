@@ -29,7 +29,7 @@ vi.mock('@/lib/shopify/checkout', async (importOriginal) => {
 // from the items) — controllable per test.
 const mockCheapestStandard = vi.fn(async (): Promise<number | null> => 1);
 vi.mock('@/lib/shopify/prices', () => ({
-  getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
+  getPricingForCheckout: async () => ({ matrix: {} }),
   getCheapestStandardPrice: () => mockCheapestStandard(),
   getDisplayPriceMap: async () => ({}),
 }));

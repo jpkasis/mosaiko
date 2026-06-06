@@ -2,11 +2,12 @@
  * PR-B money-path contract tests (added per Codex audit).
  *
  * Pin the fail-closed pricing rules so a future change can't silently charge
- * the wrong price:
- *   - migrated + live v2 cell        → charge the v2 variant
- *   - migrated + missing combo       → FAIL CLOSED (no legacy fallback)
- *   - Shopify read error             → PRICING_UNAVAILABLE (never guesses)
- *   - not migrated (pre-publish)     → legacy size-only variant
+ * the wrong price (Phase 7: v2 is the single source of truth — NO legacy
+ * SHOPIFY_VARIANT_MAP fallback):
+ *   - v2 live + cell present         → charge the v2 variant
+ *   - v2 live + missing/unavailable  → FAIL CLOSED (VARIANT_NOT_FOUND)
+ *   - v2 unreadable (not-published   → PRICING_UNAVAILABLE — fail closed,
+ *     OR a Shopify outage)             NEVER a legacy/seed price
  * Plus cart repricing from the live map and the option-label round-trip the
  * migration + reader both depend on.
  */
@@ -31,10 +32,6 @@ import type { CategoryType } from '@/lib/customization-types';
 import type { GridSize } from '@/lib/grid-config';
 
 beforeEach(() => {
-  vi.stubEnv(
-    'SHOPIFY_VARIANT_MAP',
-    JSON.stringify({ '6': 'gid://shopify/ProductVariant/legacy6' }),
-  );
   mockPricing.mockReset();
 });
 
@@ -60,7 +57,6 @@ function customItem(category: CategoryType, gridSize: GridSize): CartItem {
 describe('PR-B checkout pricing — fail closed', () => {
   test('migrated + live cell → charges the v2 variant (not legacy)', async () => {
     mockPricing.mockResolvedValue({
-      migrated: true,
       matrix: {
         studio: {
           6: { price: 480, variantId: 'gid://shopify/ProductVariant/v2studio6', availableForSale: true, source: 'shopify' },
@@ -73,8 +69,8 @@ describe('PR-B checkout pricing — fail closed', () => {
     expect(result[0].merchandiseId).toBe('gid://shopify/ProductVariant/v2studio6');
   });
 
-  test('migrated + missing combo → VARIANT_NOT_FOUND (never charges legacy size price)', async () => {
-    mockPricing.mockResolvedValue({ migrated: true, matrix: {} });
+  test('v2 live + missing combo → VARIANT_NOT_FOUND (never charges a legacy price)', async () => {
+    mockPricing.mockResolvedValue({ matrix: {} });
     const result = await buildCartLines([customItem('studio', 6)]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
@@ -83,7 +79,6 @@ describe('PR-B checkout pricing — fail closed', () => {
 
   test('migrated + unavailable variant → fails closed', async () => {
     mockPricing.mockResolvedValue({
-      migrated: true,
       matrix: { studio: { 6: { price: 480, variantId: 'gid://x', availableForSale: false, source: 'shopify' } } },
     });
     const result = await buildCartLines([customItem('studio', 6)]);
@@ -98,27 +93,24 @@ describe('PR-B checkout pricing — fail closed', () => {
     expect(result.code).toBe('PRICING_UNAVAILABLE');
   });
 
-  test('not migrated (pre-publish) → legacy size-only variant', async () => {
-    mockPricing.mockResolvedValue({ migrated: false, matrix: {} });
+  test('v2 unreadable (not-published OR outage) → PRICING_UNAVAILABLE, never legacy', async () => {
+    // Phase 7 money-path: there is no "pre-publish legacy fallback" anymore. v2
+    // is the single source of truth — getPricingForCheckout THROWS (not-
+    // published or an outage alike), so checkout fails closed. This is what
+    // stops a bad Online-Store-unpublish at launch from silently charging
+    // legacy prices.
+    mockPricing.mockRejectedValue(new Error('not published'));
     const result = await buildCartLines([customItem('studio', 6)]);
-    expect(Array.isArray(result)).toBe(true);
-    if (!Array.isArray(result)) return;
-    expect(result[0].merchandiseId).toBe('gid://shopify/ProductVariant/legacy6');
-  });
-
-  test('invalid (category, size) combo → VARIANT_NOT_FOUND when MIGRATED', async () => {
-    // studio only allows 6 piezas; studio:3 is not a real combo.
-    mockPricing.mockResolvedValue({ migrated: true, matrix: {} });
-    const result = await buildCartLines([customItem('studio', 3)]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;
-    expect(result.code).toBe('VARIANT_NOT_FOUND');
+    expect(result.code).toBe('PRICING_UNAVAILABLE');
   });
 
-  test('invalid combo is rejected even in the LEGACY fallback (not migrated)', async () => {
-    // Codex full audit: without the combo guard, the size-only fallback would
-    // charge the legacy 3-piece price for a studio (6-piece) print. Fail closed.
-    mockPricing.mockResolvedValue({ migrated: false, matrix: {} });
+  test('invalid (category, size) combo → VARIANT_NOT_FOUND (combo guard)', async () => {
+    // studio only allows 6 piezas; studio:3 is not a real combo. The
+    // VALID_COMBOS guard rejects it BEFORE the matrix lookup, so a crafted
+    // studio:3 line can never charge a studio:6 price (defense in depth).
+    mockPricing.mockResolvedValue({ matrix: {} });
     const result = await buildCartLines([customItem('studio', 3)]);
     expect(Array.isArray(result)).toBe(false);
     if (Array.isArray(result)) return;

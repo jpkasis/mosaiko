@@ -10,11 +10,12 @@
  * Graceful degradation: pre-publish (product not live yet) or on a Shopify
  * outage, DISPLAY falls back to the legacy SIZE-BASED grid-config price (so
  * it matches what the legacy size-only variant actually charges — no drift
- * window). CHECKOUT (`getPricingForCheckout`) is stricter: it falls back to
- * the legacy variant ONLY when it positively confirmed the product isn't
- * published yet, and fails closed on a real read error. (`SEED_PRICE_MATRIX`
- * — the per-category TARGET prices — is used only by the migration that
- * creates the v2 variants, NOT as the display fallback.)
+ * window). CHECKOUT (`getPricingForCheckout`) is STRICT: v2 is the single
+ * source of truth, so it returns the live matrix or THROWS — for a not-yet-
+ * published product OR a real Shopify error alike — and the caller fails
+ * closed (PRICING_UNAVAILABLE, no cart created), never charging a legacy/seed
+ * price. (`SEED_PRICE_MATRIX` — the per-category TARGET prices — is used only
+ * by the migration that creates the v2 variants, NOT as the display fallback.)
  */
 import 'server-only';
 import { unstable_cache } from 'next/cache';
@@ -73,7 +74,7 @@ interface StorefrontVariant {
 
 const PRICE_QUERY = /* GraphQL */ `
   query PriceMatrix($handle: String!) {
-    productByHandle(handle: $handle) {
+    product(handle: $handle) {
       id
       variants(first: 100) {
         edges {
@@ -110,13 +111,22 @@ function cellFor(variant: StorefrontVariant): {
   };
 }
 
-/** Live matrix from Shopify. Returns `{}` when the product doesn't exist. */
-async function fetchShopifyMatrix(): Promise<PriceMatrix> {
+/**
+ * Live matrix from Shopify. Throws `PricingProductNotLiveError` when the product
+ * isn't published. `noStore: true` bypasses Next's fetch data cache — used by
+ * the STRICT checkout read so it always observes the TRUE current state of v2,
+ * never a stale-but-warm matrix (see `getPricingForCheckout`).
+ */
+async function fetchShopifyMatrix(opts?: { noStore?: boolean }): Promise<PriceMatrix> {
   const data = await shopifyFetch<{
-    productByHandle: { variants: { edges: { node: StorefrontVariant }[] } } | null;
-  }>({ query: PRICE_QUERY, variables: { handle: PRICING_PRODUCT_HANDLE } });
+    product: { variants: { edges: { node: StorefrontVariant }[] } } | null;
+  }>({
+    query: PRICE_QUERY,
+    variables: { handle: PRICING_PRODUCT_HANDLE },
+    options: opts?.noStore ? { cache: 'no-store' } : undefined,
+  });
 
-  const product = data?.productByHandle;
+  const product = data?.product;
   // Not published yet → throw (NOT cached, so publish cuts over immediately).
   if (!product) throw new PricingProductNotLiveError();
 
@@ -129,7 +139,8 @@ async function fetchShopifyMatrix(): Promise<PriceMatrix> {
   return matrix;
 }
 
-const fetchShopifyMatrixCached = unstable_cache(fetchShopifyMatrix, ['shopify-price-matrix'], {
+// DISPLAY path: 60s `unstable_cache` over the default (data-cached) read.
+const fetchShopifyMatrixCached = unstable_cache(() => fetchShopifyMatrix(), ['shopify-price-matrix'], {
   tags: [PRICE_MATRIX_TAG],
   revalidate: PRICE_MATRIX_REVALIDATE_S,
 });
@@ -178,25 +189,27 @@ export async function getPriceMatrix(): Promise<PriceMatrix> {
 }
 
 /**
- * CHECKOUT path — STRICT, so we never silently charge the wrong price.
- * Returns `{ migrated, matrix }`:
- *   - migrated:true  → the v2 product is live; charge its per-(category,size)
- *     variant and FAIL CLOSED if a needed combo is missing/unavailable.
- *   - migrated:false → positively confirmed the product isn't published yet
- *     (PricingProductNotLiveError) → the legacy size-only variant is correct.
- * A real Shopify read error PROPAGATES (the caller returns a blocking error)
- * rather than guessing a price.
+ * CHECKOUT path — STRICT + UNCACHED, so we never silently charge the wrong
+ * price (Phase 7 money-path BLOCKER, Codex pre-flight + final audit). v2 is the
+ * SINGLE SOURCE OF TRUTH: this does a fresh `cache: 'no-store'` Storefront read
+ * (bypassing BOTH the 60s display cache AND Next's fetch data cache) and returns
+ * the live `{ matrix }` or THROWS. ANY failure to read v2 —
+ * `PricingProductNotLiveError` (not published) OR a real Shopify error (outage)
+ * — propagates, so the caller (`buildCartLines`) returns PRICING_UNAVAILABLE and
+ * creates NO cart.
+ *
+ * The uncached read matters: a warm 60s cache must NOT let checkout proceed on a
+ * stale matrix after v2 becomes unreadable (e.g. the Phase 8 Online-Store-
+ * unpublish) — that would punch a 60s hole in the fail-closed guarantee.
+ * Checkout is low-frequency + high-stakes, so the per-checkout read is fine.
+ *
+ * There is NO legacy/seed fallback: before this fix, a not-published read fell
+ * back to the legacy `SHOPIFY_VARIANT_MAP` price, which would silently mis-charge
+ * and mask a bad cutover. Charge the per-(category,size) variant in the returned
+ * matrix and fail closed if a needed combo is missing/unavailable.
  */
-export async function getPricingForCheckout(): Promise<{
-  migrated: boolean;
-  matrix: PriceMatrix;
-}> {
-  try {
-    return { migrated: true, matrix: await fetchShopifyMatrixCached() };
-  } catch (e) {
-    if (e instanceof PricingProductNotLiveError) return { migrated: false, matrix: seedMatrix() };
-    throw e;
-  }
+export async function getPricingForCheckout(): Promise<{ matrix: PriceMatrix }> {
+  return { matrix: await fetchShopifyMatrix({ noStore: true }) };
 }
 
 /** Plain `(category, size) → price` map, serializable for client props/context. */
@@ -229,20 +242,6 @@ export async function getPrice(
 ): Promise<number | null> {
   const matrix = await getPriceMatrix();
   return matrix[category]?.[gridSize]?.price ?? null;
-}
-
-/**
- * The v2 variant GID to charge for (category, size). `null` when the matrix
- * is the seed fallback (pre-migration) — the caller then uses the legacy
- * size-only variant map so checkout never breaks before the cutover.
- */
-export async function resolvePricedVariantId(
-  category: CategoryType,
-  gridSize: GridSize,
-): Promise<string | null> {
-  const matrix = await getPriceMatrix();
-  const cell = matrix[category]?.[gridSize];
-  return cell?.variantId && cell.availableForSale ? cell.variantId : null;
 }
 
 /**

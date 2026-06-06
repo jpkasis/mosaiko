@@ -1,5 +1,4 @@
 import { createCart, addToCart } from './mutations/cart';
-import { getVariantId, isVariantMapConfigured } from './variant-map';
 import { getPricingForCheckout, getCheapestStandardPrice, getDisplayPriceMap } from './prices';
 import { formatPrice, type GridSize } from '../grid-config';
 import { cartLiveTotal } from '../cart-pricing';
@@ -185,9 +184,11 @@ export async function buildCartLines(
 ): Promise<CartLineInput[] | CheckoutError> {
   const lines: CartLineInput[] = [];
 
-  // PR-B: resolve pricing ONCE, STRICTLY (Codex audit). `migrated` says
-  // whether the v2 product is live. A real Shopify read error fails the whole
-  // checkout (`PRICING_UNAVAILABLE`) — we never guess/charge a fallback price.
+  // PR-B / Phase 7: resolve pricing ONCE, STRICTLY (Codex audit). v2 is the
+  // single source of truth — getPricingForCheckout returns its live matrix or
+  // THROWS (not-published OR a real Shopify error alike). Any failure fails the
+  // whole checkout (`PRICING_UNAVAILABLE`) with NO cart created — we never
+  // guess/charge a legacy fallback price.
   const pricing = await getPricingForCheckout().catch(() => null);
   if (!pricing) {
     return {
@@ -252,10 +253,9 @@ export async function buildCartLines(
     }
 
     // Money-safety (Codex full audit): the (category, size) must be a real
-    // priced combo. Reject otherwise — without this, the legacy size-only
-    // fallback would charge a mismatched-size variant for a category that
-    // doesn't allow that size (e.g. a crafted studio/3 line charging the
-    // 3-piece price for a 6-piece print).
+    // priced combo. Reject otherwise — defense in depth so a crafted line
+    // (e.g. studio/3) can't reach the matrix lookup for a size the category
+    // doesn't allow.
     if (category && !VALID_COMBOS.has(`${category}:${effectiveGridSize}`)) {
       return {
         code: 'VARIANT_NOT_FOUND',
@@ -263,29 +263,19 @@ export async function buildCartLines(
       };
     }
 
-    // PR-B (Codex audit — fail closed): charge the per-(category, size) v2
-    // variant when the product is live. The legacy size-only variant is used
-    // ONLY when we positively confirmed the product isn't migrated yet. If the
-    // product IS live but this combo is missing/unavailable, leave variantId
-    // null → error below, rather than silently charging the legacy size price.
+    // PR-B / Phase 7 (Codex — fail closed): charge the per-(category, size) v2
+    // variant. v2 is the single source of truth — there is NO legacy fallback
+    // (getPricingForCheckout already threw → PRICING_UNAVAILABLE above if v2 was
+    // unreadable). If the product IS live but this combo is missing/unavailable,
+    // variantId stays null → VARIANT_NOT_FOUND, never a guessed legacy price.
     const cell = category ? pricing.matrix[category]?.[effectiveGridSize] : undefined;
-    let variantId: string | null = null;
-    if (cell?.variantId && cell.availableForSale) {
-      variantId = cell.variantId;
-    } else if (!pricing.migrated) {
-      variantId = getVariantId(effectiveGridSize);
-    }
+    const variantId: string | null =
+      cell?.variantId && cell.availableForSale ? cell.variantId : null;
 
     if (!variantId) {
-      if (!isVariantMapConfigured()) {
-        return {
-          code: 'SHOPIFY_NOT_CONFIGURED',
-          message: 'Los productos de Shopify aún no están configurados. Contacta al administrador.',
-        };
-      }
       return {
         code: 'VARIANT_NOT_FOUND',
-        message: `No se encontró variante para el tamaño ${item.gridSize} piezas.`,
+        message: `No se encontró variante para ${category ?? 'el producto'} (${effectiveGridSize} piezas).`,
       };
     }
 

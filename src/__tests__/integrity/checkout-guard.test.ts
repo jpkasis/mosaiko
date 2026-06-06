@@ -17,27 +17,17 @@
  *   - spoofed categorySlug (studio claimed, real product is Polaroid) → rejected
  *   - custom-type line → always accepted regardless of category
  */
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import { buildCartLines } from '@/lib/shopify/checkout';
 import type { CartItem } from '@/lib/cart-store';
 
-// PR-B: buildCartLines resolves pricing via getPricingForCheckout. Mock it as
-// "not migrated" so it falls back to the legacy size-only SHOPIFY_VARIANT_MAP
-// stub below — keeping these guard assertions about category/variant resolution.
-vi.mock('@/lib/shopify/prices', () => ({
-  getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
-}));
-
-beforeEach(() => {
-  vi.stubEnv(
-    'SHOPIFY_VARIANT_MAP',
-    JSON.stringify({
-      '3': 'gid://shopify/ProductVariant/100',
-      '4': 'gid://shopify/ProductVariant/101',
-      '6': 'gid://shopify/ProductVariant/102',
-      '9': 'gid://shopify/ProductVariant/103',
-    }),
-  );
+// Phase 7: buildCartLines resolves pricing via getPricingForCheckout — v2 is the
+// single source of truth, no legacy SHOPIFY_VARIANT_MAP fallback. These tests
+// assert the predesigned category/combo guard, not pricing, so mock a FULL v2
+// matrix where every valid combo resolves to a variant.
+vi.mock('@/lib/shopify/prices', async () => {
+  const { fullCheckoutMatrix } = await import('./_pricing-mock');
+  return { getPricingForCheckout: async () => ({ matrix: fullCheckoutMatrix() }) };
 });
 
 function makePredesignedItem(productId: string, categorySlug?: string): CartItem {

@@ -12,7 +12,7 @@
  *   - Checkout cart attrs: STD-9 + STD-6 emit `_photo_url`/`_crop_area`;
  *     STD-3 emits `_photo_urls`/`_crop_areas` (plus legacy `_photo_url`).
  */
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import { saveTheDateLayout } from '@/lib/category-layouts/save-the-date';
 import {
   derivePhotoInput,
@@ -27,23 +27,13 @@ import { TILE_PRINT_SIZE } from '@/lib/grid-config';
 import { getStepsForCategory } from '@/components/builder/useBuilderFlow';
 import type { CartItem } from '@/lib/cart-store';
 
-// PR-B: buildCartLines reads the live price matrix; mock empty so it falls
-// back to the legacy size-only variant map (these tests assert attribute
-// serialization + layout, not pricing).
-vi.mock('@/lib/shopify/prices', () => ({
-  getPricingForCheckout: async () => ({ migrated: false, matrix: {} }),
-}));
-
-beforeEach(() => {
-  vi.stubEnv(
-    'SHOPIFY_VARIANT_MAP',
-    JSON.stringify({
-      '3': 'gid://shopify/ProductVariant/100',
-      '4': 'gid://shopify/ProductVariant/101',
-      '6': 'gid://shopify/ProductVariant/102',
-      '9': 'gid://shopify/ProductVariant/103',
-    }),
-  );
+// Phase 7: buildCartLines reads the live v2 price matrix — there is no legacy
+// SHOPIFY_VARIANT_MAP fallback anymore. These tests assert attribute
+// serialization + layout, not pricing, so mock a FULL v2 matrix where every
+// combo resolves to a variant.
+vi.mock('@/lib/shopify/prices', async () => {
+  const { fullCheckoutMatrix } = await import('./_pricing-mock');
+  return { getPricingForCheckout: async () => ({ matrix: fullCheckoutMatrix() }) };
 });
 
 describe('Save the Date — 3 grid sizes (UAT-1b)', () => {
