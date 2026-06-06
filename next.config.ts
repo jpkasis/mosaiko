@@ -4,6 +4,8 @@ import createNextIntlPlugin from 'next-intl/plugin';
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 const nextConfig: NextConfig = {
+  // Don't advertise the framework via the `x-powered-by` header.
+  poweredByHeader: false,
   // Sharp + napi-rs/canvas are native modules — exclude from server
   // bundling so Vercel uses the prebuilt binaries instead of trying to
   // bundle them through Webpack.
@@ -59,10 +61,12 @@ const nextConfig: NextConfig = {
       { key: 'X-Content-Type-Options', value: 'nosniff' },
       { key: 'X-Frame-Options', value: 'DENY' },
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
       {
         key: 'Content-Security-Policy',
         value: [
           "default-src 'self'",
+          "object-src 'none'",
           "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com",
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "font-src 'self' https://fonts.gstatic.com",
