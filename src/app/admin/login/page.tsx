@@ -73,7 +73,7 @@ export default function AdminLoginPage() {
               <input
                 id="admin-email"
                 type="email"
-                placeholder="admin@mosaiko.mx"
+                placeholder="username"
                 className="h-11 w-full rounded-lg border border-light-gray bg-cream px-3.5 text-sm text-charcoal placeholder:text-warm-gray/60 focus:border-terracotta focus:outline-none focus:ring-2 focus:ring-terracotta/20"
                 autoComplete="email"
               />
