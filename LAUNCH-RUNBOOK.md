@@ -38,7 +38,9 @@ and it prints which channels v2 is on.
 3. **Vercel env**: set `NEXT_PUBLIC_SITE_URL=https://mosaiko.mx` (Production) and
    redeploy → `robots.txt`, `sitemap.xml`, canonical + OG URLs all switch to the
    real domain automatically (see `src/lib/site-url.ts`).
-4. **Shopify domain decision (confirm with Codex):** Shopify "connect existing
+4. **Vercel env**: set `CRON_SECRET` (Production) and mirror it in `.env.local` so
+   Vercel Cron can call `/api/cron/prune-images` with `Authorization: Bearer <secret>`.
+5. **Shopify domain decision (confirm with Codex):** Shopify "connect existing
    domain" that *targets a custom storefront environment* is **Hydrogen-only** — it
    cannot point at our Vercel Next.js app. So `mosaiko.mx` serves the storefront
    **via Vercel DNS (step 2), not via Shopify**. Decide the Shopify-side surfaces:

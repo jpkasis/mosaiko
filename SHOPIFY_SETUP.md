@@ -85,6 +85,7 @@ SHOPIFY_STORE_DOMAIN=<mosaiko.myshopify.com>
 SHOPIFY_CLIENT_ID=<from step 3>
 SHOPIFY_CLIENT_SECRET=<from step 3>
 SHOPIFY_WEBHOOK_SECRET=<same value as SHOPIFY_CLIENT_SECRET in this model>
+CRON_SECRET=<32-byte random string for Vercel Cron authorization>
 NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN=<mosaiko.myshopify.com>
 NEXT_PUBLIC_SHOPIFY_STOREFRONT_TOKEN=<dev team mints this from the Storefront API>
 ADMIN_PASSWORD_HASH=<bcrypt hash of the chosen admin-panel password — dev team generates>
@@ -117,6 +118,7 @@ Once both pass, the store is ready to go live.
 ## Common gotchas
 
 - **Webhook HMAC = the Client Secret in the Dev Dashboard model.** Don't paste a separate value; reuse the same `shpss_…` from the Configuración tab.
+- **Vercel Cron requires `CRON_SECRET`.** Add the same random value to `.env.local` and Vercel Production env so `/api/cron/prune-images` can prune old Shopify Files images once per day.
 - **The Client Secret is sensitive.** It's the only thing standing between us and full Admin API access. After integration test, rotate it (Configuración → Secreto → "Rotar") and update the env vars.
 - **Shopify Files has a 20 MB / 20 MP cap per image.** Modern phones can shoot >20 MP; the Mosaiko code pre-resizes via Sharp before upload, so this is automatic, but be aware.
 
