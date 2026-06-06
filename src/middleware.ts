@@ -1,7 +1,22 @@
 import createMiddleware from 'next-intl/middleware';
+import type { NextRequest } from 'next/server';
 import { routing } from './i18n/routing';
 
-export default createMiddleware(routing);
+const intlMiddleware = createMiddleware(routing);
+
+// Only the production deployment should be indexable. Every preview/staging
+// deployment (`VERCEL_ENV !== 'production'` — *.vercel.app preview URLs, local
+// dev) gets an `X-Robots-Tag: noindex` header so it never competes with the
+// real domain in search. robots.ts also returns a disallow-all there.
+const IS_PRODUCTION = process.env.VERCEL_ENV === 'production';
+
+export default function middleware(request: NextRequest) {
+  const response = intlMiddleware(request);
+  if (!IS_PRODUCTION) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+  }
+  return response;
+}
 
 export const config = {
   matcher: [

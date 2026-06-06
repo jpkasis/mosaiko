@@ -22,6 +22,7 @@ import { CartHydrator } from '@/components/cart/CartHydrator';
 import { CookieBanner } from '@/components/layout/CookieBanner';
 import { PricesProvider } from '@/components/pricing/PricesProvider';
 import { getDisplayPriceMap } from '@/lib/shopify/prices';
+import { SITE_URL } from '@/lib/site-url';
 import '../globals.css';
 
 const cormorant = Cormorant_Garamond({
@@ -100,8 +101,22 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: 'metadata' });
 
   return {
+    // Absolute base so canonical/OG URLs resolve to the real origin. At the
+    // Phase 8 domain cutover, set NEXT_PUBLIC_SITE_URL=https://mosaiko.mx.
+    metadataBase: new URL(SITE_URL),
     title: t('title'),
     description: t('description'),
+    // NOTE: per-route hreflang lives in sitemap.ts (the authoritative signal for
+    // Google). We deliberately do NOT set alternates.languages here — at layout
+    // scope it would make every child page inherit the ROOT's alternates
+    // (Codex final audit), mislabeling e.g. /catalogo's hreflang as the home.
+    openGraph: {
+      type: 'website',
+      siteName: 'Mosaiko',
+      locale: locale === 'es' ? 'es_MX' : 'en_US',
+      title: t('title'),
+      description: t('description'),
+    },
   };
 }
 
