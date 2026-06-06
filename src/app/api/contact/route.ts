@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { clientIp, shortHash } from '@/lib/request-ip';
 import { validateContactSubmission } from '@/lib/contact/validation';
 import {
   createContactSubmission,
@@ -22,23 +23,6 @@ const MAX_BODY_BYTES = 10 * 1024;
 
 function badRequest(code: string, extra?: Record<string, unknown>): NextResponse {
   return NextResponse.json({ error: { code, ...extra } }, { status: 400 });
-}
-
-/** Resolves the best-effort client IP from edge/proxy headers. */
-function clientIp(request: Request): string {
-  const cf = request.headers.get('cf-connecting-ip');
-  if (cf) return cf.trim();
-  const xff = request.headers.get('x-forwarded-for');
-  if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  return 'unknown';
-}
-
-/** Short, stable hash of an IP for rate-limit keying (not stored). */
-function shortHash(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 12);
 }
 
 /** Picks the request locale: explicit body field, else Accept-Language, else es. */

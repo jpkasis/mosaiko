@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadOriginalPhoto } from '@/lib/storage';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { clientIp } from '@/lib/request-ip';
 import {
   MAX_UPLOAD_BYTES,
   UPLOAD_ERROR_STATUS,
@@ -13,8 +14,7 @@ import {
 
 export async function POST(request: NextRequest) {
   // ── Rate limiting (10 burst, 1 per 5s sustained) ─────────────────────
-  const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  const { allowed, retryAfterMs } = checkRateLimit(`upload:${clientIp}`);
+  const { allowed, retryAfterMs } = checkRateLimit(`upload:${clientIp(request)}`);
 
   if (!allowed) {
     return NextResponse.json(
