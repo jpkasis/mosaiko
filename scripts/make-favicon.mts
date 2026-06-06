@@ -14,14 +14,30 @@ import { writeFile } from 'node:fs/promises';
 const CREAM = { r: 0xef, g: 0xeb, b: 0xe0, alpha: 1 }; // --cream #efebe0
 const M = 'MOSAIKO-logos/M NEGRA.png'; // charcoal M mark, transparent bg
 
-/** A square cream tile with the M centered at `ratio` of the tile width. */
-async function tile(size: number, ratio: number): Promise<Buffer> {
+/**
+ * A cream tile with the M centered at `ratio` of the tile width. When
+ * `radius` (a fraction of the tile size) is > 0 the corners are rounded —
+ * they become transparent via a rounded-rect `dest-in` mask, so the icon reads
+ * as a rounded square on any tab/background.
+ */
+async function tile(size: number, ratio: number, radius = 0): Promise<Buffer> {
   const m = await sharp(M).resize({ width: Math.round(size * ratio) }).png().toBuffer();
   const meta = await sharp(m).metadata();
   const left = Math.round((size - (meta.width ?? 0)) / 2);
   const top = Math.round((size - (meta.height ?? 0)) / 2);
-  return sharp({ create: { width: size, height: size, channels: 4, background: CREAM } })
+  const square = await sharp({
+    create: { width: size, height: size, channels: 4, background: CREAM },
+  })
     .composite([{ input: m, left, top }])
+    .png()
+    .toBuffer();
+  if (radius <= 0) return square;
+  const r = Math.round(size * radius);
+  const mask = Buffer.from(
+    `<svg width="${size}" height="${size}"><rect width="${size}" height="${size}" rx="${r}" ry="${r}" fill="#fff"/></svg>`,
+  );
+  return sharp(square)
+    .composite([{ input: mask, blend: 'dest-in' }])
     .png()
     .toBuffer();
 }
@@ -51,14 +67,19 @@ function buildIco(pngs: { size: number; data: Buffer }[]): Buffer {
   return Buffer.concat([header, ...entries, ...pngs.map((p) => p.data)]);
 }
 
+// Corner radius as a fraction of the icon size (≈ iOS app-icon roundness).
+const R = 0.2;
+
 async function main() {
-  await writeFile('src/app/icon.png', await tile(256, 0.74));
+  await writeFile('src/app/icon.png', await tile(256, 0.74, R));
+  // apple-icon stays a full-bleed square — iOS applies its own rounded mask,
+  // so pre-rounding here would leave a transparent gap at the corners.
   await writeFile('src/app/apple-icon.png', await tile(180, 0.7));
   // Small sizes get a slightly larger M (less padding) so they stay legible.
   const ico = buildIco([
-    { size: 16, data: await tile(16, 0.88) },
-    { size: 32, data: await tile(32, 0.84) },
-    { size: 48, data: await tile(48, 0.8) },
+    { size: 16, data: await tile(16, 0.88, R) },
+    { size: 32, data: await tile(32, 0.84, R) },
+    { size: 48, data: await tile(48, 0.8, R) },
   ]);
   await writeFile('src/app/favicon.ico', ico);
   console.log(`✓ icon.png + apple-icon.png + favicon.ico (${ico.length} B)`);
