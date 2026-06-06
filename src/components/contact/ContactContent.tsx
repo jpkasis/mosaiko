@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from 'react';
 import { motion, useInView, AnimatePresence } from 'framer-motion';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 
 /* ── Animation variants ── */
 const ease = [0.16, 1, 0.3, 1] as [number, number, number, number];
@@ -192,20 +192,31 @@ type FormStatus = 'idle' | 'sending' | 'success' | 'error';
 /* ── Business settings prop (subset relevant to the contact page) ── */
 export interface ContactBusiness {
   whatsapp: string;
+  whatsappMessage?: string;
   phone: string;
   address: string;
 }
 
-/** Builds a wa.me link from a stored WhatsApp number (digits only). */
-function waLink(whatsapp: string): string | null {
+/**
+ * Builds a wa.me link from a stored WhatsApp number (digits only). When a
+ * prefill `message` is provided, it's appended as `?text=` so WhatsApp opens
+ * with the chat pre-loaded.
+ */
+function waLink(whatsapp: string, message?: string): string | null {
   const digits = whatsapp.replace(/[^\d]/g, '');
-  return digits.length >= 8 ? `https://wa.me/${digits}` : null;
+  if (digits.length < 8) return null;
+  const base = `https://wa.me/${digits}`;
+  const trimmed = message?.trim();
+  return trimmed ? `${base}?text=${encodeURIComponent(trimmed)}` : base;
 }
 
 /* ── Component ── */
 export function ContactContent({ business }: { business?: ContactBusiness }) {
   const t = useTranslations('contactPage');
-  const whatsappHref = business?.whatsapp ? waLink(business.whatsapp) : null;
+  const locale = useLocale();
+  const whatsappHref = business?.whatsapp
+    ? waLink(business.whatsapp, business.whatsappMessage)
+    : null;
 
   /* Refs for scroll-triggered animations */
   const headerRef = useRef<HTMLDivElement>(null);
@@ -218,46 +229,75 @@ export function ContactContent({ business }: { business?: ContactBusiness }) {
   const [email, setEmail] = useState('');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  // Honeypot — invisible to humans; bots that auto-fill every field trip it.
+  const [website, setWebsite] = useState('');
   const [status, setStatus] = useState<FormStatus>('idle');
+  // When set, overrides the generic error copy (e.g. rate-limit message).
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const isSending = status === 'sending';
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (isSending) return;
 
-    // Basic validation
+    // Fast client-side pre-check (the server is the source of truth).
     const trimmedName = name.trim();
     const trimmedEmail = email.trim();
     const trimmedSubject = subject.trim();
     const trimmedMessage = message.trim();
 
-    if (!trimmedName || !trimmedEmail || !trimmedSubject || !trimmedMessage) {
-      setStatus('error');
-      setTimeout(() => setStatus('idle'), 4000);
-      return;
-    }
-
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(trimmedEmail)) {
+    if (
+      !trimmedName ||
+      !trimmedEmail ||
+      !trimmedSubject ||
+      !trimmedMessage ||
+      !emailRegex.test(trimmedEmail)
+    ) {
+      setErrorMessage(null);
       setStatus('error');
       setTimeout(() => setStatus('idle'), 4000);
       return;
     }
 
     setStatus('sending');
+    setErrorMessage(null);
 
-    // Simulate form submission
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: trimmedName,
+          email: trimmedEmail,
+          subject: trimmedSubject,
+          message: trimmedMessage,
+          website,
+          locale,
+        }),
+      });
+
+      if (!res.ok) {
+        // 429 → friendly "too many attempts"; everything else → generic error.
+        setErrorMessage(res.status === 429 ? t('formRateLimited') : null);
+        setStatus('error');
+        setTimeout(() => setStatus('idle'), 5000);
+        return;
+      }
+
       setStatus('success');
       setName('');
       setEmail('');
       setSubject('');
       setMessage('');
-
-      // Reset status after 5 seconds
+      setWebsite('');
       setTimeout(() => setStatus('idle'), 5000);
-    }, 1500);
+    } catch {
+      setErrorMessage(null);
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 5000);
+    }
   }
 
   return (
@@ -345,6 +385,35 @@ export function ContactContent({ business }: { business?: ContactBusiness }) {
                 animate={formSectionInView ? 'visible' : 'hidden'}
                 className="space-y-5"
               >
+                {/* Honeypot — visually hidden, off-screen, excluded from a11y
+                    + tab order. Real users never see or fill it; spam bots
+                    that fill every field do, and the server silently drops
+                    those submissions. */}
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    width: '1px',
+                    height: '1px',
+                    overflow: 'hidden',
+                    clip: 'rect(0 0 0 0)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <label htmlFor="contact-website">
+                    No llenes este campo
+                  </label>
+                  <input
+                    id="contact-website"
+                    type="text"
+                    name="website"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={website}
+                    onChange={(e) => setWebsite(e.target.value)}
+                  />
+                </div>
+
                 {/* Name */}
                 <motion.div variants={formFieldVariants}>
                   <label
@@ -499,7 +568,7 @@ export function ContactContent({ business }: { business?: ContactBusiness }) {
                       className="flex items-center gap-2.5 rounded-xl bg-error/10 px-4 py-3 text-sm font-medium text-error"
                     >
                       <AlertCircleIcon />
-                      {t('formError')}
+                      {errorMessage ?? t('formError')}
                     </motion.div>
                   )}
                 </AnimatePresence>

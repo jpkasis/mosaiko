@@ -388,6 +388,7 @@
     "formSending": "Enviando...",
     "formSuccess": "¡Mensaje enviado! Te responderemos pronto.",
     "formError": "Hubo un error al enviar tu mensaje. Intenta de nuevo.",
+    "formRateLimited": "Demasiados intentos. Espera un momento e intenta de nuevo.",
     "whatsappTitle": "¿Prefieres WhatsApp?",
     "whatsappText": "Escríbenos directamente y te respondemos al instante",
     "whatsappCta": "Abrir WhatsApp",

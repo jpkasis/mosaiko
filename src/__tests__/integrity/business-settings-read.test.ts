@@ -63,12 +63,24 @@ describe('getBusinessSettings', () => {
       address: 'CDMX',
       phone: '555',
       whatsapp: '+5215512345678',
+      whatsappMessage: '',
       instagramUrl: 'https://instagram.com/m',
       facebookUrl: 'https://facebook.com/m',
     });
     // notificationEmail MUST NOT be present on the public shape
     expect('notificationEmail' in r).toBe(false);
     expect(JSON.stringify(r)).not.toContain('secret@b.com');
+  });
+
+  test('es: whatsapp_message maps to the public whatsappMessage prop', async () => {
+    withShopify();
+    mockGetBusinessMeta.mockResolvedValue({
+      id: 'gid://1',
+      fields: [...FULL_FIELDS, { key: 'whatsapp_message', value: 'Hola desde Mosaiko' }],
+    });
+    const { getBusinessSettings } = await import('@/lib/site-content');
+    const r = await getBusinessSettings('es');
+    expect(r.whatsappMessage).toBe('Hola desde Mosaiko');
   });
 
   test('en: localized fields use translations; neutral fields stay base', async () => {

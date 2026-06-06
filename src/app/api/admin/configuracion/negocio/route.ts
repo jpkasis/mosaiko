@@ -26,6 +26,7 @@ const FIELD = {
   address: 'address',
   phone: 'phone',
   whatsapp: 'whatsapp',
+  whatsappMessage: 'whatsapp_message',
   instagramUrl: 'instagram_url',
   facebookUrl: 'facebook_url',
   notificationEmail: 'notification_email',
@@ -61,6 +62,7 @@ function emptySettings(): AdminBusinessSettings {
     address: '',
     phone: '',
     whatsapp: '',
+    whatsappMessage: '',
     instagramUrl: '',
     facebookUrl: '',
     notificationEmail: '',
@@ -87,6 +89,7 @@ export async function GET(): Promise<NextResponse> {
     settings.address = base.get(FIELD.address) ?? '';
     settings.phone = base.get(FIELD.phone) ?? '';
     settings.whatsapp = base.get(FIELD.whatsapp) ?? '';
+    settings.whatsappMessage = base.get(FIELD.whatsappMessage) ?? '';
     settings.instagramUrl = base.get(FIELD.instagramUrl) ?? '';
     settings.facebookUrl = base.get(FIELD.facebookUrl) ?? '';
     settings.notificationEmail = base.get(FIELD.notificationEmail) ?? '';
@@ -163,6 +166,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     { key: FIELD.address, value: s.address },
     { key: FIELD.phone, value: s.phone },
     { key: FIELD.whatsapp, value: s.whatsapp },
+    { key: FIELD.whatsappMessage, value: s.whatsappMessage },
     { key: FIELD.instagramUrl, value: s.instagramUrl },
     { key: FIELD.facebookUrl, value: s.facebookUrl },
     { key: FIELD.notificationEmail, value: s.notificationEmail },

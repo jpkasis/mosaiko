@@ -137,6 +137,17 @@ interface DefinitionSpec {
   description: string;
   singleton: boolean;
   fields: FieldSpec[];
+  /**
+   * Storefront read access. Defaults to PUBLIC_READ (CMS content read by the
+   * headless storefront). PII types (contact submissions) MUST set 'NONE' so
+   * the data is never exposed via the public Storefront API.
+   */
+  storefrontAccess?: 'PUBLIC_READ' | 'NONE';
+  /** Enable Shopify translations capability. Defaults to true (localized
+   *  copy). PII / internal types set false. */
+  translatable?: boolean;
+  /** Field key used as the entry's display name in Shopify Admin. */
+  displayNameKey?: string;
 }
 
 const DEFINITIONS: DefinitionSpec[] = [
@@ -177,10 +188,36 @@ const DEFINITIONS: DefinitionSpec[] = [
       { key: 'address', name: 'Address', type: 'multi_line_text_field' },
       { key: 'phone', name: 'Phone', type: 'single_line_text_field' },
       { key: 'whatsapp', name: 'WhatsApp', type: 'single_line_text_field' },
+      { key: 'whatsapp_message', name: 'WhatsApp Message', type: 'multi_line_text_field' },
       { key: 'instagram_url', name: 'Instagram URL', type: 'single_line_text_field' },
       { key: 'facebook_url', name: 'Facebook URL', type: 'single_line_text_field' },
       { key: 'notification_email', name: 'Order notification email', type: 'single_line_text_field' },
       { key: 'footer_copy', name: 'Footer copy', type: 'multi_line_text_field' },
+    ],
+  },
+  {
+    // Contact-form submissions. PRIVATE — contains PII (name, email, message
+    // text, hashed IP). storefrontAccess MUST be 'NONE' so it is never
+    // readable via the public Storefront API. Not a singleton (one entry per
+    // submission); not translatable.
+    type: 'mosaiko_contact_submission',
+    name: 'Contact Submission',
+    description: 'A single contact-form submission (private — contains PII)',
+    singleton: false,
+    storefrontAccess: 'NONE',
+    translatable: false,
+    displayNameKey: 'display_name',
+    fields: [
+      { key: 'display_name', name: 'Display name', type: 'single_line_text_field' },
+      { key: 'name', name: 'Name', type: 'single_line_text_field' },
+      { key: 'email', name: 'Email', type: 'single_line_text_field' },
+      { key: 'subject', name: 'Subject', type: 'single_line_text_field' },
+      { key: 'message', name: 'Message', type: 'multi_line_text_field' },
+      { key: 'status', name: 'Status', type: 'single_line_text_field' },
+      { key: 'created_at', name: 'Created at (ISO)', type: 'single_line_text_field' },
+      { key: 'ip_hash', name: 'IP hash', type: 'single_line_text_field' },
+      { key: 'locale', name: 'Locale', type: 'single_line_text_field' },
+      { key: 'source', name: 'Source', type: 'single_line_text_field' },
     ],
   },
 ];
@@ -193,6 +230,9 @@ const GET_DEFINITION_QUERY = /* GraphQL */ `
       id
       type
       name
+      fieldDefinitions {
+        key
+      }
     }
   }
 `;
@@ -204,6 +244,22 @@ const CREATE_DEFINITION_MUTATION = /* GraphQL */ `
         id
         type
         name
+      }
+      userErrors {
+        field
+        message
+        code
+      }
+    }
+  }
+`;
+
+const UPDATE_DEFINITION_MUTATION = /* GraphQL */ `
+  mutation UpdateMetaobjectDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
+    metaobjectDefinitionUpdate(id: $id, definition: $definition) {
+      metaobjectDefinition {
+        id
+        type
       }
       userErrors {
         field
@@ -248,11 +304,53 @@ interface UserError {
 
 async function ensureDefinition(spec: DefinitionSpec): Promise<void> {
   const existing = await adminFetch<{
-    metaobjectDefinitionByType: { id: string; type: string; name: string } | null;
+    metaobjectDefinitionByType: {
+      id: string;
+      type: string;
+      name: string;
+      fieldDefinitions: { key: string }[];
+    } | null;
   }>(GET_DEFINITION_QUERY, { type: spec.type });
 
-  if (existing.metaobjectDefinitionByType) {
-    log.skip(`${spec.type} — already exists (id: ${existing.metaobjectDefinitionByType.id})`);
+  const existingDef = existing.metaobjectDefinitionByType;
+  if (existingDef) {
+    // Definition exists — idempotently ADD any spec fields the live definition
+    // is missing (e.g. a field added to an already-shipped type). Only `create`
+    // ops for missing keys are sent; existing fields are never resent. This
+    // closes the deploy hazard where writing a new field key via
+    // metaobjectUpdate would 502 because the definition lacked it. (Codex audit)
+    const liveKeys = new Set(existingDef.fieldDefinitions.map((f) => f.key));
+    const missing = spec.fields.filter((f) => !liveKeys.has(f.key));
+    if (missing.length === 0) {
+      log.skip(`${spec.type} — already exists (id: ${existingDef.id}), no new fields`);
+      return;
+    }
+    const upd = await adminFetch<{
+      metaobjectDefinitionUpdate: {
+        metaobjectDefinition: { id: string; type: string } | null;
+        userErrors: UserError[];
+      };
+    }>(UPDATE_DEFINITION_MUTATION, {
+      id: existingDef.id,
+      definition: {
+        fieldDefinitions: missing.map((f) => ({
+          create: { key: f.key, name: f.name, type: f.type },
+        })),
+      },
+    });
+    const updErrors = upd.metaobjectDefinitionUpdate.userErrors;
+    if (updErrors.length > 0) {
+      throw new Error(
+        `metaobjectDefinitionUpdate userErrors:\n${updErrors
+          .map((e) => `  - ${e.message}${e.code ? ` (${e.code})` : ''}`)
+          .join('\n')}`,
+      );
+    }
+    log.ok(
+      `${spec.type} — added ${missing.length} field(s): ${missing
+        .map((f) => f.key)
+        .join(', ')}`,
+    );
     return;
   }
 
@@ -273,10 +371,12 @@ async function ensureDefinition(spec: DefinitionSpec): Promise<void> {
       name: spec.name,
       description: spec.description,
       fieldDefinitions,
-      access: { storefront: 'PUBLIC_READ' },
+      // Default PUBLIC_READ; PII types override to NONE.
+      access: { storefront: spec.storefrontAccess ?? 'PUBLIC_READ' },
       capabilities: {
-        translatable: { enabled: true },
+        translatable: { enabled: spec.translatable ?? true },
       },
+      ...(spec.displayNameKey ? { displayNameKey: spec.displayNameKey } : {}),
     },
   });
 

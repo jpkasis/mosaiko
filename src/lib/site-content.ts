@@ -215,6 +215,7 @@ export const BUSINESS_SETTINGS_MAP = {
   address: { prop: 'address', localized: false },
   phone: { prop: 'phone', localized: false },
   whatsapp: { prop: 'whatsapp', localized: false },
+  whatsapp_message: { prop: 'whatsappMessage', localized: false },
   instagram_url: { prop: 'instagramUrl', localized: false },
   facebook_url: { prop: 'facebookUrl', localized: false },
 } as const;
@@ -229,6 +230,7 @@ export interface PublicBusinessSettings {
   address: string;
   phone: string;
   whatsapp: string;
+  whatsappMessage: string;
   instagramUrl: string;
   facebookUrl: string;
 }
@@ -239,6 +241,7 @@ const EMPTY_PUBLIC_SETTINGS: PublicBusinessSettings = {
   address: '',
   phone: '',
   whatsapp: '',
+  whatsappMessage: '',
   instagramUrl: '',
   facebookUrl: '',
 };

@@ -20,6 +20,7 @@ export interface AdminBusinessSettings {
   address: string;
   phone: string;
   whatsapp: string;
+  whatsappMessage: string;
   instagramUrl: string;
   facebookUrl: string;
   notificationEmail: string;
@@ -31,6 +32,7 @@ export const BUSINESS_MAX_LENGTHS = {
   address: 300,
   phone: 40,
   whatsapp: 40,
+  whatsappMessage: 300,
   instagramUrl: 300,
   facebookUrl: 300,
   notificationEmail: 200,
@@ -176,6 +178,11 @@ export function validateBusinessSettings(body: unknown): AdminBusinessSettings {
   const address = normalizeNeutral(settings.address, 'address', issues);
   const phone = normalizeNeutral(settings.phone, 'phone', issues);
   const whatsappRaw = normalizeNeutral(settings.whatsapp, 'whatsapp', issues);
+  const whatsappMessage = normalizeNeutral(
+    settings.whatsappMessage,
+    'whatsappMessage',
+    issues,
+  );
   const instagramRaw = normalizeNeutral(settings.instagramUrl, 'instagramUrl', issues);
   const facebookRaw = normalizeNeutral(settings.facebookUrl, 'facebookUrl', issues);
   const notificationEmail = normalizeNeutral(
@@ -202,6 +209,7 @@ export function validateBusinessSettings(body: unknown): AdminBusinessSettings {
     address,
     phone,
     whatsapp,
+    whatsappMessage,
     instagramUrl,
     facebookUrl,
     notificationEmail,

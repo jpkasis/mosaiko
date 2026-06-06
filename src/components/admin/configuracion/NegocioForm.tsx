@@ -11,6 +11,7 @@ type NeutralField =
   | 'address'
   | 'phone'
   | 'whatsapp'
+  | 'whatsappMessage'
   | 'instagramUrl'
   | 'facebookUrl'
   | 'notificationEmail';
@@ -96,6 +97,8 @@ function NeutralRow({
   value,
   type = 'text',
   placeholder,
+  long = false,
+  helpText,
   onChange,
 }: {
   label: string;
@@ -103,23 +106,39 @@ function NeutralRow({
   value: string;
   type?: string;
   placeholder?: string;
+  long?: boolean;
+  helpText?: string;
   onChange: NegocioFormProps['onChangeNeutral'];
 }) {
   const id = `business-${field}`;
+  const max = BUSINESS_MAX_LENGTHS[field];
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="text-sm font-medium text-charcoal">
         {label}
       </label>
-      <input
-        id={id}
-        type={type}
-        maxLength={BUSINESS_MAX_LENGTHS[field]}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(field, e.target.value)}
-        className={inputClass}
-      />
+      {long ? (
+        <textarea
+          id={id}
+          rows={3}
+          maxLength={max}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(field, e.target.value)}
+          className={`resize-y ${inputClass}`}
+        />
+      ) : (
+        <input
+          id={id}
+          type={type}
+          maxLength={max}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(field, e.target.value)}
+          className={inputClass}
+        />
+      )}
+      {helpText && <p className="text-xs text-warm-gray/70">{helpText}</p>}
     </div>
   );
 }
@@ -192,6 +211,17 @@ export function NegocioForm({
             placeholder="pedidos@minegocio.com"
             onChange={onChangeNeutral}
           />
+          <div className="md:col-span-2">
+            <NeutralRow
+              label="Mensaje de WhatsApp (texto pre-cargado)"
+              field="whatsappMessage"
+              value={settings.whatsappMessage}
+              placeholder="Hola, me interesan los imanes personalizados de Mosaiko…"
+              long
+              helpText="Se carga automáticamente en el chat cuando un cliente abre WhatsApp desde la página de contacto."
+              onChange={onChangeNeutral}
+            />
+          </div>
         </div>
       </fieldset>
 

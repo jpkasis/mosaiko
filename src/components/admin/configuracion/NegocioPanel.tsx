@@ -9,6 +9,7 @@ type NeutralField =
   | 'address'
   | 'phone'
   | 'whatsapp'
+  | 'whatsappMessage'
   | 'instagramUrl'
   | 'facebookUrl'
   | 'notificationEmail';
@@ -25,6 +26,7 @@ const EMPTY: AdminBusinessSettings = {
   address: '',
   phone: '',
   whatsapp: '',
+  whatsappMessage: '',
   instagramUrl: '',
   facebookUrl: '',
   notificationEmail: '',
