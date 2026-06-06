@@ -41,12 +41,10 @@ vi.mock('@/lib/shopify/checkout', async (importOriginal) => {
 // Loading the real checkout module above pulls in prices.ts, which imports
 // `server-only` (absent in this env). Mock prices so the pieces checkout.ts
 // imports are present — buildCartLines is stubbed anyway.
-// getCheapestStandardPrice + getDisplayPriceMap feed the PR-C minimum gate,
-// now computed pre-create from the items (controllable).
-const mockCheapestStandard = vi.fn(async (): Promise<number | null> => 1);
+// getDisplayPriceMap feeds the minimum-order gate, which now uses a FIXED
+// MINIMUM_ORDER_MXN ($200) floor rather than a derived cheapest-standard price.
 vi.mock('@/lib/shopify/prices', () => ({
   getPricingForCheckout: async () => ({ matrix: {} }),
-  getCheapestStandardPrice: () => mockCheapestStandard(),
   getDisplayPriceMap: async () => ({}),
 }));
 
@@ -64,8 +62,6 @@ beforeEach(() => {
   mockGet.mockReset();
   mockCreateCart.mockReset();
   mockBuildCartLines.mockReset();
-  mockCheapestStandard.mockReset();
-  mockCheapestStandard.mockResolvedValue(1); // minimum met by default
   vi.stubEnv('NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN', 'mosaiko.myshopify.com');
   vi.stubEnv('NEXT_PUBLIC_SHOPIFY_STOREFRONT_TOKEN', 'test-token');
   vi.stubEnv('NODE_ENV', 'test');
@@ -91,7 +87,8 @@ describe('POST /api/cart/save', () => {
   });
 
   // A created Shopify cart, including the `cost.subtotalAmount` the PR-B gate
-  // checks the displayed total against (this cart costs $100).
+  // checks the displayed total against. Costs $300 — above the $200 minimum
+  // floor so these price-gate tests aren't blocked by the minimum-order gate.
   function mockSavedCart() {
     mockBuildCartLines.mockReturnValue([
       { merchandiseId: 'gid://shopify/ProductVariant/100', quantity: 1 },
@@ -99,16 +96,16 @@ describe('POST /api/cart/save', () => {
     mockCreateCart.mockResolvedValue({
       id: 'gid://shopify/Cart/new',
       checkoutUrl: 'https://shop.example/checkout/123',
-      cost: { subtotalAmount: { amount: '100', currencyCode: 'MXN' } },
+      cost: { subtotalAmount: { amount: '300', currencyCode: 'MXN' } },
     });
   }
 
   test('checkout path (displayedTotal matches) → createCart, cookie set, returns checkoutUrl', async () => {
     mockSavedCart();
 
-    const items = [{ id: 'a', name: 'Item', price: 100, quantity: 1, type: 'custom' }];
+    const items = [{ id: 'a', name: 'Item', price: 300, quantity: 1, type: 'custom' }];
     const { POST } = await import('@/app/api/cart/save/route');
-    const res = await POST(makeRequest({ items, displayedTotal: 100 }));
+    const res = await POST(makeRequest({ items, displayedTotal: 300 }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
@@ -131,7 +128,7 @@ describe('POST /api/cart/save', () => {
   test('beacon path (no displayedTotal) → persists + cookie set, but NO checkoutUrl', async () => {
     mockSavedCart();
 
-    const items = [{ id: 'a', name: 'Item', price: 100, quantity: 1, type: 'custom' }];
+    const items = [{ id: 'a', name: 'Item', price: 300, quantity: 1, type: 'custom' }];
     const { POST } = await import('@/app/api/cart/save/route');
     const res = await POST(makeRequest({ items }));
     expect(res.status).toBe(200);
@@ -147,13 +144,13 @@ describe('POST /api/cart/save', () => {
   test('displayed total drifted from the real cart subtotal → 409 PRICES_CHANGED', async () => {
     mockSavedCart(); // cart really costs $100
 
-    const items = [{ id: 'a', name: 'Item', price: 80, quantity: 1, type: 'custom' }];
+    const items = [{ id: 'a', name: 'Item', price: 250, quantity: 1, type: 'custom' }];
     const { POST } = await import('@/app/api/cart/save/route');
-    const res = await POST(makeRequest({ items, displayedTotal: 80 }));
+    const res = await POST(makeRequest({ items, displayedTotal: 250 }));
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.code).toBe('PRICES_CHANGED');
-    expect(body.total).toBe(100); // the real amount Shopify will charge
+    expect(body.total).toBe(300); // the real amount Shopify will charge
     // The cart was still persisted (cookie set) so a retry reuses the corrected cart.
     expect(mockSet).toHaveBeenCalledTimes(1);
   });
@@ -170,9 +167,9 @@ describe('POST /api/cart/save', () => {
       cost: { subtotalAmount: { amount: '100', currencyCode: 'USD' } },
     });
 
-    const items = [{ id: 'a', name: 'Item', price: 100, quantity: 1, type: 'custom' }];
+    const items = [{ id: 'a', name: 'Item', price: 300, quantity: 1, type: 'custom' }];
     const { POST } = await import('@/app/api/cart/save/route');
-    const res = await POST(makeRequest({ items, displayedTotal: 100 }));
+    const res = await POST(makeRequest({ items, displayedTotal: 300 }));
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.code).toBe('CART_SUBTOTAL_UNAVAILABLE');
@@ -180,8 +177,7 @@ describe('POST /api/cart/save', () => {
   });
 
   test('PR-C: under minimum → 422 BEFORE any cart is created (no createCart, no cookie)', async () => {
-    mockCheapestStandard.mockResolvedValue(200);
-
+    // Floor is the fixed MINIMUM_ORDER_MXN ($200); this $67 cart is under it.
     const items = [{ id: 'a', name: 'Item', price: 67, quantity: 1, type: 'custom' }];
     const { POST } = await import('@/app/api/cart/save/route');
     const res = await POST(makeRequest({ items, displayedTotal: 67 }));

@@ -7,9 +7,8 @@ import { useCartStore } from '@/lib/cart-store';
 import {
   usePriceMap,
   useRefreshPrices,
-  cheapestStandardPrice,
 } from '@/components/pricing/PricesProvider';
-import { cartLiveTotal } from '@/lib/cart-pricing';
+import { cartLiveTotal, MINIMUM_ORDER_MXN } from '@/lib/cart-pricing';
 import { formatPrice } from '@/lib/grid-config';
 
 export function CheckoutButton() {
@@ -22,12 +21,11 @@ export function CheckoutButton() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // PR-C: a lone single-tile order can't reach checkout. Mirror the server's
-  // minimum-order gate so the button disables before the round trip; the
-  // routes enforce it authoritatively (422 MINIMUM_ORDER_NOT_MET).
-  const minimum = cheapestStandardPrice(priceMap);
+  // A below-minimum order can't reach checkout. Mirror the server's fixed
+  // minimum-order floor (MINIMUM_ORDER_MXN) so the button disables before the
+  // round trip; the routes enforce it authoritatively (422 MINIMUM_ORDER_NOT_MET).
+  const minimum = MINIMUM_ORDER_MXN;
   const belowMinimum =
-    minimum != null &&
     items.length > 0 &&
     Math.round(total * 100) < Math.round(minimum * 100);
 

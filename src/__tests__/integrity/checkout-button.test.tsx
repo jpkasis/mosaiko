@@ -61,11 +61,14 @@ vi.mock('framer-motion', () => {
   };
 });
 
+// Priced above the $200 minimum-order floor (MINIMUM_ORDER_MXN) so the button
+// is enabled — these tests exercise the redirect / re-enable behavior of a
+// VALID checkout, not the below-minimum disabled state.
 function makeItem(id: string): CartItem {
   return {
     id,
     name: `Item ${id}`,
-    price: 100,
+    price: 300,
     quantity: 1,
     type: 'custom',
   } as CartItem;

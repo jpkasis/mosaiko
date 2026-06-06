@@ -15,6 +15,25 @@ import { GRID_CONFIGS } from './grid-config';
 import { getProductById } from './catalog-data';
 import type { DisplayPriceMap } from './shopify/prices';
 
+/**
+ * Minimum order value in MXN. A cart below this can't reach Shopify checkout —
+ * enforced authoritatively server-side in `assertItemsMeetMinimum`
+ * (shopify/checkout.ts) and mirrored on the CheckoutButton so it disables
+ * before the round trip.
+ *
+ * FIXED value per the store owner (2026-06-06). This used to be DERIVED from the
+ * cheapest standard (3-piece) price, so editing product prices silently moved
+ * the minimum — it crept up to $499 and blocked legitimate smaller orders. A
+ * fixed floor decouples the minimum from the price matrix.
+ *
+ * TODO (future): make this admin-editable instead of a constant — add a
+ * `minimum_order` field to the `mosaiko_business_settings` metaobject (mirror
+ * the whatsapp/tiktok_url chain: seeder + validation + negocio GET/PUT + a
+ * server reader in site-content), then read that here with this 200 as the
+ * fallback default.
+ */
+export const MINIMUM_ORDER_MXN = 200;
+
 /** The pricing category for a cart line (custom = customization; predesigned
  *  = the trusted catalog category, never the client-supplied slug). */
 export function cartItemCategory(item: CartItem): CategoryType | null {

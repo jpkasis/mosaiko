@@ -24,13 +24,11 @@ vi.mock('@/lib/shopify/checkout', async (importOriginal) => {
 
 // Real checkout module (loaded above) imports prices.ts → `server-only`
 // (absent in this env). Mock prices so only the pieces checkout.ts imports
-// exist; createCheckout is stubbed anyway. getCheapestStandardPrice +
-// getDisplayPriceMap feed the PR-C minimum-order gate (now computed pre-create
-// from the items) — controllable per test.
-const mockCheapestStandard = vi.fn(async (): Promise<number | null> => 1);
+// exist; createCheckout is stubbed anyway. getDisplayPriceMap feeds the
+// minimum-order gate, which now uses a FIXED MINIMUM_ORDER_MXN ($200) floor
+// rather than a derived cheapest-standard price.
 vi.mock('@/lib/shopify/prices', () => ({
   getPricingForCheckout: async () => ({ matrix: {} }),
-  getCheapestStandardPrice: () => mockCheapestStandard(),
   getDisplayPriceMap: async () => ({}),
 }));
 
@@ -65,8 +63,6 @@ const SINGLE_TILE = [
 
 beforeEach(() => {
   mockCreateCheckout.mockReset();
-  mockCheapestStandard.mockReset();
-  mockCheapestStandard.mockResolvedValue(1); // minimum met by default
 });
 
 describe('POST /api/checkout', () => {
@@ -122,7 +118,7 @@ describe('POST /api/checkout', () => {
   });
 
   test('PR-C: under minimum → 422 BEFORE any cart is created (createCheckout NOT called)', async () => {
-    mockCheapestStandard.mockResolvedValue(200); // cheapest standard mosaic
+    // Floor is the fixed MINIMUM_ORDER_MXN ($200); the lone single tile ($67) is under.
     const { POST } = await import('@/app/api/checkout/route');
     const res = await POST(makeRequest({ items: SINGLE_TILE, displayedTotal: 67 }));
     expect(res.status).toBe(422);

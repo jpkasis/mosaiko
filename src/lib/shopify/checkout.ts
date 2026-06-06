@@ -1,7 +1,7 @@
 import { createCart, addToCart } from './mutations/cart';
-import { getPricingForCheckout, getCheapestStandardPrice, getDisplayPriceMap } from './prices';
+import { getPricingForCheckout, getDisplayPriceMap } from './prices';
 import { formatPrice, type GridSize } from '../grid-config';
-import { cartLiveTotal } from '../cart-pricing';
+import { cartLiveTotal, MINIMUM_ORDER_MXN } from '../cart-pricing';
 import { PRICING_COMBOS } from './pricing-options';
 import { toPrintCustomization } from './customization-serializer';
 import { isPurchasableAsIs } from '../catalog-purchase-mode';
@@ -120,9 +120,9 @@ export interface MinimumOrderBlock {
 }
 
 /**
- * PR-C minimum-order gate (Codex full-audit BLOCKER fix). A lone single-tile
- * Mosaico (~$67) can't be ordered by itself — the cart total must reach the
- * cheapest STANDARD (non-single-tile) price, the 3-piece (~$200).
+ * Minimum-order gate (PR-C; Codex full-audit BLOCKER fix). The cart total must
+ * reach `MINIMUM_ORDER_MXN` (a fixed $200 floor — see cart-pricing.ts) before
+ * it can reach checkout, so a lone cheap item can't be ordered on its own.
  *
  * Runs from the ITEM LIST against the trusted server display map
  * (`cartLiveTotal(getDisplayPriceMap(), items)`) — the prices come from the
@@ -131,14 +131,13 @@ export interface MinimumOrderBlock {
  * `checkoutUrl` the public Storefront token could otherwise reach) never comes
  * into existence — closing the beacon/persistence bypass.
  *
- * Returns a MINIMUM_ORDER_NOT_MET block (422) when under, else null (also null
- * when no standard price is known). `getCheapestStandardPrice()` excludes size
- * ≤ 1 so the single tile can't lower its own floor.
+ * Returns a MINIMUM_ORDER_NOT_MET block (422) when under, else null. The floor
+ * is a fixed constant, so the gate always enforces (no fail-open on a missing
+ * derived price, unlike the previous cheapest-standard derivation).
  *
  * The rule is intentionally VALUE-based, NOT cart-shape based (client decision
- * 2026-06-05): the gate is purely "order value ≥ cheapest standard". Now that
- * the single-tile price is freely editable, a lone single tile priced AT OR
- * ABOVE the floor may legitimately check out by itself — that's accepted.
+ * 2026-06-05): the gate is purely "order value ≥ the floor". Any single item
+ * priced at or above the floor may legitimately check out by itself.
  *
  * Enforcement boundary: a direct Storefront `cartCreate` of a bare variant (no
  * customization → unfulfillable) is still possible; the airtight server-of-
@@ -147,11 +146,8 @@ export interface MinimumOrderBlock {
 export async function assertItemsMeetMinimum(
   items: CartItem[],
 ): Promise<MinimumOrderBlock | null> {
-  const [map, minimum] = await Promise.all([
-    getDisplayPriceMap(),
-    getCheapestStandardPrice(),
-  ]);
-  if (minimum == null) return null;
+  const minimum = MINIMUM_ORDER_MXN;
+  const map = await getDisplayPriceMap();
   const total = cartLiveTotal(map, items);
   if (Math.round(total * 100) >= Math.round(minimum * 100)) return null;
   return {
