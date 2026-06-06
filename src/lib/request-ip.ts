@@ -5,8 +5,8 @@ import { createHash } from 'node:crypto';
  * `x-forwarded-for` (the platform sets it to the real client IP and documents
  * it as the spoof-resistant client-IP header). Falls back to `'unknown'` (a
  * shared bucket) so callers can always key on a string. Shared by the
- * rate-limited routes (`/api/contact`, `/api/upload`, admin login) so this
- * logic lives in one place.
+ * rate-limited routes (`/api/upload`, admin login) so this logic lives in one
+ * place.
  *
  * We deliberately do NOT trust `cf-connecting-ip`: mosaiko.mx is DNS-only on
  * Cloudflare (no proxy in front), so requests reach Vercel directly and that

@@ -91,7 +91,7 @@ ADMIN_PASSWORD_HASH=<bcrypt hash of the chosen admin-panel password — dev team
 ADMIN_JWT_SECRET=<32-byte random string — dev team generates>
 ```
 
-> Prices come from the `imanes-personalizados-v2` product (read live via the Storefront API), so there is **no** `SHOPIFY_VARIANT_MAP`. Order/shipping/staff emails are Shopify-native, so there is **no** `ADMIN_NOTIFICATION_EMAIL`. Contact-form messages are stored as private `mosaiko_contact_submission` metaobjects and read in the admin at **/admin/contactos** (no email is sent — the admin replies via the message's `mailto:` link).
+> Prices come from the `imanes-personalizados-v2` product (read live via the Storefront API), so there is **no** `SHOPIFY_VARIANT_MAP`. Order/shipping/staff emails are Shopify-native, so there is **no** `ADMIN_NOTIFICATION_EMAIL`. The `/contacto` page has no form — it shows a WhatsApp button (number + prefilled message set in Configuración → Negocio) and a `mailto:` link (`hola@mosaiko.mx`, hardcoded in `src/messages/*.json`); there is no stored-submission inbox.
 
 There is no longer a Cloudflare R2 setup or a Resend setup — Shopify Files + Shopify Notifications cover both.
 

@@ -32,8 +32,6 @@ export default async function ContactPage({
       business={{
         whatsapp: business.whatsapp,
         whatsappMessage: business.whatsappMessage,
-        phone: business.phone,
-        address: business.address,
       }}
     />
   );

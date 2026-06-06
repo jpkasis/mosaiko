@@ -138,15 +138,14 @@ interface DefinitionSpec {
   singleton: boolean;
   fields: FieldSpec[];
   /**
-   * Storefront read access. Defaults to PUBLIC_READ (CMS content read by the
-   * headless storefront). PII types (contact submissions) MUST set 'NONE' so
-   * the data is never exposed via the public Storefront API.
+   * Storefront read access for this type. Defaults to PUBLIC_READ (the headless
+   * storefront reads CMS content). A private type would set 'NONE' so its data
+   * is never exposed via the public Storefront API.
    */
   storefrontAccess?: 'PUBLIC_READ' | 'NONE';
-  /** Enable Shopify translations capability. Defaults to true (localized
-   *  copy). PII / internal types set false. */
+  /** Enable the Shopify translations capability. Defaults to true (localized copy). */
   translatable?: boolean;
-  /** Field key used as the entry's display name in Shopify Admin. */
+  /** Field key used as the entry's display name in Shopify Admin (optional). */
   displayNameKey?: string;
 }
 
@@ -191,36 +190,11 @@ const DEFINITIONS: DefinitionSpec[] = [
       { key: 'whatsapp_message', name: 'WhatsApp Message', type: 'multi_line_text_field' },
       { key: 'instagram_url', name: 'Instagram URL', type: 'single_line_text_field' },
       { key: 'facebook_url', name: 'Facebook URL', type: 'single_line_text_field' },
-      // Legacy/dormant: not read by the app. Order/staff emails are
-      // Shopify-native; contact messages live in /admin/contactos. Kept so the
-      // live definition stays stable — do not remove from existing stores.
+      // Legacy/dormant: not read by the app (order/staff emails are
+      // Shopify-native). Kept so the live definition stays stable — do not
+      // remove from existing stores.
       { key: 'notification_email', name: 'Order notification email', type: 'single_line_text_field' },
       { key: 'footer_copy', name: 'Footer copy', type: 'multi_line_text_field' },
-    ],
-  },
-  {
-    // Contact-form submissions. PRIVATE — contains PII (name, email, message
-    // text, hashed IP). storefrontAccess MUST be 'NONE' so it is never
-    // readable via the public Storefront API. Not a singleton (one entry per
-    // submission); not translatable.
-    type: 'mosaiko_contact_submission',
-    name: 'Contact Submission',
-    description: 'A single contact-form submission (private — contains PII)',
-    singleton: false,
-    storefrontAccess: 'NONE',
-    translatable: false,
-    displayNameKey: 'display_name',
-    fields: [
-      { key: 'display_name', name: 'Display name', type: 'single_line_text_field' },
-      { key: 'name', name: 'Name', type: 'single_line_text_field' },
-      { key: 'email', name: 'Email', type: 'single_line_text_field' },
-      { key: 'subject', name: 'Subject', type: 'single_line_text_field' },
-      { key: 'message', name: 'Message', type: 'multi_line_text_field' },
-      { key: 'status', name: 'Status', type: 'single_line_text_field' },
-      { key: 'created_at', name: 'Created at (ISO)', type: 'single_line_text_field' },
-      { key: 'ip_hash', name: 'IP hash', type: 'single_line_text_field' },
-      { key: 'locale', name: 'Locale', type: 'single_line_text_field' },
-      { key: 'source', name: 'Source', type: 'single_line_text_field' },
     ],
   },
 ];

@@ -205,9 +205,8 @@ export type { CopyPath };
 // The `mosaiko_business_settings` metaobject holds the client's contact +
 // social + identity info. Two fields are localized (business_name,
 // footer_copy); the rest are locale-neutral. A legacy `notification_email`
-// field may still exist on the live metaobject (no longer admin-editable —
-// contact messages now land in /admin/contactos); it is dormant and is never
-// mapped into the public read shape below.
+// field may still exist on the live metaobject (no longer admin-editable); it
+// is dormant and is never mapped into the public read shape below.
 
 /** Metaobject field key → public camelCase property. Localized flag drives
  *  whether the EN value comes from translations vs the ES base. */
