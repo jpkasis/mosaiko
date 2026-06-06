@@ -79,40 +79,43 @@ export async function Footer() {
             )}
 
             {hasSocials && (
-              <div className="mt-4 flex items-center gap-3">
-                {business.instagramUrl && (
-                  <a
-                    href={business.instagramUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="Instagram"
-                    className="text-cream/70 transition-colors hover:text-cream"
-                  >
-                    <InstagramIcon />
-                  </a>
-                )}
-                {business.facebookUrl && (
-                  <a
-                    href={business.facebookUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="Facebook"
-                    className="text-cream/70 transition-colors hover:text-cream"
-                  >
-                    <FacebookIcon />
-                  </a>
-                )}
-                {business.tiktokUrl && (
-                  <a
-                    href={business.tiktokUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="TikTok"
-                    className="text-cream/70 transition-colors hover:text-cream"
-                  >
-                    <TikTokIcon />
-                  </a>
-                )}
+              <div className="mt-4">
+                <p className="text-xs text-cream/60">{t('followUs')}</p>
+                <div className="mt-2 flex items-center gap-3">
+                  {business.instagramUrl && (
+                    <a
+                      href={business.instagramUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Instagram"
+                      className="text-cream/70 transition-colors hover:text-cream"
+                    >
+                      <InstagramIcon />
+                    </a>
+                  )}
+                  {business.facebookUrl && (
+                    <a
+                      href={business.facebookUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Facebook"
+                      className="text-cream/70 transition-colors hover:text-cream"
+                    >
+                      <FacebookIcon />
+                    </a>
+                  )}
+                  {business.tiktokUrl && (
+                    <a
+                      href={business.tiktokUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="TikTok"
+                      className="text-cream/70 transition-colors hover:text-cream"
+                    >
+                      <TikTokIcon />
+                    </a>
+                  )}
+                </div>
               </div>
             )}
           </div>
