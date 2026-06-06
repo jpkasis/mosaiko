@@ -41,6 +41,7 @@ const FULL_FIELDS = [
   { key: 'whatsapp', value: '+5215512345678' },
   { key: 'instagram_url', value: 'https://instagram.com/m' },
   { key: 'facebook_url', value: 'https://facebook.com/m' },
+  { key: 'image_retention_days', value: '90' },
   { key: 'notification_email', value: 'secret@b.com' },
 ];
 
@@ -124,5 +125,54 @@ describe('getBusinessSettings', () => {
     const r = await getBusinessSettings('es');
     expect(r.businessName).toBe('');
     expect(r.phone).toBe('');
+  });
+});
+
+describe('getImageRetentionDays', () => {
+  test('creds unset → default 45 without fetching Shopify', async () => {
+    const { getImageRetentionDays } = await import('@/lib/site-content');
+    const r = await getImageRetentionDays();
+    expect(r).toBe(45);
+    expect(mockGetBusinessMeta).not.toHaveBeenCalled();
+  });
+
+  test('reads valid image_retention_days from business settings', async () => {
+    withShopify();
+    mockGetBusinessMeta.mockResolvedValue({
+      id: 'gid://1',
+      fields: [{ key: 'image_retention_days', value: '120' }],
+    });
+    const { getImageRetentionDays } = await import('@/lib/site-content');
+    await expect(getImageRetentionDays()).resolves.toBe(120);
+  });
+
+  test('allows 0 as the disabled kill-switch', async () => {
+    withShopify();
+    mockGetBusinessMeta.mockResolvedValue({
+      id: 'gid://1',
+      fields: [{ key: 'image_retention_days', value: '0' }],
+    });
+    const { getImageRetentionDays } = await import('@/lib/site-content');
+    await expect(getImageRetentionDays()).resolves.toBe(0);
+  });
+
+  test.each(['abc', '1.5', '-1', '', null])(
+    'invalid image_retention_days %s → default 45',
+    async (value) => {
+      withShopify();
+      mockGetBusinessMeta.mockResolvedValue({
+        id: 'gid://1',
+        fields: [{ key: 'image_retention_days', value }],
+      });
+      const { getImageRetentionDays } = await import('@/lib/site-content');
+      await expect(getImageRetentionDays()).resolves.toBe(45);
+    },
+  );
+
+  test('Shopify error → default 45', async () => {
+    withShopify();
+    mockGetBusinessMeta.mockRejectedValue(new Error('shopify down'));
+    const { getImageRetentionDays } = await import('@/lib/site-content');
+    await expect(getImageRetentionDays()).resolves.toBe(45);
   });
 });

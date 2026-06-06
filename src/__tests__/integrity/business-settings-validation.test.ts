@@ -5,6 +5,7 @@ import { describe, test, expect } from 'vitest';
 import {
   validateBusinessSettings,
   BusinessSettingsValidationError,
+  RETENTION_DEFAULT,
 } from '@/lib/admin/business-settings-validation';
 
 function wrap(settings: Record<string, unknown>) {
@@ -23,6 +24,7 @@ describe('validateBusinessSettings', () => {
         instagramUrl: 'instagram.com/mosaiko',
         facebookUrl: 'https://facebook.com/mosaiko',
         tiktokUrl: 'tiktok.com/@mosaiko',
+        imageRetentionDays: 45,
       }),
     );
     expect(r.businessName.es).toBe('Mosaiko');
@@ -33,6 +35,7 @@ describe('validateBusinessSettings', () => {
     expect(r.instagramUrl).toBe('https://instagram.com/mosaiko');
     expect(r.facebookUrl).toBe('https://facebook.com/mosaiko');
     expect(r.tiktokUrl).toBe('https://tiktok.com/@mosaiko');
+    expect(r.imageRetentionDays).toBe(45);
   });
 
   test('rejects missing settings object', () => {
@@ -89,4 +92,35 @@ describe('validateBusinessSettings', () => {
       expect((e as BusinessSettingsValidationError).issues.length).toBeGreaterThanOrEqual(2);
     }
   });
+
+  test.each([
+    [45, 45],
+    [7, 7],
+    [365, 365],
+    [0, 0],
+    ['', RETENTION_DEFAULT],
+    [undefined, RETENTION_DEFAULT],
+    [null, RETENTION_DEFAULT],
+    ['45', 45],
+  ])('normalizes imageRetentionDays %s → %s', (raw, expected) => {
+    const r = validateBusinessSettings(wrap({ imageRetentionDays: raw }));
+    expect(r.imageRetentionDays).toBe(expected);
+  });
+
+  test.each([6, 366, 'abc', 1.5, -1])(
+    'rejects invalid imageRetentionDays %s',
+    (raw) => {
+      try {
+        validateBusinessSettings(wrap({ imageRetentionDays: raw }));
+        throw new Error('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(BusinessSettingsValidationError);
+        expect((e as BusinessSettingsValidationError).issues).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ field: 'imageRetentionDays' }),
+          ]),
+        );
+      }
+    },
+  );
 });

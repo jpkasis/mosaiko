@@ -16,6 +16,7 @@ import {
 import {
   validateBusinessSettings,
   BusinessSettingsValidationError,
+  RETENTION_DEFAULT,
   type AdminBusinessSettings,
 } from '@/lib/admin/business-settings-validation';
 
@@ -30,6 +31,7 @@ const FIELD = {
   instagramUrl: 'instagram_url',
   facebookUrl: 'facebook_url',
   tiktokUrl: 'tiktok_url',
+  imageRetentionDays: 'image_retention_days',
 } as const;
 
 // Fields that carry EN translations.
@@ -66,6 +68,7 @@ function emptySettings(): AdminBusinessSettings {
     instagramUrl: '',
     facebookUrl: '',
     tiktokUrl: '',
+    imageRetentionDays: RETENTION_DEFAULT,
   };
 }
 
@@ -93,6 +96,13 @@ export async function GET(): Promise<NextResponse> {
     settings.instagramUrl = base.get(FIELD.instagramUrl) ?? '';
     settings.facebookUrl = base.get(FIELD.facebookUrl) ?? '';
     settings.tiktokUrl = base.get(FIELD.tiktokUrl) ?? '';
+    const imageRetentionDays = parseInt(
+      base.get(FIELD.imageRetentionDays) ?? '',
+      10,
+    );
+    settings.imageRetentionDays = Number.isNaN(imageRetentionDays)
+      ? RETENTION_DEFAULT
+      : imageRetentionDays;
 
     // EN translations (best-effort — scope may be missing or none registered).
     try {
@@ -170,6 +180,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     { key: FIELD.instagramUrl, value: s.instagramUrl },
     { key: FIELD.facebookUrl, value: s.facebookUrl },
     { key: FIELD.tiktokUrl, value: s.tiktokUrl },
+    { key: FIELD.imageRetentionDays, value: String(s.imageRetentionDays) },
   ];
   try {
     await updateMetaobjectFields(resourceId, baseFields);

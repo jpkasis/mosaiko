@@ -191,6 +191,7 @@ const DEFINITIONS: DefinitionSpec[] = [
       { key: 'instagram_url', name: 'Instagram URL', type: 'single_line_text_field' },
       { key: 'facebook_url', name: 'Facebook URL', type: 'single_line_text_field' },
       { key: 'tiktok_url', name: 'TikTok URL', type: 'single_line_text_field' },
+      { key: 'image_retention_days', name: 'Image retention (days)', type: 'number_integer' },
       // Legacy/dormant: not read by the app (order/staff emails are
       // Shopify-native). Kept so the live definition stays stable — do not
       // remove from existing stores.

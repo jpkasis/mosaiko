@@ -2,7 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { NegocioForm } from '@/components/admin/configuracion/NegocioForm';
-import type { AdminBusinessSettings } from '@/lib/admin/business-settings-validation';
+import {
+  RETENTION_DEFAULT,
+  type AdminBusinessSettings,
+} from '@/lib/admin/business-settings-validation';
 
 type LocalizedField = 'businessName' | 'footerCopy';
 type NeutralField =
@@ -30,6 +33,7 @@ const EMPTY: AdminBusinessSettings = {
   instagramUrl: '',
   facebookUrl: '',
   tiktokUrl: '',
+  imageRetentionDays: RETENTION_DEFAULT,
 };
 
 /**
@@ -90,6 +94,11 @@ export function NegocioPanel() {
 
   const handleChangeNeutral = useCallback((field: NeutralField, value: string) => {
     setSettings((prev) => ({ ...prev, [field]: value }));
+    setSaveStatus({ kind: 'idle' });
+  }, []);
+
+  const handleChangeRetention = useCallback((value: number) => {
+    setSettings((prev) => ({ ...prev, imageRetentionDays: value }));
     setSaveStatus({ kind: 'idle' });
   }, []);
 
@@ -175,6 +184,7 @@ export function NegocioPanel() {
         settings={settings}
         onChangeLocalized={handleChangeLocalized}
         onChangeNeutral={handleChangeNeutral}
+        onChangeRetention={handleChangeRetention}
         onSave={handleSave}
         saving={saving}
       />

@@ -26,6 +26,7 @@ import {
   type MetaobjectField,
   type TranslationEntry,
 } from '@/lib/shopify/queries/metaobjects';
+import { RETENTION_DEFAULT } from '@/lib/admin/business-settings-validation';
 
 export const SITE_COPY_TAG = 'site-copy';
 export const SITE_COPY_HOME_TAG = 'site-copy:home';
@@ -222,6 +223,8 @@ export const BUSINESS_SETTINGS_MAP = {
   tiktok_url: { prop: 'tiktokUrl', localized: false },
 } as const;
 
+const IMAGE_RETENTION_DAYS_FIELD = 'image_retention_days';
+
 /** Public business settings consumed by Footer + Contact (no notificationEmail). */
 export interface PublicBusinessSettings {
   businessName: string;
@@ -289,6 +292,36 @@ const fetchBusinessSettingsCached = unstable_cache(
   },
 );
 
+async function buildImageRetentionDaysUncached(): Promise<number> {
+  if (!shopifyAdminAvailable()) return RETENTION_DEFAULT;
+
+  const metaobject = await getBusinessSettingsMetaobject();
+  if (!metaobject) return RETENTION_DEFAULT;
+
+  const baseMap = fieldsToMap(metaobject.fields);
+  const raw = baseMap.get(IMAGE_RETENTION_DAYS_FIELD) ?? '';
+  const parsed = parseInt(raw, 10);
+  const numeric = Number(raw);
+  if (
+    Number.isInteger(parsed) &&
+    Number.isInteger(numeric) &&
+    parsed === numeric &&
+    parsed >= 0
+  ) {
+    return parsed;
+  }
+  return RETENTION_DEFAULT;
+}
+
+const fetchImageRetentionDaysCached = unstable_cache(
+  async () => buildImageRetentionDaysUncached(),
+  ['site-content', 'image-retention-days'],
+  {
+    tags: [SITE_COPY_TAG, SITE_COPY_BUSINESS_TAG],
+    revalidate: SITE_COPY_REVALIDATE_S,
+  },
+);
+
 /**
  * Public business settings for the given locale, consumed by Footer +
  * Contact. Localized fields (businessName, footerCopy) resolve per-locale;
@@ -304,5 +337,19 @@ export async function getBusinessSettings(
   } catch (error) {
     console.warn('[site-content] business settings fetch failed:', error);
     return EMPTY_PUBLIC_SETTINGS;
+  }
+}
+
+/**
+ * Server-only setting for Shopify Files print-image cleanup. Kept out of
+ * `PublicBusinessSettings` so the admin kill-switch is never exposed to
+ * client-facing business copy.
+ */
+export async function getImageRetentionDays(): Promise<number> {
+  try {
+    return await fetchImageRetentionDaysCached();
+  } catch (error) {
+    console.warn('[site-content] image retention days fetch failed:', error);
+    return RETENTION_DEFAULT;
   }
 }
