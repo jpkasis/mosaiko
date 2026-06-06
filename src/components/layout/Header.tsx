@@ -24,6 +24,12 @@ const MOBILE_NAV_LINKS = [
   { href: '/contacto' as const, key: 'contact' },
 ] as const;
 
+// Shopify-hosted customer account (new customer accounts → "Login with Shop" +
+// passwordless email code). Customers see their order history/tracking there.
+// Env-overridable; falls back to the live store's account URL.
+const ACCOUNT_URL =
+  process.env.NEXT_PUBLIC_SHOPIFY_ACCOUNT_URL ?? 'https://shopify.com/80996761838/account';
+
 export function Header() {
   const t = useTranslations('nav');
   const locale = useLocale();
@@ -111,6 +117,30 @@ export function Header() {
           >
             {locale === 'es' ? 'EN' : 'ES'}
           </button>
+
+          {/* Customer account — Shopify-hosted (Login with Shop / email code).
+              External link, so a plain <a> (not the i18n Link). */}
+          <a
+            href={ACCOUNT_URL}
+            className="hidden h-12 w-12 items-center justify-center rounded-lg transition-colors hover:bg-charcoal/5 md:flex"
+            aria-label={t('account')}
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-charcoal"
+              aria-hidden="true"
+            >
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          </a>
 
           {/* Cart — 48 px touch target. */}
           <Link
@@ -213,12 +243,27 @@ export function Header() {
             </motion.div>
           ))}
 
+          {/* Customer account — external Shopify-hosted account portal. */}
+          <motion.div
+            initial={{ opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: MOBILE_NAV_LINKS.length * 0.05, duration: 0.25 }}
+          >
+            <a
+              href={ACCOUNT_URL}
+              onClick={closeMobileMenu}
+              className="flex min-h-[48px] items-center rounded-lg px-4 text-lg font-medium text-charcoal transition-colors hover:bg-terracotta/10 hover:text-terracotta"
+            >
+              {t('account')}
+            </a>
+          </motion.div>
+
           {/* Language switch in mobile */}
           <motion.div
             initial={{ opacity: 0, x: -16 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{
-              delay: MOBILE_NAV_LINKS.length * 0.05,
+              delay: (MOBILE_NAV_LINKS.length + 1) * 0.05,
               duration: 0.25,
             }}
             className="mt-4 border-t border-light-gray pt-4"
