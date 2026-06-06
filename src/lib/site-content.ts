@@ -204,8 +204,10 @@ export type { CopyPath };
 //
 // The `mosaiko_business_settings` metaobject holds the client's contact +
 // social + identity info. Two fields are localized (business_name,
-// footer_copy); the rest are locale-neutral. `notification_email` is
-// admin-only and MUST NOT appear in the public read shape.
+// footer_copy); the rest are locale-neutral. A legacy `notification_email`
+// field may still exist on the live metaobject (no longer admin-editable —
+// contact messages now land in /admin/contactos); it is dormant and is never
+// mapped into the public read shape below.
 
 /** Metaobject field key → public camelCase property. Localized flag drives
  *  whether the EN value comes from translations vs the ES base. */
@@ -219,9 +221,6 @@ export const BUSINESS_SETTINGS_MAP = {
   instagram_url: { prop: 'instagramUrl', localized: false },
   facebook_url: { prop: 'facebookUrl', localized: false },
 } as const;
-
-/** Admin-only field — never returned in the PUBLIC shape. */
-export const BUSINESS_NOTIFICATION_EMAIL_KEY = 'notification_email';
 
 /** Public business settings consumed by Footer + Contact (no notificationEmail). */
 export interface PublicBusinessSettings {

@@ -72,7 +72,6 @@ describe('GET negocio', () => {
       fields: [
         { key: 'business_name', value: 'Mosaiko' },
         { key: 'phone', value: '555' },
-        { key: 'notification_email', value: 'a@b.com' },
       ],
     });
     mockGetTranslations.mockResolvedValue([
@@ -85,7 +84,6 @@ describe('GET negocio', () => {
     expect(data.settings.businessName.es).toBe('Mosaiko');
     expect(data.settings.businessName.en).toBe('Mosaiko EN');
     expect(data.settings.phone).toBe('555');
-    expect(data.settings.notificationEmail).toBe('a@b.com');
   });
 
   test('metaobject not seeded → 500', async () => {
@@ -103,10 +101,10 @@ describe('PUT negocio', () => {
     expect((await PUT(putReq({}))).status).toBe(401);
   });
 
-  test('bad email → 400', async () => {
+  test('invalid field → 400', async () => {
     mockVerifySession.mockResolvedValue(true);
     const { PUT } = await import('@/app/api/admin/configuracion/negocio/route');
-    const res = await PUT(putReq({ notificationEmail: 'bad' }));
+    const res = await PUT(putReq({ address: 123 }));
     expect(res.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
   });

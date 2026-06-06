@@ -29,7 +29,6 @@ const FIELD = {
   whatsappMessage: 'whatsapp_message',
   instagramUrl: 'instagram_url',
   facebookUrl: 'facebook_url',
-  notificationEmail: 'notification_email',
 } as const;
 
 // Fields that carry EN translations.
@@ -65,7 +64,6 @@ function emptySettings(): AdminBusinessSettings {
     whatsappMessage: '',
     instagramUrl: '',
     facebookUrl: '',
-    notificationEmail: '',
   };
 }
 
@@ -92,7 +90,6 @@ export async function GET(): Promise<NextResponse> {
     settings.whatsappMessage = base.get(FIELD.whatsappMessage) ?? '';
     settings.instagramUrl = base.get(FIELD.instagramUrl) ?? '';
     settings.facebookUrl = base.get(FIELD.facebookUrl) ?? '';
-    settings.notificationEmail = base.get(FIELD.notificationEmail) ?? '';
 
     // EN translations (best-effort — scope may be missing or none registered).
     try {
@@ -169,7 +166,6 @@ export async function PUT(request: Request): Promise<NextResponse> {
     { key: FIELD.whatsappMessage, value: s.whatsappMessage },
     { key: FIELD.instagramUrl, value: s.instagramUrl },
     { key: FIELD.facebookUrl, value: s.facebookUrl },
-    { key: FIELD.notificationEmail, value: s.notificationEmail },
   ];
   try {
     await updateMetaobjectFields(resourceId, baseFields);

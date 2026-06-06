@@ -191,6 +191,9 @@ const DEFINITIONS: DefinitionSpec[] = [
       { key: 'whatsapp_message', name: 'WhatsApp Message', type: 'multi_line_text_field' },
       { key: 'instagram_url', name: 'Instagram URL', type: 'single_line_text_field' },
       { key: 'facebook_url', name: 'Facebook URL', type: 'single_line_text_field' },
+      // Legacy/dormant: not read by the app. Order/staff emails are
+      // Shopify-native; contact messages live in /admin/contactos. Kept so the
+      // live definition stays stable — do not remove from existing stores.
       { key: 'notification_email', name: 'Order notification email', type: 'single_line_text_field' },
       { key: 'footer_copy', name: 'Footer copy', type: 'multi_line_text_field' },
     ],

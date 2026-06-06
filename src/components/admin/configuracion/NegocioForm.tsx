@@ -13,8 +13,7 @@ type NeutralField =
   | 'whatsapp'
   | 'whatsappMessage'
   | 'instagramUrl'
-  | 'facebookUrl'
-  | 'notificationEmail';
+  | 'facebookUrl';
 
 interface NegocioFormProps {
   settings: AdminBusinessSettings;
@@ -201,14 +200,6 @@ export function NegocioForm({
             field="whatsapp"
             value={settings.whatsapp}
             placeholder="+52 1 55 1234 5678"
-            onChange={onChangeNeutral}
-          />
-          <NeutralRow
-            label="Correo de notificaciones"
-            field="notificationEmail"
-            value={settings.notificationEmail}
-            type="email"
-            placeholder="pedidos@minegocio.com"
             onChange={onChangeNeutral}
           />
           <div className="md:col-span-2">

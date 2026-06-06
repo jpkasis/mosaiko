@@ -22,7 +22,6 @@ describe('validateBusinessSettings', () => {
         whatsapp: '+52 1 55 1234 5678',
         instagramUrl: 'instagram.com/mosaiko',
         facebookUrl: 'https://facebook.com/mosaiko',
-        notificationEmail: 'a@b.com',
       }),
     );
     expect(r.businessName.es).toBe('Mosaiko');
@@ -41,17 +40,6 @@ describe('validateBusinessSettings', () => {
     expect(() => validateBusinessSettings(null)).toThrow(
       BusinessSettingsValidationError,
     );
-  });
-
-  test('rejects invalid email', () => {
-    expect(() =>
-      validateBusinessSettings(wrap({ notificationEmail: 'not-an-email' })),
-    ).toThrow(BusinessSettingsValidationError);
-  });
-
-  test('accepts empty email (optional)', () => {
-    const r = validateBusinessSettings(wrap({ notificationEmail: '' }));
-    expect(r.notificationEmail).toBe('');
   });
 
   test('rejects over-max localized field', () => {
@@ -89,7 +77,7 @@ describe('validateBusinessSettings', () => {
     try {
       validateBusinessSettings(
         wrap({
-          notificationEmail: 'bad',
+          address: 'x'.repeat(301),
           businessName: { es: 'x'.repeat(200), en: '' },
         }),
       );

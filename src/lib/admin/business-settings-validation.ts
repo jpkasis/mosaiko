@@ -23,7 +23,6 @@ export interface AdminBusinessSettings {
   whatsappMessage: string;
   instagramUrl: string;
   facebookUrl: string;
-  notificationEmail: string;
 }
 
 export const BUSINESS_MAX_LENGTHS = {
@@ -35,7 +34,6 @@ export const BUSINESS_MAX_LENGTHS = {
   whatsappMessage: 300,
   instagramUrl: 300,
   facebookUrl: 300,
-  notificationEmail: 200,
 } as const;
 
 export interface BusinessValidationIssue {
@@ -55,10 +53,6 @@ export class BusinessSettingsValidationError extends Error {
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
-
-// Simple, permissive email check — good enough to catch typos without
-// rejecting valid-but-exotic addresses.
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function normalizeLocalized(
   raw: unknown,
@@ -185,19 +179,10 @@ export function validateBusinessSettings(body: unknown): AdminBusinessSettings {
   );
   const instagramRaw = normalizeNeutral(settings.instagramUrl, 'instagramUrl', issues);
   const facebookRaw = normalizeNeutral(settings.facebookUrl, 'facebookUrl', issues);
-  const notificationEmail = normalizeNeutral(
-    settings.notificationEmail,
-    'notificationEmail',
-    issues,
-  );
 
   const instagramUrl = normalizeUrl(instagramRaw, 'instagramUrl', issues);
   const facebookUrl = normalizeUrl(facebookRaw, 'facebookUrl', issues);
   const whatsapp = normalizeWhatsapp(whatsappRaw);
-
-  if (notificationEmail !== '' && !EMAIL_RE.test(notificationEmail)) {
-    issues.push({ field: 'notificationEmail', message: 'Correo no válido.' });
-  }
 
   if (issues.length > 0) {
     throw new BusinessSettingsValidationError(issues);
@@ -212,6 +197,5 @@ export function validateBusinessSettings(body: unknown): AdminBusinessSettings {
     whatsappMessage,
     instagramUrl,
     facebookUrl,
-    notificationEmail,
   };
 }

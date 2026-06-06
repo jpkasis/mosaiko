@@ -11,8 +11,7 @@ type NeutralField =
   | 'whatsapp'
   | 'whatsappMessage'
   | 'instagramUrl'
-  | 'facebookUrl'
-  | 'notificationEmail';
+  | 'facebookUrl';
 
 interface NegocioApiResponse {
   settings?: AdminBusinessSettings;
@@ -29,7 +28,6 @@ const EMPTY: AdminBusinessSettings = {
   whatsappMessage: '',
   instagramUrl: '',
   facebookUrl: '',
-  notificationEmail: '',
 };
 
 /**
