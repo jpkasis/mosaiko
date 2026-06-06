@@ -160,6 +160,7 @@ interface StagedTarget {
 
 interface FileNode {
   id: string;
+  createdAt?: string | null;
   fileStatus: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED';
   alt: string | null;
   image?: { url: string } | null;
@@ -570,6 +571,84 @@ export async function listShopifyFilesByPrefix(
   });
 }
 
+/**
+ * Returns one oldest-first page for a filename prefix. Callers own pagination
+ * loop safety; this primitive intentionally just surfaces Shopify pageInfo.
+ */
+export async function listOldestShopifyFilesByPrefix(
+  prefix: string,
+  opts: { first?: number; after?: string | null } = {},
+): Promise<{
+  items: Array<{ id: string; createdAt: string | null; filename: string }>;
+  endCursor: string | null;
+  hasNextPage: boolean;
+}> {
+  const requestedFirst = opts.first ?? 250;
+  const first = Number.isFinite(requestedFirst)
+    ? Math.min(Math.max(Math.floor(requestedFirst), 1), 250)
+    : 250;
+  const data = await shopifyAdminFetch<{
+    files: {
+      edges: Array<{ node: FileNode }>;
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    };
+  }>({
+    query: `
+      query ListOldestByPrefix($q: String!, $first: Int!, $after: String) {
+        files(first: $first, after: $after, query: $q, sortKey: CREATED_AT, reverse: false) {
+          edges {
+            node {
+              ... on MediaImage {
+                id
+                createdAt
+                fileStatus
+                alt
+                image { url }
+                preview { image { url } }
+              }
+              ... on GenericFile {
+                id
+                createdAt
+                fileStatus
+                alt
+                url
+              }
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `,
+    variables: {
+      q: `filename:${prefix}*`,
+      first,
+      after: opts.after ?? null,
+    },
+  });
+
+  return {
+    items: data.files.edges.map((e) => {
+      const url = urlOfNode(e.node);
+      let filename = '';
+      if (url) {
+        try {
+          const u = new URL(url);
+          filename = decodeURIComponent(u.pathname.split('/').pop() ?? '');
+        } catch {
+          filename = '';
+        }
+      }
+      return {
+        id: e.node.id,
+        createdAt: e.node.createdAt ?? null,
+        filename,
+      };
+    }),
+    endCursor: data.files.pageInfo.endCursor ?? null,
+    hasNextPage: data.files.pageInfo.hasNextPage,
+  };
+}
+
 // ─── Deletion ───────────────────────────────────────────────────────────────
 
 export async function deleteShopifyFileById(id: string): Promise<void> {
@@ -596,6 +675,58 @@ export async function deleteShopifyFileById(id: string): Promise<void> {
       )}`,
     );
   }
+}
+
+export async function deleteFilesBatch(ids: string[]): Promise<{
+  deletedIds: string[];
+  failed: Array<{ id: string; message: string }>;
+}> {
+  if (ids.length === 0) return { deletedIds: [], failed: [] };
+
+  const data = await shopifyAdminFetch<{
+    fileDelete: {
+      deletedFileIds: string[];
+      userErrors: Array<{ field?: string[] | null; message: string }>;
+    };
+  }>({
+    query: `
+      mutation FileDeleteBatch($fileIds: [ID!]!) {
+        fileDelete(fileIds: $fileIds) {
+          deletedFileIds
+          userErrors { field message }
+        }
+      }
+    `,
+    variables: { fileIds: ids },
+  });
+
+  const deletedIds = data.fileDelete.deletedFileIds ?? [];
+  const userErrors = data.fileDelete.userErrors ?? [];
+  if (userErrors.length === 0) return { deletedIds, failed: [] };
+
+  const deleted = new Set(deletedIds);
+  const failedById = new Map<string, string>();
+  for (const error of userErrors) {
+    const index = error.field
+      ?.map((part) => Number(part))
+      .find((part) => Number.isInteger(part));
+    const id = index !== undefined ? ids[index] : undefined;
+    if (id && !deleted.has(id)) {
+      failedById.set(id, error.message);
+    }
+  }
+
+  const batchMessage = userErrors.map((e) => e.message).join('; ');
+  for (const id of ids) {
+    if (!deleted.has(id) && !failedById.has(id)) {
+      failedById.set(id, batchMessage);
+    }
+  }
+
+  return {
+    deletedIds,
+    failed: [...failedById].map(([id, message]) => ({ id, message })),
+  };
 }
 
 async function bestEffortDelete(ids: string[]): Promise<void> {
