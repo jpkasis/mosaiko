@@ -60,20 +60,29 @@ async function bmpIcoImage(size: number, png: Buffer): Promise<Buffer> {
   header.writeUInt16LE(32, 14); // bits per pixel
   header.writeUInt32LE(0, 16); // BI_RGB
 
+  const maskStride = Math.ceil(size / 32) * 4;
+  const andMask = Buffer.alloc(maskStride * size); // 1 bit/px, 1 = transparent
   const xor = Buffer.alloc(size * size * 4);
   let offset = 0;
   for (let y = size - 1; y >= 0; y--) {
     for (let x = 0; x < size; x++) {
       const source = (y * size + x) * 4;
-      xor[offset++] = data[source + 2]; // B
-      xor[offset++] = data[source + 1]; // G
-      xor[offset++] = data[source]; // R
-      xor[offset++] = data[source + 3]; // A
+      const alpha = data[source + 3];
+      const transparent = alpha < 128;
+      // BGRA. The rounded corners are transparent; give them the cream RGB so
+      // the absolute worst case (a decoder that ignores BOTH the 32-bit alpha
+      // and the AND mask) is a square cream tile — never a black/broken corner.
+      xor[offset++] = transparent ? CREAM.b : data[source + 2]; // B
+      xor[offset++] = transparent ? CREAM.g : data[source + 1]; // G
+      xor[offset++] = transparent ? CREAM.r : data[source]; // R
+      xor[offset++] = alpha; // A (modern decoders → smooth anti-aliased corners)
+      // Classic 1-bit AND mask (rounded corners for decoders that use it).
+      // BMP rows are bottom-to-top, so image row y lives at mask row size-1-y.
+      if (transparent) {
+        andMask[(size - 1 - y) * maskStride + (x >> 3)] |= 0x80 >> (x & 7);
+      }
     }
   }
-
-  const maskStride = Math.ceil(size / 32) * 4;
-  const andMask = Buffer.alloc(maskStride * size);
   header.writeUInt32LE(xor.length + andMask.length, 20);
   return Buffer.concat([header, xor, andMask]);
 }
@@ -223,12 +232,13 @@ async function main() {
   // apple-icon stays a full-bleed square — iOS applies its own rounded mask,
   // so pre-rounding here would leave a transparent gap at the corners.
   await writeFile('src/app/apple-icon.png', await tile(180, 0.7));
-  // Small legacy ICO entries stay opaque to avoid alpha/ICO decoder quirks.
-  // They use a slightly larger M (less padding) so they stay legible.
+  // Legacy ICO entries: rounded corners via the classic 32-bit BMP + 1-bit AND
+  // mask (NOT PNG-in-ICO, which decoders fall back on). Slightly larger M (less
+  // padding) so the tiny sizes stay legible.
   const ico = buildIco([
-    { size: 16, data: await bmpIcoImage(16, await tile(16, 0.88)) },
-    { size: 32, data: await bmpIcoImage(32, await tile(32, 0.84)) },
-    { size: 48, data: await bmpIcoImage(48, await tile(48, 0.8)) },
+    { size: 16, data: await bmpIcoImage(16, await tile(16, 0.88, R)) },
+    { size: 32, data: await bmpIcoImage(32, await tile(32, 0.84, R)) },
+    { size: 48, data: await bmpIcoImage(48, await tile(48, 0.8, R)) },
   ]);
   await writeFile('src/app/favicon.ico', ico);
   console.log(`✓ icon.png + icon1.svg + apple-icon.png + favicon.ico (${ico.length} B)`);
