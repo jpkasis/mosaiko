@@ -1,6 +1,6 @@
 # Costos Mensuales — Mosaiko
 
-**Resumen:** Tu sitio web tendr a un costo fijo mensual de aproximadamente **$425 MXN/mes** para arrancar, y escala de forma predecible conforme crezcan tus ventas. Comparado con Shopify, esta solucion te ahorra alrededor de **$17,000 MXN al ano**.
+**Resumen:** Tu negocio funciona sobre **Shopify (base de datos + checkout) con una tienda personalizada en Vercel**. El costo fijo mensual es de aproximadamente **$605 MXN/mes** para arrancar, y escala de forma predecible conforme crezcan tus ventas. Comparado con una tienda Shopify normal (plantilla + apps de pago para personalizar el producto), esta solucion te ahorra alrededor de **$6,000 MXN al ano** en apps de terceros. Todas las cifras son aproximadas.
 
 ---
 
@@ -8,28 +8,29 @@
 
 | Servicio | Funcion | Costo Mensual |
 |---|---|---|
-| Vercel Pro | Hosting del sitio web (requerido para sitios comerciales) | $400 MXN ($20 USD) |
-| Supabase | Base de datos y almacenamiento | $0 MXN (plan gratuito, hasta ~100 pedidos/mes) |
-| Resend | Envio de correos (confirmaciones, notificaciones) | $0 MXN (plan gratuito, 3,000 correos/mes) |
-| Stripe | Procesador de pagos (tarjetas, OXXO, SPEI) | $0 MXN (sin cuota mensual) |
+| Shopify (plan Basic) | Base de datos, checkout, clientes, pagos y fulfillment | ~$580 MXN ($29 USD) |
+| Shopify Files (CDN) | Almacenamiento de imagenes (fotos, vistas previas, archivos de impresion) | $0 MXN (incluido en Shopify) |
+| Vercel | Hosting de la tienda personalizada | $0 MXN (lo absorbe Outer Haven) |
+| Mercado Pago | Procesador de pagos (tarjetas, OXXO, SPEI, efectivo) | $0 MXN (sin cuota mensual) |
 | Dominio mosaiko.mx | Tu direccion en internet | ~$25 MXN ($300 MXN/ano) |
-| **TOTAL FIJO** | | **~$425 MXN/mes** |
+| **TOTAL FIJO** | | **~$605 MXN/mes** |
 
-> Los planes gratuitos de Supabase y Resend son mas que suficientes para comenzar. Solo se actualizan cuando el volumen de pedidos lo justifique.
+> El almacenamiento de imagenes y los correos de notificacion ya vienen incluidos en Shopify, sin costo extra. El hosting de la tienda personalizada lo absorbe Outer Haven, por lo que no aparece en tu factura.
 
 ---
 
 ## Costos por Transaccion
 
-Stripe cobra una comision por cada venta procesada. Asi se ve con un pedido de **$500 MXN**:
+El procesador cobra una comision por cada venta. En el plan Basic de Shopify, los metodos que no son Shopify Payments (como Mercado Pago) tienen ademas un **recargo de ~2%** de Shopify. Asi se ve con un pedido de **$500 MXN** (cifras aproximadas):
 
-| Metodo de Pago | Comision | Costo por Pedido de $500 MXN |
+| Metodo de Pago | Comision aprox. | Costo por Pedido de $500 MXN |
 |---|---|---|
-| Tarjeta de credito/debito | 3.6% + $3 MXN | ~$21 MXN |
-| OXXO | 3.6% + $3 MXN | ~$21 MXN |
-| SPEI (transferencia bancaria) | Tarifa fija | ~$5–8 MXN |
+| Tarjeta (Mercado Pago) | ~3.49% + $4 MXN, + ~2% recargo Shopify = ~5.49% + $4 MXN | ~$31 MXN |
+| Tarjeta (Shopify Payments) | ~3.49% + $4 MXN (sin recargo Shopify) | ~$21 MXN |
+| OXXO / efectivo (Mercado Pago) | ~3.49% + $4 MXN, + ~2% recargo Shopify | ~$31 MXN |
+| SPEI / transferencia (Mercado Pago) | ~3.49% + $4 MXN, + ~2% recargo Shopify | ~$31 MXN |
 
-> SPEI es el metodo mas economico. Puedes incentivar a tus clientes a usarlo para maximizar tu margen.
+> Mercado Pago habilita OXXO, SPEI y efectivo (muy usados en Mexico). Si activas Shopify Payments para tarjetas, te ahorras el recargo de ~2% en esas ventas. El plan Grow de Shopify baja ese recargo a ~1%.
 
 ---
 
@@ -41,17 +42,17 @@ Aqui puedes ver como se comportan los costos segun tu volumen de ventas (asumien
 
 | Concepto | Costo |
 |---|---|
-| Costos fijos | $425 MXN |
-| Comisiones Stripe (~$17.60 promedio x 20) | ~$352 MXN |
-| **Total mensual** | **~$777 MXN/mes** |
+| Costos fijos | $605 MXN |
+| Comisiones Mercado Pago (~$31 promedio x 20) | ~$620 MXN |
+| **Total mensual** | **~$1,225 MXN/mes** |
 
 ### Etapa de Crecimiento — 100 pedidos/mes
 
 | Concepto | Costo |
 |---|---|
-| Costos fijos (incluye Supabase Pro a $500 MXN) | $925 MXN |
-| Comisiones Stripe (~$17.60 promedio x 100) | ~$1,858 MXN |
-| **Total mensual** | **~$2,783 MXN/mes** |
+| Costos fijos (Shopify Basic; opcional subir a Grow para bajar el recargo) | $605 MXN |
+| Comisiones Mercado Pago (~$31 promedio x 100) | ~$3,100 MXN |
+| **Total mensual** | **~$3,705 MXN/mes** |
 
 > Los costos crecen de forma proporcional a tus ventas. Nunca pagas de mas cuando las ventas son bajas.
 
@@ -70,35 +71,34 @@ Tu sitio ya viene configurado con estas herramientas sin costo adicional:
 
 ---
 
-## Por que NO Shopify
+## Por que Shopify + tienda personalizada
 
-Shopify es la opcion mas conocida, pero para tu caso particular no es la mas conveniente. Aqui la comparacion directa:
+Tu negocio corre sobre **Shopify** (base de datos, checkout, clientes, pagos y fulfillment) con una **tienda personalizada en Vercel** encima. La pregunta no es "Shopify si o no" — Shopify ya es la base. La pregunta es: tienda personalizada vs una tienda Shopify normal con plantilla. Aqui la comparacion directa:
 
-| Concepto | Shopify | Tu Sitio (Custom) |
+| Concepto | Shopify normal (plantilla) | Shopify + tienda personalizada (tu sitio) |
 |---|---|---|
-| Plataforma | $580 MXN/mes (plan Basic) | $0 MXN (codigo propio) |
-| Hosting | Incluido en Shopify | $400 MXN/mes (Vercel Pro) |
-| Base de datos | Incluida | $0 MXN (Supabase gratis) |
+| Plataforma | $580 MXN/mes (plan Basic) | $580 MXN/mes (plan Basic) |
+| Hosting de la tienda | Incluido en Shopify | $0 MXN (Vercel, lo absorbe Outer Haven) |
+| Base de datos | Incluida (Shopify) | Incluida (Shopify) |
+| Almacenamiento de imagenes | Incluido (Shopify Files) | Incluido (Shopify Files) |
 | Dominio | ~$25 MXN/mes | ~$25 MXN/mes |
-| Comision tarjetas | Similar a Stripe | Similar |
-| Recargo en OXXO/SPEI | **+2% extra** (gateway externo) | **$0 extra** (Stripe directo) |
-| Personalizacion del producto | Requiere apps de pago | Incluida (hecha a la medida) |
+| Comision tarjetas | Mercado Pago / Shopify Payments | Igual |
+| Personalizacion del producto (subir foto, recortar, dividir en mosaico) | Requiere apps de pago (~$500+ MXN/mes) | Incluida (hecha a la medida) |
 
 ### Ejemplo con 20 pedidos/mes (pedido promedio $500 MXN):
 
-| | Shopify | Custom |
+| | Shopify normal | Shopify + tienda personalizada |
 |---|---|---|
-| Costos fijos | $605 MXN | $425 MXN |
-| Comisiones de pago | ~$352 MXN | ~$352 MXN |
-| Recargo 2% en OXXO/SPEI (35 pedidos estimados) | ~$350 MXN | $0 MXN |
-| Apps adicionales (crop, galeria, etc.) | ~$500+ MXN | $0 MXN |
-| **Total mensual** | **~$2,210 MXN** | **~$777 MXN** |
+| Costos fijos | $605 MXN | $605 MXN |
+| Comisiones de pago (~$31 promedio x 20) | ~$620 MXN | ~$620 MXN |
+| Apps adicionales (crop, galeria, personalizacion) | ~$500+ MXN | $0 MXN |
+| **Total mensual** | **~$1,725 MXN** | **~$1,225 MXN** |
 
-### Ahorro anual con tu sitio custom:
+### Ahorro anual con tu tienda personalizada:
 
-**~$17,000 MXN al ano**
+**~$6,000 MXN al ano** (solo en apps de terceros)
 
-Y esto sin contar que tu sitio esta hecho exactamente para tu producto, sin depender de plantillas genericas ni apps de terceros que pueden fallar o cambiar de precio.
+Y esto sin contar que tu tienda esta hecha exactamente para tu producto: el flujo de subir foto, recortar y dividir en mosaico es a la medida, sin depender de apps de terceros que pueden fallar o cambiar de precio.
 
 ---
 
@@ -106,11 +106,11 @@ Y esto sin contar que tu sitio esta hecho exactamente para tu producto, sin depe
 
 | Escenario | Costo Mensual |
 |---|---|
-| Arrancando (20 pedidos/mes) | ~$777 MXN |
-| Creciendo (100 pedidos/mes) | ~$2,783 MXN |
-| Comparado con Shopify (20 pedidos) | Ahorro de ~$1,433 MXN/mes |
+| Arrancando (20 pedidos/mes) | ~$1,225 MXN |
+| Creciendo (100 pedidos/mes) | ~$3,705 MXN |
+| Vs. Shopify normal con apps (20 pedidos) | Ahorro de ~$500 MXN/mes |
 
-Tu inversion principal es el desarrollo del sitio. Una vez en linea, los costos de operacion son minimos y escalan solo cuando tus ventas crecen — exactamente como debe ser.
+Tu inversion principal es el desarrollo de la tienda personalizada. Una vez en linea, los costos de operacion son minimos y escalan solo cuando tus ventas crecen — exactamente como debe ser.
 
 ---
 

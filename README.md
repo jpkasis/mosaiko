@@ -38,8 +38,8 @@ Mosaiko is a custom ecommerce platform where customers upload a personal photo, 
 | Client Split | HTML5 Canvas API |
 | Print Pipeline | [Sharp](https://sharp.pixelplumbing.com/) + SVG overlays |
 | Commerce | [Shopify](https://shopify.dev/) (Storefront + Admin APIs) |
-| Image Storage | [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/) |
-| Email | [Resend](https://resend.com/) |
+| Image Storage | [Shopify Files](https://shopify.dev/) (cdn.shopify.com) |
+| Email | Shopify-native notifications |
 | Auth (admin) | bcryptjs + jose (JWT cookies) |
 | i18n | [next-intl](https://next-intl-docs.vercel.app/) |
 | Hosting | [Vercel](https://vercel.com/) |
@@ -121,11 +121,11 @@ src/
     grid-config.ts           # Category + grid-size layout overrides
     customization-types.ts   # Per-category discriminated union
     catalog-data.ts          # Pre-designed product catalog
+    storage.ts               # Shopify Files upload helpers (cdn.shopify.com)
     print-pipeline/          # Sharp-based server processors
       processors/               # mosaicos / spotify / tonos / save-the-date /
       utils/                    # arte / studio / polaroid
-    shopify/                 # Storefront + Admin clients, cart mutations
-    r2/                      # Cloudflare R2 upload helpers
+    shopify/                 # Storefront + Admin clients, cart mutations, Files
   messages/                  # ES + EN translations (next-intl)
   middleware.ts              # Locale routing
 public/
@@ -156,18 +156,19 @@ The design language blends Mexican warmth with modern ecommerce clarity. Every c
 
 ## Architecture
 
-Mosaiko is a **Shopify-backed storefront**: the custom Next.js frontend handles the photo builder experience, then hands off to Shopify's hosted checkout with custom cart attributes carrying the user's uploads and crop metadata. Shopify is the source of truth for orders, customers, and payments; print files live in Cloudflare R2 and are referenced via Shopify metafields. There is no separate app database.
+Mosaiko is a **Shopify-backed storefront**: the custom Next.js frontend handles the photo builder experience, then hands off to Shopify's hosted checkout with custom cart attributes carrying the user's uploads and crop metadata. Shopify is the source of truth for orders, customers, and payments; print files live in Shopify Files (cdn.shopify.com) and are referenced via Shopify metafields. There is no separate app database — Shopify is the database.
 
 ```
-User photo ─► Cloudflare R2 (originals bucket)
+User photo ─► Shopify Files (cdn.shopify.com)
       ▼
  Crop / customize ─► Shopify cart (attributes)
       ▼
- Shopify checkout (OXXO / SPEI / cards, PCI-compliant)
+ Shopify checkout (Shopify Payments cards + Mercado Pago OXXO/SPEI/cash, PCI-compliant)
       ▼
  order webhook ─► Next.js /api/print ─► Sharp pipeline
       ▼                                      ▼
- Email (Resend)                     R2 (print-files bucket)
+ Shopify Notifications (native) +    Shopify Files (print tiles,
+ order tags for failure visibility   cdn.shopify.com)
       ▼                                      ▼
               Admin panel ZIP download by order
 ```
@@ -189,8 +190,6 @@ npm run test:coverage   # With coverage report
 
 Located in `scripts/`. All dry-run by default; require `--apply` to mutate.
 
-- **`scripts/cleanup-stale-metafields.mts`** — removes duplicate Shopify metafield rows from the legacy REST-create loop (keeps newest per `(namespace, key)`). Uses REST DELETE-by-ID since GraphQL `metafieldsDelete` is by-tuple.
-- **`scripts/cleanup-orphan-r2-tiles.mts`** — removes R2 print-tile objects no longer referenced from any order's metafield. Fail-closed on canonical-URL parse failure (defends against env-var mismatch deleting live data).
 - **`scripts/measure-frame-templates.ts`** — measures transparent-cutout bounds in template PNGs for Polaroid/Studio/Spotify so `frame.photo.tiles` constants stay in sync with the actual artwork.
 - **`scripts/font-spike.mts`** — Phase 4.0 spike that confirmed `@napi-rs/canvas` was the only viable path for server-side font fidelity (librsvg ignores embedded `@font-face`).
 
@@ -204,10 +203,10 @@ Located in `scripts/`. All dry-run by default; require `--apply` to mutate.
 - Bilingual (ES/EN) mobile-first UI
 
 ### Phase 2 — Checkout & Fulfillment ✓
-- Shopify Storefront API checkout (OXXO, SPEI, cards)
-- Cart attributes carry R2 upload URLs + crop metadata
+- Shopify Storefront API checkout (Shopify Payments cards + Mercado Pago OXXO/SPEI/cash)
+- Cart attributes carry Shopify Files upload URLs + crop metadata
 - Order webhook triggers Sharp print pipeline per category
-- Resend emails: order confirmation, admin notification, shipping
+- Shopify-native order/shipping/staff notifications; order tags for admin failure visibility
 
 ### Phase 3 — Admin Panel ✓ (core)
 - bcrypt + JWT cookie auth (single admin user via env var)
@@ -234,7 +233,7 @@ Located in `scripts/`. All dry-run by default; require `--apply` to mutate.
 - Server-side font fidelity via `@napi-rs/canvas` + 10 bundled `@fontsource` WOFF2s
 - Tonos `fitMode` end-to-end (cream letterbox in preview ↔ print)
 - Composite-reuse: cart-composite skipped at webhook time when `_composite_pipeline_version` matches
-- Admin print-files R2 gate (downloads only when `print_pipeline_status === 'complete'`)
+- Admin print-files gate (validates Shopify Files URLs; downloads only when `print_pipeline_status === 'complete'`)
 - Cart-thumbnail durability (filesystem-backed dev composite cache)
 - New `/carrito/[itemId]` cart-item detail view with shared `<TileGrid>` extracted from catalog
 
@@ -261,7 +260,7 @@ Located in `scripts/`. All dry-run by default; require `--apply` to mutate.
 | [`CLAUDE.md`](./CLAUDE.md) | Project instructions for AI-assisted development |
 | [`INTEGRITY_AUDIT.md`](./INTEGRITY_AUDIT.md) | Full pipeline-integrity audit report with severity-sorted findings + test coverage map |
 | [`DEFERRED.md`](./DEFERRED.md) | Intentionally-scoped-out work; what's waiting on the client vs post-launch roadmap |
-| [`COSTOS-MENSUALES.md`](./COSTOS-MENSUALES.md) | Estimated monthly costs (Shopify, Cloudflare R2, Resend, Vercel) |
+| [`COSTOS-MENSUALES.md`](./COSTOS-MENSUALES.md) | Estimated monthly costs (Shopify, Shopify Files (CDN included), Vercel) |
 
 ---
 

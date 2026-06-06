@@ -54,9 +54,14 @@ const READY_POLL_MAX_MS = 2_000;
 // ─── Pre-resize helper ──────────────────────────────────────────────────────
 
 /**
- * Resizes a buffer to satisfy Shopify's caps. Returns the original buffer
- * untouched if it's already within both caps (the common case for our
- * print-tile output).
+ * Resizes a buffer to satisfy Shopify Files' caps (see the file header):
+ *   - File size: Shopify's hard cap is 20 MB; we pre-resize to ≤
+ *     `SHOPIFY_FILE_MAX_BYTES` (15 MB) to stay under after metadata overhead.
+ *   - Image pixels: Shopify's hard cap is 20 MP; we pre-resize to ≤
+ *     `SHOPIFY_IMAGE_MAX_PIXELS` (16 MP).
+ * Returns the original buffer untouched when already within both caps (the
+ * common case for our print-tile output). Throws if an image can't be shrunk
+ * under the byte cap even after iterative downscale, or a non-image exceeds it.
  */
 export async function resizeForShopifyFiles(
   buffer: Buffer,

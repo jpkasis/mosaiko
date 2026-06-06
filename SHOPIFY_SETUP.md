@@ -16,22 +16,15 @@ A non-techy walkthrough of what the Mosaiko store owner needs to do to connect t
 
 ## Step 2 — Create the product
 
-Mosaiko sells one product with four variants (one per grid size). The Shopify admin will use these variant IDs to know which size the buyer picked.
+Mosaiko's prices live in **one** Shopify product — `imanes-personalizados-v2` — with two options (**Categoría × Tamaño**) and one independently-priced variant per valid (category, size) pair. This makes per-category pricing charge correctly (e.g. Studio 6-piece ≠ basic Mosaico 6-piece) and is the **single source of truth**: the storefront reads it live and checkout charges exactly what it displays.
 
-1. **Products → Add product**
-2. **Title:** `Imanes Personalizados`
-3. **Variants** — go to the Variants section and add four:
+You do **not** build this product by hand. The dev team runs the idempotent migration once:
 
-   | Tamaño   | Precio (MXN) |
-   |----------|--------------|
-   | 3 piezas | 200          |
-   | 4 piezas | 280          |
-   | 6 piezas | 360          |
-   | 9 piezas | 480          |
+```
+npx tsx --env-file=.env.local scripts/migrate-pricing.mts
+```
 
-   (Adjust prices to match `src/lib/grid-config.ts` if they change.)
-4. **Inventory:** set "Track quantity" to **off** for all variants — Mosaiko is made-to-order, not stocked.
-5. **Save**. Open each variant's URL — the URL ends in a numeric ID (e.g. `.../variants/55035217576227`). Send those four IDs to the dev team; they go into `SHOPIFY_VARIANT_MAP`.
+…then clicks **"Make available"** on the sales channel to publish it (the cutover). After that, the merchant edits any price in-app at **/admin → Precios** (writes straight to the Shopify variant — no env vars, no redeploy). Inventory tracking is **off** (made-to-order). The old size-only product is kept as a backup labelled "RESPALDO" that historical orders reference — leave it alone.
 
 ## Step 3 — Create the Mosaiko Backend custom app
 
@@ -92,13 +85,13 @@ SHOPIFY_STORE_DOMAIN=<mosaiko.myshopify.com>
 SHOPIFY_CLIENT_ID=<from step 3>
 SHOPIFY_CLIENT_SECRET=<from step 3>
 SHOPIFY_WEBHOOK_SECRET=<same value as SHOPIFY_CLIENT_SECRET in this model>
-SHOPIFY_VARIANT_MAP={"3":"gid://shopify/ProductVariant/...","4":"gid://shopify/ProductVariant/...","6":"gid://shopify/ProductVariant/...","9":"gid://shopify/ProductVariant/..."}
 NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN=<mosaiko.myshopify.com>
 NEXT_PUBLIC_SHOPIFY_STOREFRONT_TOKEN=<dev team mints this from the Storefront API>
 ADMIN_PASSWORD_HASH=<bcrypt hash of the chosen admin-panel password — dev team generates>
 ADMIN_JWT_SECRET=<32-byte random string — dev team generates>
-ADMIN_NOTIFICATION_EMAIL=<merchant's email>
 ```
+
+> Prices come from the `imanes-personalizados-v2` product (read live via the Storefront API), so there is **no** `SHOPIFY_VARIANT_MAP`. Order/shipping/staff emails are Shopify-native, so there is **no** `ADMIN_NOTIFICATION_EMAIL`.
 
 There is no longer a Cloudflare R2 setup or a Resend setup — Shopify Files + Shopify Notifications cover both.
 
@@ -124,7 +117,6 @@ Once both pass, the store is ready to go live.
 ## Common gotchas
 
 - **Webhook HMAC = the Client Secret in the Dev Dashboard model.** Don't paste a separate value; reuse the same `shpss_…` from the Configuración tab.
-- **`SHOPIFY_VARIANT_MAP` is a JSON string, not a JSON object.** It's read from `process.env` so it must be one line: `{"3":"...","4":"..."}`.
 - **The Client Secret is sensitive.** It's the only thing standing between us and full Admin API access. After integration test, rotate it (Configuración → Secreto → "Rotar") and update the env vars.
 - **Shopify Files has a 20 MB / 20 MP cap per image.** Modern phones can shoot >20 MP; the Mosaiko code pre-resizes via Sharp before upload, so this is automatic, but be aware.
 
