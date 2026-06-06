@@ -7,7 +7,15 @@
  */
 import { shopifyAdminFetch } from '@/lib/shopify/client';
 import { ShopifyUserErrorsError } from '@/lib/shopify/mutations/metaobjects';
-import { PRICING_PRODUCT_HANDLE } from '@/lib/shopify/pricing-options';
+import {
+  PRICING_PRODUCT_HANDLE,
+  CATEGORY_OPTION_NAME,
+  SIZE_OPTION_NAME,
+  categoryFromOptionValue,
+  sizeFromOptionValue,
+} from '@/lib/shopify/pricing-options';
+import type { CategoryType } from '@/lib/customization-types';
+import type { GridSize } from '@/lib/grid-config';
 
 const PRICING_PRODUCT_ID_QUERY = /* GraphQL */ `
   query PricingProductId($q: String!) {
@@ -25,6 +33,75 @@ export async function getPricingProductId(): Promise<string | null> {
     options: { cache: 'no-store' },
   });
   return data.products.nodes[0]?.id ?? null;
+}
+
+export interface AdminPriceCell {
+  price: number;
+  variantId: string;
+}
+export type AdminPriceMatrix = Partial<
+  Record<CategoryType, Partial<Record<GridSize, AdminPriceCell>>>
+>;
+
+const ADMIN_PRICE_MATRIX_QUERY = /* GraphQL */ `
+  query AdminPriceMatrix($q: String!) {
+    products(first: 1, query: $q) {
+      nodes {
+        id
+        variants(first: 100) {
+          nodes { id price selectedOptions { name value } }
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Reads the v2 pricing product's variant prices via the ADMIN API — strongly
+ * consistent (no Storefront propagation lag, no `unstable_cache`). The admin
+ * "Precios" editor uses this so a just-saved price shows immediately, instead
+ * of the cached/eventually-consistent Storefront read that made saves appear
+ * to "revert". Returns the product GID (for variant writes) + the matrix.
+ */
+export async function getAdminPriceMatrix(): Promise<{
+  productId: string | null;
+  matrix: AdminPriceMatrix;
+}> {
+  const data = await shopifyAdminFetch<{
+    products: {
+      nodes: Array<{
+        id: string;
+        variants: {
+          nodes: Array<{
+            id: string;
+            price: string;
+            selectedOptions: { name: string; value: string }[];
+          }>;
+        };
+      }>;
+    };
+  }>({
+    query: ADMIN_PRICE_MATRIX_QUERY,
+    variables: { q: `handle:${PRICING_PRODUCT_HANDLE}` },
+    options: { cache: 'no-store' },
+  });
+
+  const product = data.products.nodes[0];
+  if (!product) return { productId: null, matrix: {} };
+
+  const matrix: AdminPriceMatrix = {};
+  for (const v of product.variants.nodes) {
+    let category: CategoryType | null = null;
+    let gridSize: GridSize | null = null;
+    for (const opt of v.selectedOptions) {
+      if (opt.name === CATEGORY_OPTION_NAME) category = categoryFromOptionValue(opt.value);
+      if (opt.name === SIZE_OPTION_NAME) gridSize = sizeFromOptionValue(opt.value);
+    }
+    const price = Number.parseFloat(v.price);
+    if (!category || gridSize == null || !Number.isFinite(price)) continue;
+    (matrix[category] ??= {})[gridSize] = { price, variantId: v.id };
+  }
+  return { productId: product.id, matrix };
 }
 
 const BULK_UPDATE_PRICES_MUTATION = /* GraphQL */ `

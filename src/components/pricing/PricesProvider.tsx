@@ -41,9 +41,19 @@ export function PricesProvider({
     }
   }, []);
 
-  // Re-fetch when the tab regains focus (a price may have changed while the
-  // page sat in the background).
   useEffect(() => {
+    // Fetch the LIVE prices on mount. The SSR `value` is read in the [locale]
+    // layout, which is STATICALLY rendered (next-intl `setRequestLocale`), so
+    // the seed can be a BUILD-TIME price — without this, an admin price change
+    // would never show in the store until a redeploy. `/api/prices` is dynamic
+    // + tag-revalidated, so this picks up the current price on every load.
+    // (setMap inside refresh runs AFTER the awaited fetch, not synchronously —
+    // it doesn't cause a cascading render, so the lint rule is a false positive.)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refresh();
+
+    // Also re-fetch when the tab regains focus (a price may have changed while
+    // the page sat in the background).
     const onVisible = () => {
       if (document.visibilityState === 'visible') void refresh();
     };

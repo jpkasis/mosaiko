@@ -1,7 +1,8 @@
 /**
  * Admin price editor contract: every combo — including the single tile
- * (mosaicos:1) — is a normal, freely-editable price. No auto-derivation, no
- * read-only rows (the client sets the single-tile price to whatever he wants).
+ * (mosaicos:1) — is a normal, freely-editable price. Reads/writes go through
+ * the strongly-consistent ADMIN API (getAdminPriceMatrix), so a save shows the
+ * true price immediately (no lagging Storefront read that looked "reverted").
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -9,17 +10,20 @@ import { NextRequest } from 'next/server';
 const mockVerifySession = vi.fn(async () => true);
 vi.mock('@/lib/admin/auth', () => ({ verifySession: () => mockVerifySession() }));
 
-const mockGetMatrix = vi.fn();
-vi.mock('@/lib/shopify/prices', () => ({
-  getPriceMatrix: () => mockGetMatrix(),
-  PRICE_MATRIX_TAG: 'shopify:price-matrix',
-}));
+// Route only needs the cache tag from prices now (reads go via the Admin API).
+vi.mock('@/lib/shopify/prices', () => ({ PRICE_MATRIX_TAG: 'shopify:price-matrix' }));
 
-const mockGetProductId = vi.fn(async () => 'gid://shopify/Product/1');
-const mockBulkUpdate = vi.fn(async () => undefined);
+const mockGetAdminMatrix = vi.fn();
+const mockBulkUpdate = vi.fn<
+  (
+    productId: string,
+    updates: { variantId: string; price: number }[],
+  ) => Promise<{ id: string; price: string }[]>
+>(async () => []);
 vi.mock('@/lib/shopify/mutations/product-variants', () => ({
-  getPricingProductId: () => mockGetProductId(),
-  bulkUpdateVariantPrices: (...args: unknown[]) => mockBulkUpdate(...args),
+  getAdminPriceMatrix: () => mockGetAdminMatrix(),
+  bulkUpdateVariantPrices: (productId: string, updates: { variantId: string; price: number }[]) =>
+    mockBulkUpdate(productId, updates),
 }));
 
 vi.mock('@/lib/shopify/mutations/metaobjects', () => ({
@@ -27,10 +31,13 @@ vi.mock('@/lib/shopify/mutations/metaobjects', () => ({
 }));
 
 const mockRevalidate = vi.fn();
-vi.mock('next/cache', () => ({ revalidateTag: (...a: unknown[]) => mockRevalidate(...a) }));
+vi.mock('next/cache', () => ({
+  revalidateTag: (...a: unknown[]) => mockRevalidate(...a),
+  revalidatePath: vi.fn(),
+}));
 
 function cell(price: number, variantId: string) {
-  return { price, variantId, availableForSale: true, source: 'shopify' as const };
+  return { price, variantId };
 }
 function buildMatrix() {
   return {
@@ -58,12 +65,10 @@ function sentUpdates(): Record<string, number> {
 beforeEach(() => {
   mockVerifySession.mockReset();
   mockVerifySession.mockResolvedValue(true);
-  mockGetMatrix.mockReset();
-  mockGetMatrix.mockResolvedValue(buildMatrix());
-  mockGetProductId.mockReset();
-  mockGetProductId.mockResolvedValue('gid://shopify/Product/1');
+  mockGetAdminMatrix.mockReset();
+  mockGetAdminMatrix.mockResolvedValue({ productId: 'gid://shopify/Product/1', matrix: buildMatrix() });
   mockBulkUpdate.mockReset();
-  mockBulkUpdate.mockResolvedValue(undefined);
+  mockBulkUpdate.mockResolvedValue([]);
   mockRevalidate.mockReset();
 });
 
@@ -85,13 +90,14 @@ describe('PUT /api/admin/precios — single tile is freely editable', () => {
     expect(sent['v-mos-1']).toBeUndefined(); // no derivation / resync
   });
 
-  test('editing another category writes only that category', async () => {
+  test('PUT returns fresh Admin-API rows (so the client need not reload)', async () => {
     const { PUT } = await import('@/app/api/admin/precios/route');
     const res = await PUT(putReq([{ category: 'studio', gridSize: 6, price: 500 }]));
     expect(res.status).toBe(200);
-    const sent = sentUpdates();
-    expect(sent['v-stu-6']).toBe(500);
-    expect(sent['v-mos-1']).toBeUndefined();
+    const body = await res.json();
+    expect(Array.isArray(body.rows)).toBe(true);
+    expect(body.migrated).toBe(true);
+    expect(sentUpdates()['v-stu-6']).toBe(500);
   });
 
   test('duplicate edits for a combo → last write wins', async () => {

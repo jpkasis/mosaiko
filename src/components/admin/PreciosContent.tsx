@@ -134,7 +134,17 @@ export function PreciosContent() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error?.message ?? 'No se pudieron guardar los precios.');
       setSavedAt(Date.now());
-      await load();
+      // The PUT returns the FRESH Admin-API rows — apply them directly so the
+      // editor shows the true saved prices immediately (no lagging reload that
+      // used to make saves look reverted). Fall back to a reload otherwise.
+      if (Array.isArray(data.rows)) {
+        const fresh = data.rows as PriceRow[];
+        setRows(fresh);
+        setMigrated(Boolean(data.migrated));
+        setDraft(Object.fromEntries(fresh.map((r) => [`${r.category}:${r.gridSize}`, String(r.price)])));
+      } else {
+        await load();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al guardar.');
     } finally {

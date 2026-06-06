@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { revalidateTag } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { verifySession } from '@/lib/admin/auth';
 import { SITE_COPY_TAG, SITE_COPY_BUSINESS_TAG } from '@/lib/site-content';
 import {
@@ -260,6 +260,10 @@ export async function PUT(request: Request): Promise<NextResponse> {
 
   revalidateTag(SITE_COPY_TAG, { expire: 0 });
   revalidateTag(SITE_COPY_BUSINESS_TAG, { expire: 0 });
+  // Footer/contact read these settings SERVER-side in the statically-rendered
+  // [locale] layout/pages — regenerate the route output so edits show in the
+  // store, not just the data cache (Codex audit: same static-baking class).
+  revalidatePath('/[locale]', 'layout');
 
   return NextResponse.json({ ok: true, settings: s });
 }

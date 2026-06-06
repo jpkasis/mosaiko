@@ -52,6 +52,7 @@ const mockRevalidateTag = vi.fn();
 vi.mock('next/cache', () => ({
   revalidateTag: (tag: string, profile: unknown) =>
     mockRevalidateTag(tag, profile),
+  revalidatePath: vi.fn(),
   // Pass-through unstable_cache so any transitive import of site-content
   // doesn't blow up on the missing export. We aren't exercising cache
   // behavior in this test — the read flow is mocked at the queries layer.

@@ -11,12 +11,13 @@
  * variant IDs + the product ID from the live matrix.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidateTag } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { verifySession } from '@/lib/admin/auth';
-import { getPriceMatrix, PRICE_MATRIX_TAG } from '@/lib/shopify/prices';
+import { PRICE_MATRIX_TAG } from '@/lib/shopify/prices';
 import {
-  getPricingProductId,
+  getAdminPriceMatrix,
   bulkUpdateVariantPrices,
+  type AdminPriceMatrix,
   type VariantPriceUpdate,
 } from '@/lib/shopify/mutations/product-variants';
 import { ShopifyUserErrorsError } from '@/lib/shopify/mutations/metaobjects';
@@ -43,12 +44,8 @@ export interface PriceRow {
   editable: boolean;
 }
 
-// ─── GET: current prices ────────────────────────────────────────────────────
-
-export async function GET(): Promise<NextResponse> {
-  if (!(await verifySession())) return unauthorized();
-
-  const matrix = await getPriceMatrix();
+/** Flatten the Admin price matrix into the editable rows the UI renders. */
+function buildRows(matrix: AdminPriceMatrix): { migrated: boolean; rows: PriceRow[] } {
   const rows: PriceRow[] = PRICING_COMBOS.map(({ category, gridSize }) => {
     const cell = matrix[category]?.[gridSize];
     return {
@@ -59,10 +56,19 @@ export async function GET(): Promise<NextResponse> {
       editable: Boolean(cell?.variantId),
     };
   });
-
   // "migrated" = the v2 product is live (at least one cell has a variant id).
-  const migrated = rows.some((r) => Boolean(matrix[r.category]?.[r.gridSize]?.variantId));
-  return NextResponse.json({ migrated, rows });
+  const migrated = rows.some((r) => r.editable);
+  return { migrated, rows };
+}
+
+// ─── GET: current prices ────────────────────────────────────────────────────
+
+export async function GET(): Promise<NextResponse> {
+  if (!(await verifySession())) return unauthorized();
+  // Admin API = strongly consistent (no Storefront propagation lag / cache), so
+  // the editor always shows the true Shopify prices.
+  const { matrix } = await getAdminPriceMatrix();
+  return NextResponse.json(buildRows(matrix));
 }
 
 // ─── PUT: save edited prices ────────────────────────────────────────────────
@@ -112,7 +118,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true, updated: 0 });
   }
 
-  const [matrix, productId] = await Promise.all([getPriceMatrix(), getPricingProductId()]);
+  const { productId, matrix } = await getAdminPriceMatrix();
   if (!productId) {
     return NextResponse.json(
       {
@@ -159,6 +165,25 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: { code: 'SHOPIFY_REJECTED', message } }, { status: 502 });
   }
 
+  // Bust the storefront (Storefront-API + unstable_cache) read so the store
+  // reflects the change on its next load.
   revalidateTag(PRICE_MATRIX_TAG, { expire: 0 });
-  return NextResponse.json({ ok: true, updated: variantUpdates.length });
+  // The storefront [locale] layout is STATICALLY rendered (next-intl
+  // setRequestLocale) and bakes the price seed at build — revalidateTag busts
+  // the DATA cache but not the static route output. Regenerate the route so the
+  // SSR'd price is correct on next load (the client mount-refresh is the
+  // instant path; this fixes the server-rendered HTML / SEO).
+  revalidatePath('/[locale]', 'layout');
+
+  // Return the FRESH Admin-API rows so the client renders the true new prices
+  // immediately — no lagging Storefront reload (which made saves look reverted).
+  // The write already committed above; if this echo read fails, still report
+  // success (without rows) so the client falls back to a reload — never turn a
+  // committed save into a 500 (Codex audit).
+  try {
+    const { matrix: fresh } = await getAdminPriceMatrix();
+    return NextResponse.json({ ok: true, updated: variantUpdates.length, ...buildRows(fresh) });
+  } catch {
+    return NextResponse.json({ ok: true, updated: variantUpdates.length });
+  }
 }

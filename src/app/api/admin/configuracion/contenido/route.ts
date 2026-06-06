@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { revalidateTag } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { verifySession } from '@/lib/admin/auth';
 import {
   HOME_COPY_MAP,
@@ -327,6 +327,11 @@ export async function PUT(request: Request): Promise<NextResponse> {
   // the next visit; 'max' would serve stale content while revalidating.
   revalidateTag(SITE_COPY_TAG, { expire: 0 });
   revalidateTag(SITE_COPY_HOME_TAG, { expire: 0 });
+  // The storefront [locale] layout/pages are STATICALLY rendered (next-intl
+  // setRequestLocale) and read this copy SERVER-side via getMessages — so
+  // revalidateTag (data cache) isn't enough; regenerate the route output so the
+  // edited copy actually shows in the store (Codex audit: same class as prices).
+  revalidatePath('/[locale]', 'layout');
 
   // 7. Return the normalized payload echo so the form can replace its state
   const responseBody: ContenidoGetResponse = { content: validated };

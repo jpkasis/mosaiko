@@ -35,6 +35,7 @@ vi.mock('@/lib/shopify/mutations/metaobjects', () => ({
 const mockRevalidateTag = vi.fn();
 vi.mock('next/cache', () => ({
   revalidateTag: (t: string, p: unknown) => mockRevalidateTag(t, p),
+  revalidatePath: vi.fn(),
   unstable_cache: <Args extends unknown[], R>(fn: (...args: Args) => Promise<R>) => fn,
 }));
 
